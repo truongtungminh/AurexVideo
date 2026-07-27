@@ -5,13 +5,17 @@ from pathlib import Path
 from aurexvideo_paths import RESOURCE_ROOT, DATA_ROOT
 
 ROOT_DIR = RESOURCE_ROOT
-# engineBase is the parent of engine/ (e.g. ~/Library/Application Support/app.aurexvideo)
+# engineBase is the parent of engine/ (e.g. ~/Library/Application Support/app.aurexvideo
+# when packaged, or the workspace root when running from source).
 ENGINE_BASE = ROOT_DIR.parent
 
 # Search order: runtime/models (shipped with heavy runtime tar, downloaded once)
 # then engine/models (legacy location) then studio models.
+# Note: in packaged builds runtime/ sits at engineBase/runtime; in source it is
+# engine/runtime. We check both.
 SEARCH_DIRS = [
     ENGINE_BASE / "runtime" / "models",
+    ROOT_DIR / "runtime" / "models",
     ROOT_DIR / "models",
     DATA_ROOT / "models",
 ]
