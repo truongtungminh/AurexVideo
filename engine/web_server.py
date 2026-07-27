@@ -65,7 +65,7 @@ BOOTSTRAP_DATA_ROOT = Path(
 BOOTSTRAP_SETTINGS_PATH = BOOTSTRAP_DATA_ROOT / "bootstrap-settings.json"
 NATIVE_COMMAND_PATH = BOOTSTRAP_DATA_ROOT / "native-command.json"
 NATIVE_REQUEST_LOCK = threading.Lock()
-DEFAULT_UI_LANGUAGE = "vi" if os.environ.get("FASTSCENE_UI_LANGUAGE") == "vi" else "en"
+DEFAULT_UI_LANGUAGE = "vi" if os.environ.get("AUREXVIDEO_UI_LANGUAGE") == "vi" else "en"
 APP_VERSION = "0.2.1"
 UPDATE_MANIFEST_PATH = REPO_ROOT / "update-manifest.json"
 # Central update manifest (GitHub raw) — anyone can fetch the latest release
@@ -88,7 +88,7 @@ RENDER_PYTHON = VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable)
 VENV_ROOT = (REPO_ROOT / ".venv").resolve()
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4173
-PACKAGED_ENGINE_MARKER_NAME = ".fastscene-packaged-engine"
+PACKAGED_ENGINE_MARKER_NAME = ".aurexvideo-packaged-engine"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_LOG_CHARS = 240_000
 AUDIO_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm", ".flac"}
@@ -406,7 +406,7 @@ def reserve_trial_export(project: str) -> tuple[str | None, dict | None]:
             return None, None
         if current_ui_language() == "vi":
             raise RuntimeError(
-                "Không thể xác thực quyền xuất video. Hãy đóng bản local và mở lại FastScene chính thức."
+                "Không thể xác thực quyền xuất video. Hãy đóng bản local và mở lại AurexVideo chính thức."
             )
         raise RuntimeError(
             "Aurex could not authorize this export. Close the local copy and reopen the official Aurex app."
@@ -421,7 +421,7 @@ def reserve_trial_export(project: str) -> tuple[str | None, dict | None]:
     )
     entitlement = response.get("entitlement")
     if not isinstance(entitlement, dict):
-        raise RuntimeError("FastScene licensing did not return an entitlement.")
+        raise RuntimeError("AurexVideo licensing did not return an entitlement.")
     return str(response.get("event_id") or event_id), entitlement
 
 
@@ -514,7 +514,7 @@ def source_root_project_count(path: Path) -> int:
 
 def source_root_candidates() -> list[tuple[str, Path]]:
     raw_candidates = [
-        ("Dự án FastScene", DEFAULT_PROJECT_ROOT),
+        ("Dự án AurexVideo", DEFAULT_PROJECT_ROOT),
         ("Current", PROJECT_ROOT),
     ]
     cwd = Path.cwd().resolve()
@@ -583,7 +583,7 @@ def has_active_jobs() -> bool:
 
 def choose_source_root_dialog() -> Path:
     if sys.platform == "darwin":
-        script = 'POSIX path of (choose folder with prompt "Chọn thư mục dự án FastScene")'
+        script = 'POSIX path of (choose folder with prompt "Chọn thư mục dự án AurexVideo")'
         proc = subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
@@ -609,7 +609,7 @@ def choose_source_root_dialog() -> Path:
     root = tk.Tk()
     root.withdraw()
     try:
-        selected = filedialog.askdirectory(title="Chọn thư mục dự án FastScene")
+        selected = filedialog.askdirectory(title="Chọn thư mục dự án AurexVideo")
     finally:
         root.destroy()
     if not selected:
@@ -806,7 +806,7 @@ def read_branding_config() -> dict:
         except (OSError, json.JSONDecodeError):
             stored = {}
 
-    brand_name = clean_brand_name(stored.get("brandName")) or "fastscene.app"
+    brand_name = clean_brand_name(stored.get("brandName")) or "aurexvideo.app"
     logo_path = None
     raw_logo_path = str(stored.get("logoPath") or "").strip()
     if raw_logo_path:
@@ -849,7 +849,7 @@ def save_branding_config(payload: dict) -> dict:
         raise PermissionError("Tài khoản Trial luôn dùng Logo + brand của Aurex.")
     current = read_branding_config()
     brand_name_value = payload.get("brandName", payload.get("brand_name", current["brandName"]))
-    brand_name = clean_brand_name(brand_name_value) or "fastscene.app"
+    brand_name = clean_brand_name(brand_name_value) or "aurexvideo.app"
     logo_payload = payload.get("logo") or payload.get("brandLogo") or payload.get("brand_logo")
     logo_path = persistent_brand_logo_path()
     logo_name = str(current.get("logoName") or "")
@@ -922,7 +922,7 @@ def append_render_asset_options(
     if trial_branding_required(branding_account):
         if DEFAULT_BRAND_LOGO_PATH.is_file():
             cmd.extend(["--brand-logo", str(DEFAULT_BRAND_LOGO_PATH)])
-        cmd.extend(["--brand-name", "fastscene.app"])
+        cmd.extend(["--brand-name", "aurexvideo.app"])
         return
 
     if not bool(payload.get("branding", True)):
@@ -1456,7 +1456,7 @@ def render_simple_player_html(project: str) -> bytes:
   </style>
 </head>
 <body>
-  <script>document.documentElement.dataset.theme = localStorage.getItem('fastscene-theme') === 'light' ? 'light' : 'dark';</script>
+  <script>document.documentElement.dataset.theme = localStorage.getItem('aurexvideo-theme') === 'light' ? 'light' : 'dark';</script>
   <script>if (window.__TAURI_INTERNALS__ && /Mac/.test(navigator.platform)) document.documentElement.classList.add('tauri-macos');</script>
   <main class="player-stage" aria-label="Trình phát video">
     <a class="player-action player-back" href="{dashboard_url}">← Quay lại</a>
@@ -1989,7 +1989,7 @@ def social_callback_html(title: str, message: str, ok: bool = True) -> bytes:
   <main style="max-width:680px;margin:0 auto;border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:24px;background:rgba(255,255,255,.06);">
     <h1 style="margin-top:0;color:{color};">{html.escape(title)}</h1>
     <p style="line-height:1.6;">{html.escape(message)}</p>
-    <p style="opacity:.72;">Bạn có thể đóng tab này và quay lại FastScene Upload Center.</p>
+    <p style="opacity:.72;">Bạn có thể đóng tab này và quay lại AurexVideo Upload Center.</p>
   </main>
 </body>
 </html>""".encode("utf-8")
@@ -3037,7 +3037,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     trial_used = entitlement.get("trial_exports_used", entitlement.get("exports_used", 0))
     product_id = str(entitlement.get("product_id") or "").strip()
     entitlement_plan = str(entitlement.get("plan") or "").strip()
-    plan_name = product_id or entitlement_plan or "FastScene Trial"
+    plan_name = product_id or entitlement_plan or "AurexVideo Trial"
     normalized_plan = f"{product_id} {entitlement_plan}".strip().lower()
     has_pro_product = "pro" in normalized_plan and "trial" not in normalized_plan
     is_pro_plan = entitlement_is_active_pro(entitlement)
@@ -3120,13 +3120,13 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
 
     body = "\n".join(rows) or '<li class="empty">Chưa có dự án nào.</li>'
     return render_page_shell(
-        title="FastScene",
+        title="AurexVideo",
         body=f"""
   <header class="dashboard-header">
     <div class="brand-lockup">
       <img src="/web/aurexvideo-logo.png" alt="Aurex" class="brand-mark" />
       <div>
-        <h1>FastScene</h1>
+        <h1>AurexVideo</h1>
       </div>
     </div>
     <div class="header-tools">
@@ -3167,7 +3167,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <article class="plan-option monthly">
           <h3>Pro theo tháng</h3>
           <div class="plan-option-price"><strong>99.000đ</strong><span>/ 30 ngày</span></div>
-          <p class="plan-option-copy">Thanh toán một lần. Khi hết hạn, bạn chủ động gia hạn ngay trong FastScene.</p>
+          <p class="plan-option-copy">Thanh toán một lần. Khi hết hạn, bạn chủ động gia hạn ngay trong AurexVideo.</p>
           <button type="button" data-checkout-plan="monthly">Chọn gói tháng</button>
         </article>
         <article class="plan-option yearly">
@@ -3373,18 +3373,18 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <button class="brand-modal-close" id="closeBrandConfig" type="button" aria-label="Đóng">×</button>
           <p class="kicker">Logo + brand</p>
           <h3 id="brandConfigTitle">Tuỳ chỉnh logo và tên brand</h3>
-          <p class="brand-modal-copy">Mặc định dùng logo FastScene và fastscene.app. Logo và tên riêng sau khi thay sẽ được giữ cho các lần render tiếp theo.</p>
+          <p class="brand-modal-copy">Mặc định dùng logo AurexVideo và aurexvideo.app. Logo và tên riêng sau khi thay sẽ được giữ cho các lần render tiếp theo.</p>
           <label class="field brand-modal-field">
             <span class="field-label">{ui_icon("image", "field-icon")}<span>File logo</span></span>
             <span class="file-picker">
               <input id="brandLogoFile" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.ico" />
               <span class="file-picker-button">Chọn file</span>
-              <span class="file-picker-name" id="brandLogoFileName">Logo FastScene mặc định</span>
+              <span class="file-picker-name" id="brandLogoFileName">Logo AurexVideo mặc định</span>
             </span>
           </label>
           <label class="field brand-modal-field">
             <span class="field-label">{ui_icon("at-sign", "field-icon")}<span>Tên brand</span></span>
-            <input id="brandNameInput" type="text" maxlength="64" value="fastscene.app" placeholder="fastscene.app" />
+            <input id="brandNameInput" type="text" maxlength="64" value="aurexvideo.app" placeholder="aurexvideo.app" />
           </label>
           <div class="brand-modal-actions">
             <button class="brand-modal-button secondary" id="cancelBrandConfig" type="button">Huỷ</button>
@@ -4753,25 +4753,25 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     }
     .advanced-body .field:first-child { margin-top: 0; }
     /* Native WebViews compress form controls more than browser tabs. These
-       dimensions apply only when FastScene is running inside Tauri. */
-    html.fastscene-desktop-app .advanced-body {
+       dimensions apply only when AurexVideo is running inside Tauri. */
+    html.aurexvideo-desktop-app .advanced-body {
       gap: 7px;
       padding: 14px;
     }
-    html.fastscene-desktop-app .advanced-body .field select,
-    html.fastscene-desktop-app .advanced-body .field input {
+    html.aurexvideo-desktop-app .advanced-body .field select,
+    html.aurexvideo-desktop-app .advanced-body .field input {
       min-height: 50px;
       border-radius: 10px;
       padding: 10px 40px 10px 15px;
       font-size: 15px;
     }
-    html.fastscene-desktop-app .advanced-body .speed-preset {
+    html.aurexvideo-desktop-app .advanced-body .speed-preset {
       min-height: 38px;
       padding: 8px 6px;
       border-radius: 10px;
       font-size: 14px;
     }
-    html.fastscene-desktop-app .advanced-body .render-option-check {
+    html.aurexvideo-desktop-app .advanced-body .render-option-check {
       min-height: 34px;
       padding: 7px 10px;
       font-size: 12px;
@@ -6149,7 +6149,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         const payload = await response.json().catch(() => ({{}}));
         if (!response.ok) throw new Error(payload.error || `HTTP ${{response.status}}`);
         if (upgradePlanStatus) upgradePlanStatus.textContent = isVietnamese
-          ? 'Đã mở trang thanh toán. FastScene sẽ tự cập nhật sau khi bạn thanh toán.'
+          ? 'Đã mở trang thanh toán. AurexVideo sẽ tự cập nhật sau khi bạn thanh toán.'
           : 'Checkout opened. Aurex will update automatically after you pay.';
       }} catch (error) {{
         upgradePlanDialog.querySelectorAll('[data-checkout-plan]').forEach((item) => {{ item.disabled = false; }});
@@ -6157,10 +6157,10 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       }}
     }}));
     if (new URLSearchParams(window.location.search).get('upgrade') === '1') openUpgradePlanDialog();
-    async function openFastSceneSettings(section = 'all') {{
+    async function openAurexVideoSettings(section = 'all') {{
       const theme = (
         document.body.classList.contains('theme-light')
-        || localStorage.getItem('fastscene-theme') !== 'dark'
+        || localStorage.getItem('aurexvideo-theme') !== 'dark'
       ) ? 'light' : 'dark';
       const response = await fetch('/api/settings/open', {{
         method: 'POST',
@@ -6171,7 +6171,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       if (!response.ok) throw new Error(payload.error || `HTTP ${{response.status}}`);
     }}
     document.getElementById('openSettingsButton')?.addEventListener('click', () => {{
-      openFastSceneSettings('all').catch((error) => window.alert(error?.message || String(error)));
+      openAurexVideoSettings('all').catch((error) => window.alert(error?.message || String(error)));
     }});
     let updateInstallRunning = false;
     document.getElementById('updateAvailableButton')?.addEventListener('click', async () => {{
@@ -6198,7 +6198,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           return;
         }}
         if (label) label.textContent = payload.version ? `Đang cài ${{payload.version}}…` : 'Đang cài…';
-        button.title = payload.version ? `FastScene ${{payload.version}}` : '';
+        button.title = payload.version ? `AurexVideo ${{payload.version}}` : '';
       }} catch (error) {{
         button.disabled = false;
         updateInstallRunning = false;
@@ -6218,7 +6218,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       }}
     }}
     let updateCheckRunning = false;
-    async function checkForFastSceneUpdate() {{
+    async function checkForAurexVideoUpdate() {{
       if (updateCheckRunning || !navigator.onLine) return;
       updateCheckRunning = true;
       try {{
@@ -6229,16 +6229,16 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         if (!button) return;
         button.hidden = false;
         document.getElementById('updateSlotPlaceholder')?.setAttribute('hidden', '');
-        button.title = payload.version ? `FastScene ${{payload.version}}` : '';
+        button.title = payload.version ? `AurexVideo ${{payload.version}}` : '';
       }} catch (_) {{
         // Background checks stay silent; the user can retry from Settings.
       }} finally {{
         updateCheckRunning = false;
       }}
     }}
-    window.setTimeout(checkForFastSceneUpdate, 10000);
-    window.setInterval(checkForFastSceneUpdate, 6 * 60 * 60 * 1000);
-    window.addEventListener('online', checkForFastSceneUpdate);
+    window.setTimeout(checkForAurexVideoUpdate, 10000);
+    window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
+    window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
   <script src="/web/render_page.js?v=20260725-audio-volume"></script>
 """,
@@ -6259,7 +6259,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         for project in projects
     )
     return render_page_shell(
-        title="FastScene Upload Center",
+        title="AurexVideo Upload Center",
         body=f"""
   <main class="upload-shell">
     <section class="upload-machine">
@@ -6267,7 +6267,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         <div class="brand-lockup upload-brand-lockup">
           <img src="/web/aurexvideo-logo.png" alt="Aurex" class="brand-mark upload-brand-mark" />
           <div>
-            <h1>FastScene</h1>
+            <h1>AurexVideo</h1>
           </div>
         </div>
         <label class="field project-select-field field-project top-project-field">
@@ -7897,7 +7897,7 @@ def render_page_shell(title: str, body: str, extra_style: str = "", extra_script
 <body class="theme-light">
 <script>
   if (window.__TAURI_INTERNALS__ || new URLSearchParams(location.search).get('desktopApp') === '1') {{
-    document.documentElement.classList.add('fastscene-desktop-app');
+    document.documentElement.classList.add('aurexvideo-desktop-app');
   }}
   if (window.__TAURI_INTERNALS__) {{
     const platform = String(navigator.platform || '');
@@ -8278,7 +8278,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                 config["locked"] = trial_branding_required()
                 if config["locked"]:
                     config.update({
-                        "brandName": "fastscene.app",
+                        "brandName": "aurexvideo.app",
                         "configured": False,
                         "hasLogo": False,
                         "logoName": "",
@@ -8434,7 +8434,7 @@ class WebHandler(SimpleHTTPRequestHandler):
             try:
                 # The Aurex backup self-updates its engine via a local manifest.
                 # Only fall back to the native bridge when no manifest exists
-                # (i.e. running under the real FastScene app, not Aurex).
+                # (i.e. running under the real AurexVideo app, not Aurex).
                 manifest = load_update_manifest()
                 if manifest.get("version"):
                     self.send_json(200, check_app_update())

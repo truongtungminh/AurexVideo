@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a FastScene one-scene topic to MP4."""
+"""Render a AurexVideo one-scene topic to MP4."""
 
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ LOCAL_ROOT = Path(__file__).resolve().parents[1]
 if str(LOCAL_ROOT) not in sys.path:
     sys.path.insert(0, str(LOCAL_ROOT))
 
-from fastscene_paths import CHARACTERS_ROOT, DATA_ROOT, RESOURCE_ROOT, ffmpeg_executable
+from aurexvideo_paths import CHARACTERS_ROOT, DATA_ROOT, RESOURCE_ROOT, ffmpeg_executable
 from media_probe import AUDIO_PEAK_LIMITER, media_duration
 
 ROOT = RESOURCE_ROOT
-PROJECT_MOUNT_PREFIX = "/__fastscene_project__/"
+PROJECT_MOUNT_PREFIX = "/__aurexvideo_project__/"
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -52,7 +52,7 @@ class RenderAssetHandler(QuietHandler):
         request_path = unquote(urlsplit(path).path)
         if request_path.startswith(PROJECT_MOUNT_PREFIX):
             mounted = self.mounted_path(self.project_root, request_path[len(PROJECT_MOUNT_PREFIX):])
-            return str(mounted or (self.project_root / ".fastscene-invalid-path"))
+            return str(mounted or (self.project_root / ".aurexvideo-invalid-path"))
 
         character_prefix = "/assets/characters/"
         if request_path.startswith(character_prefix):
@@ -258,7 +258,7 @@ async def render_frames(
 
 async def render(topic_path: Path, output: Path, width: int, height: int) -> None:
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
-    with tempfile.TemporaryDirectory(prefix="fastscene-") as temp:
+    with tempfile.TemporaryDirectory(prefix="aurexvideo-") as temp:
         work_dir = Path(temp)
         mixed_audio = work_dir / "mixed-audio.wav"
         build_mixed_audio(topic_path, topic, mixed_audio)

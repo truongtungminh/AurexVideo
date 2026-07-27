@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from .common import generate_project_tts
-from fastscene_paths import CONFIG_ROOT, RESOURCE_ROOT
+from aurexvideo_paths import CONFIG_ROOT, RESOURCE_ROOT
 
 REPO_ROOT = RESOURCE_ROOT
 DEFAULT_CONFIG_PATH = CONFIG_ROOT / "tts.json"

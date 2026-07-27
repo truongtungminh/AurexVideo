@@ -1,6 +1,6 @@
 # Hướng dẫn chuẩn bị Facebook API để upload Reels/video
 
-FastScene dùng **Facebook Reels Publishing API**. Sau khi lấy Page ID và Page access token, bạn có thể nhập trực tiếp bằng nút **Thêm Page** trong Upload Center.
+AurexVideo dùng **Facebook Reels Publishing API**. Sau khi lấy Page ID và Page access token, bạn có thể nhập trực tiếp bằng nút **Thêm Page** trong Upload Center.
 
 ## 1. Yêu cầu (xem thôi nhảy vào Bước 2)
 
@@ -186,7 +186,7 @@ Trong `web_server.py`, Facebook Reels dùng:
 
 - file video từ `final_video_path_for_project(project)`
 - caption từ `script.txt`
-- hashtag mặc định `#FastScene`
+- hashtag mặc định `#AurexVideo`
 - source URL từ `source/links.txt` hoặc `source/source.md`
 
 Facebook Reels **không gửi title**. Caption cũng **không chứa source link**; source link chỉ được gửi khi bấm nút **Comment source** riêng sau khi upload ở trạng thái `PUBLISHED`.

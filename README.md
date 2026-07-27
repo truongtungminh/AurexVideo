@@ -4,7 +4,7 @@ Full source để phát triển sau này.
 
 ## App chạy đúng: `engine/web_server.py`
 
-Đây là app thật (giao diện FastScene/AurexVideo giống app cài sẵn ở `localhost:8765`).
+Đây là app thật (giao diện AurexVideo/AurexVideo giống app cài sẵn ở `localhost:8765`).
 Nó serve `engine/index.html`, `engine/web/`, `engine/webui/`, `engine/assets/`,
 project library, render engine, social upload...
 
@@ -18,7 +18,7 @@ cd engine
 Không cần pip cài thêm (dùng `engine/.venv` có sẵn). Mở browser tự động.
 
 ### Đối chiếu với app cài sẵn
-- App cài sẵn (Tauri/FastScene) chạy engine tương tự qua `desktop_server.py` ở `localhost:8765`.
+- App cài sẵn (Tauri/AurexVideo) chạy engine tương tự qua `desktop_server.py` ở `localhost:8765`.
 - Bản workspace này là copy source của cùng engine đó → giao diện **giống hệt**.
 - Đã capture screenshot :4173 vs :8765 → identical dashboard.
 
@@ -38,6 +38,6 @@ Không cần pip cài thêm (dùng `engine/.venv` có sẵn). Mở browser tự 
 - render API: `POST /api/<slug>/render` (gọi `tools/render_project.py`)
 
 ## Status
-- ✅ Source copied from FastScene dump (full engine, không thiếu file)
+- ✅ Source copied from AurexVideo dump (full engine, không thiếu file)
 - ✅ App thật chạy live tại :4173, UI khớp :8765 (verify bằng screenshot)
 - ✅ `tools/render_project.py` có sẵn → render hoạt động (cần TTS + deck đầu vào)

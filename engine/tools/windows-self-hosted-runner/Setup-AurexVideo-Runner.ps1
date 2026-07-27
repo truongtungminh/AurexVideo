@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $repoUrl = "https://github.com/tinbeta/escbase_m3"
-$runnerRoot = "C:\FastSceneRunner"
-$runnerLabel = "fastscene-windows"
+$runnerRoot = "C:\AurexVideoRunner"
+$runnerLabel = "aurexvideo-windows"
 
 function Test-Administrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -10,13 +10,13 @@ function Test-Administrator {
 }
 
 if (-not (Test-Administrator)) {
-  Write-Host "FastScene needs Administrator access to install the Windows build tools." -ForegroundColor Yellow
+  Write-Host "AurexVideo needs Administrator access to install the Windows build tools." -ForegroundColor Yellow
   $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
   Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments
   exit 0
 }
 
-Write-Host "`n=== FastScene Windows self-hosted runner ===`n" -ForegroundColor Cyan
+Write-Host "`n=== AurexVideo Windows self-hosted runner ===`n" -ForegroundColor Cyan
 
 if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
   throw "winget was not found. Update App Installer from Microsoft Store, then run START-HERE.cmd again."
@@ -44,11 +44,11 @@ Set-Location $runnerRoot
 
 if (-not (Test-Path (Join-Path $runnerRoot "run.cmd"))) {
   Write-Host "Downloading the latest GitHub Actions Runner..." -ForegroundColor Cyan
-  $release = Invoke-RestMethod -Headers @{ "User-Agent" = "FastScene-Runner-Setup" } -Uri "https://api.github.com/repos/actions/runner/releases/latest"
+  $release = Invoke-RestMethod -Headers @{ "User-Agent" = "AurexVideo-Runner-Setup" } -Uri "https://api.github.com/repos/actions/runner/releases/latest"
   $asset = $release.assets | Where-Object { $_.name -match '^actions-runner-win-x64-.*\.zip$' } | Select-Object -First 1
   if (-not $asset) { throw "The GitHub Actions Runner package for Windows x64 was not found." }
   $archive = Join-Path $env:TEMP $asset.name
-  Invoke-WebRequest -Headers @{ "User-Agent" = "FastScene-Runner-Setup" } -Uri $asset.browser_download_url -OutFile $archive
+  Invoke-WebRequest -Headers @{ "User-Agent" = "AurexVideo-Runner-Setup" } -Uri $asset.browser_download_url -OutFile $archive
   Expand-Archive -Path $archive -DestinationPath $runnerRoot -Force
 }
 
@@ -57,7 +57,7 @@ if (-not (Test-Path (Join-Path $runnerRoot ".runner"))) {
   Write-Host "Select Windows and x64, then copy the TOKEN from the config.cmd command." -ForegroundColor Yellow
   $token = Read-Host "Paste the one-time registration token"
   if ([string]::IsNullOrWhiteSpace($token)) { throw "The token cannot be empty." }
-  $runnerName = "FastScene-Windows-$env:COMPUTERNAME"
+  $runnerName = "AurexVideo-Windows-$env:COMPUTERNAME"
   & .\config.cmd --unattended --url $repoUrl --token $token --name $runnerName --labels $runnerLabel --work _work --replace
   if ($LASTEXITCODE -ne 0) { throw "GitHub runner registration failed." }
 }

@@ -48,9 +48,9 @@ Lưu ý: Production không có nghĩa token sống vĩnh viễn. Google vẫn c�
 http://localhost:8765/api/social/youtube/callback
 ```
 
-Bản FastScene desktop luôn chạy OAuth ở port `8765`, nên URI trên chỉ cần khai báo một lần. Ô Redirect URI trong app cũng tự kiểm tra theo đúng địa chỉ và port mà app đang dùng.
+Bản AurexVideo desktop luôn chạy OAuth ở port `8765`, nên URI trên chỉ cần khai báo một lần. Ô Redirect URI trong app cũng tự kiểm tra theo đúng địa chỉ và port mà app đang dùng.
 
-Nếu đổi port chạy FastScene thì Authorized redirect URI trong Google Cloud cũng phải đổi thành:
+Nếu đổi port chạy AurexVideo thì Authorized redirect URI trong Google Cloud cũng phải đổi thành:
 
 ```text
 http://localhost:<PORT>/api/social/youtube/callback
@@ -62,12 +62,12 @@ http://localhost:<PORT>/api/social/youtube/callback
 
 ## 5. Nhập OAuth key và kết nối trong Upload Center
 
-1. Mở FastScene và vào **Upload Center**.
+1. Mở AurexVideo và vào **Upload Center**.
 2. Chọn project đã render xong và có `final_video.mp4`.
-3. Bấm **Thêm channel**. Nếu chưa có OAuth key, FastScene sẽ mở form nhập trực tiếp.
+3. Bấm **Thêm channel**. Nếu chưa có OAuth key, AurexVideo sẽ mở form nhập trực tiếp.
 4. Dán `Client ID`, `Client Secret`, kiểm tra Redirect URI rồi bấm **Lưu và kết nối**.
-5. FastScene mở Google OAuth trong trình duyệt mặc định. Đăng nhập đúng Google account có kênh YouTube cần upload và cho phép quyền upload.
-6. Quay lại FastScene, chọn:
+5. AurexVideo mở Google OAuth trong trình duyệt mặc định. Đăng nhập đúng Google account có kênh YouTube cần upload và cho phép quyền upload.
+6. Quay lại AurexVideo, chọn:
    - title
    - description
    - privacy: `private`, `unlisted`, hoặc `public`
@@ -75,7 +75,7 @@ http://localhost:<PORT>/api/social/youtube/callback
 
 Bạn có thể bấm **OAuth key** để thay Client ID hoặc Client Secret đã lưu. Các khóa và token không được hiển thị lại trên giao diện.
 
-Mặc định metadata trong FastScene:
+Mặc định metadata trong AurexVideo:
 - title lấy từ dòng đầu của `script.txt`
 - description gồm dòng đầu, nguồn nếu có trong `source/links.txt` hoặc `source/source.md`, và hashtag
 - category YouTube: `22`
@@ -85,7 +85,7 @@ Mặc định metadata trong FastScene:
 
 ### Redirect URI mismatch
 
-Kiểm tra URI trong Google Cloud và ô Redirect URI trong FastScene phải giống tuyệt đối:
+Kiểm tra URI trong Google Cloud và ô Redirect URI trong AurexVideo phải giống tuyệt đối:
 
 ```text
 http://localhost:8765/api/social/youtube/callback
@@ -99,7 +99,7 @@ Thường xảy ra khi account đã từng cấp quyền cho app. Cách xử lý
 2. Gỡ quyền app OAuth đó.
 3. Bấm **Thêm channel** lại.
 
-FastScene dùng `access_type=offline` và `prompt=consent` để xin refresh token.
+AurexVideo dùng `access_type=offline` và `prompt=consent` để xin refresh token.
 
 ### Token hết hạn hoặc bị thu hồi
 
@@ -113,4 +113,4 @@ Thêm email đó vào **Test users**, hoặc chuyển app sang **In production**
 
 ### Upload xong nhưng chưa public
 
-Upload Center mặc định chọn `public` để đăng ngay. Nếu đổi sang `private` hoặc `unlisted`, vào YouTube Studio để review/publish. FastScene trả link video và link Studio sau khi upload thành công.
+Upload Center mặc định chọn `public` để đăng ngay. Nếu đổi sang `private` hoặc `unlisted`, vào YouTube Studio để review/publish. AurexVideo trả link video và link Studio sau khi upload thành công.

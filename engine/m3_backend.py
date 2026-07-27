@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local project manager and render UI for the FastScene template."""
+"""Local project manager and render UI for the AurexVideo template."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import uuid
 import wave
 
-from fastscene_paths import (
+from aurexvideo_paths import (
     CHARACTERS_ROOT,
     CONFIG_ROOT,
     DATA_ROOT,
@@ -175,7 +175,7 @@ def elevenlabs_public_config() -> dict:
         "modelId": str(config.get("model_id") or "eleven_v3"),
         "outputFormat": str(config.get("output_format") or "mp3_44100_128"),
         "apiKeyConfigured": bool(str(config.get("api_key") or os.environ.get("ELEVENLABS_API_KEY") or "").strip()),
-        "usingSharedFastSceneConfig": False,
+        "usingSharedAurexVideoConfig": False,
     }
 
 
@@ -1183,7 +1183,7 @@ def file_url(path: Path) -> str:
             continue
         encoded = quote(relative, safe="/._-")
         return f"{prefix}/{encoded}" if prefix else f"/{encoded}"
-    raise ValueError(f"Không thể tạo URL cho file ngoài vùng dữ liệu FastScene: {resolved}")
+    raise ValueError(f"Không thể tạo URL cho file ngoài vùng dữ liệu AurexVideo: {resolved}")
 
 
 def latest_file(directory: Path, pattern: str) -> Path | None:
@@ -1997,14 +1997,14 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FastScene local Web UI")
+    parser = argparse.ArgumentParser(description="AurexVideo local Web UI")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4173)
     args = parser.parse_args()
     migrate_shared_configs()
     handler = partial(Handler, directory=str(ROOT))
     server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"FastScene Web UI: http://{args.host}:{server.server_address[1]}")
+    print(f"AurexVideo Web UI: http://{args.host}:{server.server_address[1]}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

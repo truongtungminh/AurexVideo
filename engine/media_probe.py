@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from fastscene_paths import ffmpeg_executable
+from aurexvideo_paths import ffmpeg_executable
 
 
 _DURATION = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")

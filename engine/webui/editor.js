@@ -1349,7 +1349,7 @@ async function applyCrop() {
   canvas.height = sh;
   canvas.getContext("2d").drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
   const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Không tạo được ảnh crop.")), "image/png"));
-  const file = new File([blob], `fastscene-crop-${Date.now()}.png`, { type: "image/png" });
+  const file = new File([blob], `aurexvideo-crop-${Date.now()}.png`, { type: "image/png" });
   if (target.type === "base") {
     setBaseImageFile(target.side, file);
     writeImageFrame(target.side, preservedFrame);

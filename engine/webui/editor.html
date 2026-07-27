@@ -4,20 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Editor · Video so sánh</title>
-    <script>document.documentElement.dataset.theme=localStorage.getItem('fastscene-theme')==='dark'?'dark':'light';</script>
+    <script>document.documentElement.dataset.theme=localStorage.getItem('aurexvideo-theme')==='dark'?'dark':'light';</script>
     <link rel="stylesheet" href="/webui/styles.css?v=20260726-bgm-no-toggle" />
   </head>
   <body class="editor-page">
     <script>
       if (window.__TAURI_INTERNALS__ || new URLSearchParams(location.search).get('desktopApp') === '1') {
-        document.documentElement.classList.add('fastscene-desktop-app');
+        document.documentElement.classList.add('aurexvideo-desktop-app');
       }
       if (window.__TAURI_INTERNALS__ && /Mac/.test(navigator.platform)) document.documentElement.classList.add('tauri-macos');
     </script>
     <div class="native-titlebar-drag-region" data-tauri-drag-region aria-hidden="true"></div>
     <header class="topbar editor-topbar">
       <div class="editor-brand-group">
-        <a class="editor-brand" href="/" aria-label="FastScene">
+        <a class="editor-brand" href="/" aria-label="AurexVideo">
           <img src="/web/aurexvideo-logo.png" alt="" />
           <strong>Aurex</strong>
         </a>

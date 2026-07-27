@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from fastscene_paths import PROJECTS_ROOT, RESOURCE_ROOT
+from aurexvideo_paths import PROJECTS_ROOT, RESOURCE_ROOT
 
 REPO_ROOT = RESOURCE_ROOT
 PROJECT_ROOT = PROJECTS_ROOT
@@ -15,9 +15,9 @@ DEFAULT_YOUTUBE_DESCRIPTION = "🎬 Sự khác nhau là gì?\n#Hieuhamhoc #sosan
 DEFAULT_FACEBOOK_CAPTION = "🎬 Sự khác nhau là gì?, Phần 1\n#Hieuhamhoc #sosanh #kienthuc"
 DEFAULT_YOUTUBE_TAGS = ["Hieuhamhoc", "sosanh", "kienthuc"]
 DEFAULT_YOUTUBE_TITLE_EN = "What's the difference?, Part 1"
-DEFAULT_YOUTUBE_DESCRIPTION_EN = "🎬 What's the difference?\n#FastScene #comparison #learn"
-DEFAULT_FACEBOOK_CAPTION_EN = "🎬 What's the difference?, Part 1\n#FastScene #comparison #learn"
-DEFAULT_YOUTUBE_TAGS_EN = ["FastScene", "comparison", "learn"]
+DEFAULT_YOUTUBE_DESCRIPTION_EN = "🎬 What's the difference?\n#AurexVideo #comparison #learn"
+DEFAULT_FACEBOOK_CAPTION_EN = "🎬 What's the difference?, Part 1\n#AurexVideo #comparison #learn"
+DEFAULT_YOUTUBE_TAGS_EN = ["AurexVideo", "comparison", "learn"]
 
 
 def default_upload_copy(language: str = "vi") -> dict:
@@ -233,14 +233,14 @@ def trailing_hashtag_block(value: str, fallback: str = "#ThoThongThai") -> str:
 
 def resolved_hashtag_block(existing_value: str, generated: str) -> str:
     block = trailing_hashtag_block(existing_value, generated).strip()
-    return generated if block.lower() == "#fastscene" or has_todo_placeholder(block) else block
+    return generated if block.lower() == "#aurexvideo" or has_todo_placeholder(block) else block
 
 
 def resolved_youtube_tags(existing_tags: object, generated_tags: list[str]) -> list[str]:
     if not isinstance(existing_tags, list):
         return generated_tags
     cleaned = [str(tag).strip() for tag in existing_tags if str(tag or "").strip()]
-    meaningful = [tag for tag in cleaned if tag.lower() != "fastscene"]
+    meaningful = [tag for tag in cleaned if tag.lower() != "aurexvideo"]
     if len(meaningful) == 0 or any(has_todo_placeholder(tag) for tag in cleaned):
         return generated_tags
     return cleaned

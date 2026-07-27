@@ -1,7 +1,7 @@
 AUREX WINDOWS SELF-HOSTED RUNNER
 ===================================
 
-Gói này giúp máy Windows tự build FastScene.exe chuẩn mà không dùng phút
+Gói này giúp máy Windows tự build AurexVideo.exe chuẩn mà không dùng phút
 GitHub-hosted Actions.
 
 CÁCH CHẠY
@@ -19,13 +19,13 @@ CÁCH CHẠY
 
 KẾT QUẢ BUILD
 Sau khi workflow hoàn tất, file Windows nằm tại:
-  C:\FastSceneBuilds\0.1.8
+  C:\AurexVideoBuilds\0.1.8
 
-Gồm FastScene.exe, chữ ký updater, engine Windows và manifest checksum.
+Gồm AurexVideo.exe, chữ ký updater, engine Windows và manifest checksum.
 
 LƯU Ý BẢO MẬT
 - Token đăng ký chỉ dùng một lần và không được lưu trong ZIP.
 - Không gửi file .runner hoặc .credentials cho người khác.
 - Khi không build, có thể đóng cửa sổ runner.
-- Muốn gỡ runner, mở PowerShell tại C:\FastSceneRunner và chạy:
+- Muốn gỡ runner, mở PowerShell tại C:\AurexVideoRunner và chạy:
     .\config.cmd remove

@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from fastscene_paths import ffmpeg_executable
+from aurexvideo_paths import ffmpeg_executable
 from slide_media import discover_slide_videos
 from media_probe import media_duration
 from whisper_models import describe_whisper_model, local_whisper_model_path, resolve_whisper_model

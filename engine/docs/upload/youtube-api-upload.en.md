@@ -34,7 +34,7 @@ Official docs:
 5. Add test users while the app is still in Testing.
 6. When everything works, move **Publishing status** to **In production**.
 
-While the app remains in **Testing**, Google can make the refresh token expire after **7 days**. Move the consent screen to **In production** before distributing FastScene to customers.
+While the app remains in **Testing**, Google can make the refresh token expire after **7 days**. Move the consent screen to **In production** before distributing AurexVideo to customers.
 
 Note: In production does not make tokens live forever. Google can still revoke tokens if the user removes access, changes security settings, leaves the app unused for a long time, or violates policy.
 
@@ -43,10 +43,10 @@ Note: In production does not make tokens live forever. Google can still revoke t
 1. Go to **APIs & Services** → **Credentials**.
 2. Click **Create credentials** → **OAuth client ID**.
 3. Choose **Web application**.
-4. Add the redirect URI shown in FastScene Upload Center.
+4. Add the redirect URI shown in AurexVideo Upload Center.
 5. Create the client and copy the Client ID and Client Secret.
 
-## 5. Connect in FastScene
+## 5. Connect in AurexVideo
 
 1. Open Upload Center.
 2. Click **OAuth key**.
@@ -59,7 +59,7 @@ You can click **OAuth key** again later to replace the saved Client ID or Client
 ## 6. Common errors
 
 - `access_denied`: the Google account is not allowed, or consent screen setup is incomplete.
-- `redirect_uri_mismatch`: the redirect URI in Google Cloud does not match FastScene.
+- `redirect_uri_mismatch`: the redirect URI in Google Cloud does not match AurexVideo.
 - `invalid_grant`: the refresh token was revoked; connect again.
 - `Token expired or was revoked`: reconnect the YouTube channel. If this happens every 7 days, confirm the OAuth consent screen is **In production**.
 - Missing `refresh_token`: disconnect the app in Google account permissions, then connect again and make sure the consent screen requests offline access.

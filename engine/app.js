@@ -311,7 +311,7 @@ function poseAt(time) {
 }
 
 function activeWordAt(time) {
-  // Đồng bộ với renderer FastScene: trong khoảng trống giữa hai word timing,
+  // Đồng bộ với renderer AurexVideo: trong khoảng trống giữa hai word timing,
   // giữ từ gần nhất đã bắt đầu thay vì ẩn subtitle rồi hiện lại.
   let candidate = -1;
   for (let index = 0; index < timedWords.length; index += 1) {

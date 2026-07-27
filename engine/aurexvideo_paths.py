@@ -1,4 +1,4 @@
-"""Shared filesystem layout for development and packaged FastScene builds."""
+"""Shared filesystem layout for development and packaged AurexVideo builds."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def ffmpeg_executable() -> Path:
     if found:
         return Path(found).resolve()
     raise FileNotFoundError(
-        "Không tìm thấy FFmpeg trong runtime FastScene. Hãy cài lại engine hoặc kiểm tra runtime/bin."
+        "Không tìm thấy FFmpeg trong runtime AurexVideo. Hãy cài lại engine hoặc kiểm tra runtime/bin."
     )
 
 

@@ -1,6 +1,6 @@
 # Facebook API guide for Reels / video upload
 
-FastScene uses the **Facebook Reels Publishing API**. After you have a Page ID and Page access token, paste them with **Add Page** in Upload Center.
+AurexVideo uses the **Facebook Reels Publishing API**. After you have a Page ID and Page access token, paste them with **Add Page** in Upload Center.
 
 ## 1. Requirements
 
@@ -52,7 +52,7 @@ Official tools:
 - Graph API Explorer: https://developers.facebook.com/tools/explorer/
 - Token Debugger: https://developers.facebook.com/tools/debug/accesstoken/
 
-## 5. Connect in FastScene
+## 5. Connect in AurexVideo
 
 1. Open Upload Center.
 2. Click **Add Page**.
@@ -65,10 +65,10 @@ Official tools:
 - `OAuthException` / invalid token: token expired or missing permissions; create a new Page token.
 - Cannot publish: the account is not an admin/editor of the Page, or App Review is incomplete.
 - Empty media / processing failed: wait for Facebook processing, then retry.
-- Source comment failed: the Reel may not be ready yet; FastScene retries once after a short wait.
+- Source comment failed: the Reel may not be ready yet; AurexVideo retries once after a short wait.
 
 ## 7. Security notes
 
 - Do not commit Page tokens into git.
-- Store tokens only inside the FastScene app data on this computer.
+- Store tokens only inside the AurexVideo app data on this computer.
 - If a token leaks, revoke it in Meta and create a new one.

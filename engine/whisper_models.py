@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastscene_paths import RESOURCE_ROOT
+from aurexvideo_paths import RESOURCE_ROOT
 
 ROOT_DIR = RESOURCE_ROOT
 

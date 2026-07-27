@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Desktop-safe FastScene server used by the Tauri launcher."""
+"""Desktop-safe AurexVideo server used by the Tauri launcher."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import sys
 from http.server import ThreadingHTTPServer
 from threading import Thread
 
-from fastscene_paths import (
+from aurexvideo_paths import (
     CHARACTERS_ROOT,
     CONFIG_ROOT,
     DATA_ROOT,
@@ -61,7 +61,7 @@ def write_state(path: Path | None, payload: dict) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FastScene Desktop local engine")
+    parser = argparse.ArgumentParser(description="AurexVideo Desktop local engine")
     parser.add_argument("--host", default="127.0.0.1")
     # Google OAuth requires an exact redirect URI. Keep the desktop app on a
     # stable local port so users only need to register the callback once.

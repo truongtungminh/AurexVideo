@@ -1,7 +1,7 @@
 {
   "name": "human-presenter-comparison",
   "canvas": {"width": 1080, "height": 1920, "fps": 30},
-  "brand": {"text": "FastScene", "fixed": true},
+  "brand": {"text": "AurexVideo", "fixed": true},
   "assets": {
     "background": "css:white-stage",
     "poses": {

@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from fastscene_paths import ffmpeg_executable
+from aurexvideo_paths import ffmpeg_executable
 from slide_media import discover_slide_videos
 from media_probe import media_duration
 

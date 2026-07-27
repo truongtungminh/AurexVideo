@@ -1,7 +1,7 @@
 (() => {
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
-  const RENDER_PREFERENCES_KEY = 'fastscene-render-preferences-v1';
+  const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
   const fallbackProject = window.__RENDER_PROJECT__;
   const fallbackOutputUrl = window.__RENDER_OUTPUT_URL__;
   const projects = Array.isArray(window.__PROJECTS__) && window.__PROJECTS__.length
@@ -27,7 +27,7 @@
     renderOptions: {
       brandLogoFile: null,
       brandLogoName: '',
-      brandName: 'fastscene.app',
+      brandName: 'aurexvideo.app',
     },
   };
   let elevenVoiceSaveTimer = null;
@@ -80,7 +80,7 @@
   function applyTheme(theme) {
     const nextTheme = theme === 'light' ? 'light' : 'dark';
     document.body.classList.toggle('theme-light', nextTheme === 'light');
-    localStorage.setItem('fastscene-theme', nextTheme);
+    localStorage.setItem('aurexvideo-theme', nextTheme);
     $all('[data-theme-toggle]').forEach((button) => {
       const icon = button.querySelector('.btn-icon');
       const label = button.querySelector('span:last-child');
@@ -105,7 +105,7 @@
     const brandingControl = $('#renderBranding');
     const value = {
       branding: brandingControl?.disabled ? true : brandingControl?.checked !== false,
-      brandName: state.renderOptions.brandName || 'fastscene.app',
+      brandName: state.renderOptions.brandName || 'aurexvideo.app',
     };
     localStorage.setItem(RENDER_PREFERENCES_KEY, JSON.stringify(value));
   }
@@ -136,12 +136,12 @@
       if (brandButton) brandButton.disabled = true;
     }
     if (data.configured) {
-      state.renderOptions.brandName = String(data.brandName || 'fastscene.app').trim() || 'fastscene.app';
+      state.renderOptions.brandName = String(data.brandName || 'aurexvideo.app').trim() || 'aurexvideo.app';
     }
     state.renderOptions.brandLogoName = data.hasLogo ? String(data.logoName || 'Logo đã lưu') : '';
     saveRenderPreferences();
     const logoName = $('#brandLogoFileName');
-    if (logoName) logoName.textContent = state.renderOptions.brandLogoName || 'Logo FastScene mặc định';
+    if (logoName) logoName.textContent = state.renderOptions.brandLogoName || 'Logo AurexVideo mặc định';
   }
 
   function rowForProject(projectName) {
@@ -185,7 +185,7 @@
           monthlyTitle: 'Pro theo tháng',
           monthlyPrice: '99.000đ',
           monthlyTerm: '/ 30 ngày',
-          monthlyCopy: 'Thanh toán một lần. Khi hết hạn, bạn chủ động gia hạn ngay trong FastScene.',
+          monthlyCopy: 'Thanh toán một lần. Khi hết hạn, bạn chủ động gia hạn ngay trong AurexVideo.',
           monthlyCta: 'Chọn gói tháng',
           yearlyBadge: 'Tiết kiệm 58%',
           yearlyTitle: 'Pro theo năm',
@@ -195,7 +195,7 @@
           yearlyCta: 'Chọn gói năm',
           later: 'Để sau',
           opening: 'Đang mở trang thanh toán…',
-          opened: 'Đã mở trang thanh toán. FastScene sẽ tự cập nhật sau khi bạn thanh toán.',
+          opened: 'Đã mở trang thanh toán. AurexVideo sẽ tự cập nhật sau khi bạn thanh toán.',
           activated: 'Aurex Pro đã được kích hoạt. Đang tải lại ứng dụng…',
         }
       : {
@@ -204,7 +204,7 @@
           monthlyTitle: 'Monthly Pro',
           monthlyPrice: '$5',
           monthlyTerm: '/ 30 days',
-          monthlyCopy: 'One-time payment. Renew in FastScene whenever the plan expires.',
+          monthlyCopy: 'One-time payment. Renew in AurexVideo whenever the plan expires.',
           monthlyCta: 'Choose monthly',
           yearlyBadge: 'Save 67%',
           yearlyTitle: 'Yearly Pro',
@@ -256,9 +256,9 @@
       if (status) status.textContent = copy.activated;
       window.setTimeout(() => window.location.reload(), 900);
     };
-    window.addEventListener('fastscene-license-updated', handleLicenseUpdated);
+    window.addEventListener('aurexvideo-license-updated', handleLicenseUpdated);
     const close = () => {
-      window.removeEventListener('fastscene-license-updated', handleLicenseUpdated);
+      window.removeEventListener('aurexvideo-license-updated', handleLicenseUpdated);
       backdrop.remove();
     };
     dialog.querySelector('[data-upgrade-later]')?.addEventListener('click', close);
@@ -954,7 +954,7 @@
       [/Phát hiện \d+ khoảng lặng|speech starts after silence|Đã căn \d+ dòng/, tr('Đang gắn pose và âm thanh...', 'Applying poses and sounds…'), 2, 20],
       [/Recording one-scene video|Rendering one-scene video frame-by-frame|render_demo\.py/, tr('Đang render video...', 'Rendering video…'), 3, 25],
       [/Measured browser preroll|frame=\s*\d+/, tr('Đang ghép và mã hóa MP4...', 'Muxing and encoding MP4…'), 4, 90],
-      [/Applying branding/, tr('Đang gắn logo FastScene...', 'Applying FastScene logo…'), 4, 96],
+      [/Applying branding/, tr('Đang gắn logo AurexVideo...', 'Applying AurexVideo logo…'), 4, 96],
       [/^Done:/m, tr('Sắp hoàn thành...', 'Almost done…'), 4, 99],
     ];
     let newestIndex = -1;
@@ -1597,9 +1597,9 @@
     const nameInput = $('#brandNameInput');
     const logoInput = $('#brandLogoFile');
     const logoName = $('#brandLogoFileName');
-    if (nameInput) nameInput.value = state.renderOptions.brandName || 'fastscene.app';
+    if (nameInput) nameInput.value = state.renderOptions.brandName || 'aurexvideo.app';
     if (logoInput) logoInput.value = '';
-    if (logoName) logoName.textContent = state.renderOptions.brandLogoName || 'Logo FastScene mặc định';
+    if (logoName) logoName.textContent = state.renderOptions.brandLogoName || 'Logo AurexVideo mặc định';
     modal.hidden = false;
   }
 
@@ -1625,7 +1625,7 @@
     if (saveButton) saveButton.disabled = true;
     setStatus('Đang lưu Logo + brand...', 'warn');
     try {
-      const payload = { brandName: name || 'fastscene.app' };
+      const payload = { brandName: name || 'aurexvideo.app' };
       if (logoFile) payload.logo = { name: logoFile.name, data: await fileToBase64(logoFile) };
       const response = await fetch('/api/render-branding', {
         method: 'POST',
@@ -1634,14 +1634,14 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      state.renderOptions.brandName = String(data.brandName || 'fastscene.app').trim() || 'fastscene.app';
+      state.renderOptions.brandName = String(data.brandName || 'aurexvideo.app').trim() || 'aurexvideo.app';
       state.renderOptions.brandLogoFile = null;
       state.renderOptions.brandLogoName = data.hasLogo ? String(data.logoName || 'Logo đã lưu') : '';
       saveRenderPreferences();
       const logoInput = $('#brandLogoFile');
       const logoName = $('#brandLogoFileName');
       if (logoInput) logoInput.value = '';
-      if (logoName) logoName.textContent = state.renderOptions.brandLogoName || 'Logo FastScene mặc định';
+      if (logoName) logoName.textContent = state.renderOptions.brandLogoName || 'Logo AurexVideo mặc định';
       closeBrandConfigModal();
       setStatus('Đã lưu Logo + brand.', 'good');
     } catch (error) {
@@ -1680,7 +1680,7 @@
         branding: $('#renderBranding')?.disabled ? true : $('#renderBranding')?.checked !== false,
       };
       if (payload.branding) {
-        payload.brandName = state.renderOptions.brandName || 'fastscene.app';
+        payload.brandName = state.renderOptions.brandName || 'aurexvideo.app';
         if (state.renderOptions.brandLogoFile) {
           assertFileSize(state.renderOptions.brandLogoFile, MAX_BRAND_LOGO_BYTES, 'File logo');
           payload.brandLogo = {
@@ -1948,7 +1948,7 @@
   if (brandLogoInput && brandLogoFileName) {
     brandLogoInput.addEventListener('change', () => {
       const file = brandLogoInput.files?.[0] || null;
-      brandLogoFileName.textContent = file ? file.name : (state.renderOptions.brandLogoName || 'Logo FastScene mặc định');
+      brandLogoFileName.textContent = file ? file.name : (state.renderOptions.brandLogoName || 'Logo AurexVideo mặc định');
     });
   }
 
@@ -2432,7 +2432,7 @@
     button.addEventListener('click', selectSourceRootFromFinder);
   });
 
-  const storedTheme = localStorage.getItem('fastscene-theme');
+  const storedTheme = localStorage.getItem('aurexvideo-theme');
   applyTheme(storedTheme || 'light');
   $all('[data-theme-toggle]').forEach((button) => {
     button.addEventListener('click', toggleTheme);

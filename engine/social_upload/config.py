@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from fastscene_paths import CONFIG_ROOT, RESOURCE_ROOT
+from aurexvideo_paths import CONFIG_ROOT, RESOURCE_ROOT
 
 REPO_ROOT = RESOURCE_ROOT
 SOCIAL_UPLOAD_CONFIG = CONFIG_ROOT / "social-upload.json"

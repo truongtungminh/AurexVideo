@@ -1,6 +1,6 @@
 """Offline background removal via rembg (isnet-general-use).
 
-Models download on first use into the FastScene data directory; they are not
+Models download on first use into the AurexVideo data directory; they are not
 bundled inside the engine archive.
 """
 
@@ -10,7 +10,7 @@ import io
 import os
 from pathlib import Path
 
-from fastscene_paths import DATA_ROOT, configure_native_runtime
+from aurexvideo_paths import DATA_ROOT, configure_native_runtime
 
 configure_native_runtime()
 
@@ -60,7 +60,7 @@ def _session_for_model(model_name: str = DEFAULT_MODEL):
         from rembg import new_session
     except ImportError as exc:
         raise RuntimeError(
-            "Thiếu rembg trong runtime FastScene. Hãy cập nhật engine để dùng Xóa nền."
+            "Thiếu rembg trong runtime AurexVideo. Hãy cập nhật engine để dùng Xóa nền."
         ) from exc
     _session = new_session(model_name)
     try:
@@ -78,7 +78,7 @@ def remove_background_png(image_bytes: bytes, model_name: str = DEFAULT_MODEL) -
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError(
-            "Thiếu rembg/Pillow trong runtime FastScene. Hãy cập nhật engine để dùng Xóa nền."
+            "Thiếu rembg/Pillow trong runtime AurexVideo. Hãy cập nhật engine để dùng Xóa nền."
         ) from exc
 
     session = _session_for_model(model_name)

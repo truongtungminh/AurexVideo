@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render one FastScene project through the local Web UI contract."""
+"""Render one AurexVideo project through the local Web UI contract."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ LOCAL_ROOT = Path(__file__).resolve().parents[1]
 if str(LOCAL_ROOT) not in sys.path:
     sys.path.insert(0, str(LOCAL_ROOT))
 
-from fastscene_paths import (
+from aurexvideo_paths import (
     CONFIG_ROOT,
     PYTHON_EXECUTABLE,
     RESOURCE_ROOT,
@@ -271,7 +271,7 @@ def main() -> None:
     if not 1.0 <= args.volume <= 3.0:
         raise ValueError("Âm lượng phải nằm trong khoảng 1.0-3.0.")
     if not PYTHON.is_file():
-        raise RuntimeError("Không tìm thấy Python runtime của FastScene.")
+        raise RuntimeError("Không tìm thấy Python runtime của AurexVideo.")
 
     token = uuid.uuid4().hex[:8]
     original = json.loads(topic_path.read_text(encoding="utf-8"))
