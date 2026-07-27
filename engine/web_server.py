@@ -70,7 +70,7 @@ BOOTSTRAP_SETTINGS_PATH = BOOTSTRAP_DATA_ROOT / "bootstrap-settings.json"
 NATIVE_COMMAND_PATH = BOOTSTRAP_DATA_ROOT / "native-command.json"
 NATIVE_REQUEST_LOCK = threading.Lock()
 DEFAULT_UI_LANGUAGE = "vi" if os.environ.get("AUREXVIDEO_UI_LANGUAGE") == "vi" else "en"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.1"
 UPDATE_MANIFEST_PATH = REPO_ROOT / "update-manifest.json"
 # Central update manifest (GitHub raw) — anyone can fetch the latest release
 # metadata from here. Falls back to the local update-manifest.json if offline.
