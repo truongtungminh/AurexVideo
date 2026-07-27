@@ -7,6 +7,7 @@ import argparse
 import ast
 import base64
 import html
+import io
 import json
 import os
 import re
@@ -15,10 +16,13 @@ import shlex
 import signal
 import subprocess
 import sys
+import tarfile
 import threading
 import time
+import urllib.request
 import uuid
 import webbrowser
+import zipfile
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -8981,59 +8985,107 @@ def check_app_update() -> dict:
 
 
 def install_app_update() -> dict:
-    """Download (if URL) or copy (if file:///local) the engine upgrade ZIP and
-    unzip it over the current engine_app directory, with a rollback backup.
+    """Apply an AurexVideo engine update:
+    - Preferred: delta payload (changed/added tar.gz + explicit deleted list).
+    - Fallback: full engine ZIP for backward-compatible `source` manifests.
 
     Only the engine (web_server.py, webui, assets, ...) is replaced — the
     Tauri binary is never touched.
     """
     manifest = load_update_manifest()
     source = str(manifest.get("source") or "").strip()
-    if not source:
-        raise ValueError("manifest missing 'source' (engine upgrade zip)")
+    protocol = str(manifest.get("protocol") or "").strip()
 
-    import io
-    import urllib.request
-    import zipfile
+    def _acquire_bytes(loc):
+        if isinstance(loc, str) and loc.startswith(("http://", "https://")):
+            req = urllib.request.Request(loc, headers={"User-Agent": "AurexUpdater/1.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return resp.read()
+        if isinstance(loc, str) and loc.startswith("file://"):
+            local = Path(loc[len("file://"):]).expanduser()
+            return local.read_bytes()
+        if isinstance(loc, str) and loc:
+            return Path(loc).expanduser().read_bytes()
+        return b""
 
-    # 1) Acquire the zip bytes
-    if source.startswith("http://") or source.startswith("https://"):
-        req = urllib.request.Request(source, headers={"User-Agent": "AurexUpdater/1.0"})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = resp.read()
-    elif source.startswith("file://"):
-        local = Path(source[len("file://"):]).expanduser()
-        data = local.read_bytes()
+    if protocol == "aurexvideo-delta-v1":
+        tar_src = str(manifest.get("deltaSource") or "").strip() or source.replace(".zip", ".tar.gz")
+        data = _acquire_bytes(tar_src)
+
+        # Validate tarball
+        try:
+            tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
+            members = [m.name for m in tf.getmembers() if m.isfile()]
+            tf.close()
+        except Exception as exc:
+            raise ValueError(f"delta payload is not a valid tar.gz: {exc}")
+
+        # Backup current engine, then apply over it
+        backup_dir = REPO_ROOT.with_name(REPO_ROOT.name + ".bak")
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        shutil.copytree(REPO_ROOT, backup_dir)
+
+        apply_root = REPO_ROOT
+        try:
+            tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
+            tf.extractall(apply_root)
+            tf.close()
+
+            # Explicit deletions
+            deleted = list(manifest.get("deleted") or [])
+            allowed_base = REPO_ROOT.resolve()
+            for rel in deleted:
+                target = (allowed_base / str(rel)).resolve()
+                if str(target).startswith(str(allowed_base)) and target.is_file():
+                    target.unlink()
+                # ignore dirs for safety; users can delete dirs manually
+        except Exception as exc:
+            shutil.rmtree(apply_root, ignore_errors=True)
+            shutil.copytree(backup_dir, apply_root)
+            raise RuntimeError(f"delta apply failed, rolled back: {exc}")
     else:
-        local = Path(source).expanduser()
-        data = local.read_bytes()
+        # Backward-compatible full ZIP fallback
+        if not source:
+            raise ValueError("manifest missing 'source' (engine upgrade zip)")
 
-    # 2) Validate it is a zip
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(data))
-        bad = zf.testzip()
-        if bad is not None:
-            raise ValueError(f"corrupt zip member: {bad}")
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"source is not a valid zip: {exc}")
+        import io
+        import zipfile
 
-    # 3) Backup current engine, then extract over it
-    backup_dir = REPO_ROOT.with_name(REPO_ROOT.name + ".bak")
-    if backup_dir.exists():
-        shutil.rmtree(backup_dir)
-    shutil.copytree(REPO_ROOT, backup_dir)
+        if source.startswith("http://") or source.startswith("https://"):
+            req = urllib.request.Request(source, headers={"User-Agent": "AurexUpdater/1.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = resp.read()
+        elif source.startswith("file://"):
+            local = Path(source[len("file://"):]).expanduser()
+            data = local.read_bytes()
+        else:
+            local = Path(source).expanduser()
+            data = local.read_bytes()
 
-    extract_root = REPO_ROOT
-    try:
-        zf.extractall(extract_root)
-    except Exception as exc:
-        # rollback
-        shutil.rmtree(extract_root, ignore_errors=True)
-        shutil.copytree(backup_dir, extract_root)
-        raise RuntimeError(f"extract failed, rolled back: {exc}")
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+            bad = zf.testzip()
+            if bad is not None:
+                raise ValueError(f"corrupt zip member: {bad}")
+        except zipfile.BadZipFile as exc:
+            raise ValueError(f"source is not a valid zip: {exc}")
 
-    # 4) Mark as installed: drop the 'version' key so re-check shows no update,
-    #    and record what was installed for reference.
+        backup_dir = REPO_ROOT.with_name(REPO_ROOT.name + ".bak")
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        shutil.copytree(REPO_ROOT, backup_dir)
+
+        extract_root = REPO_ROOT
+        try:
+            zf.extractall(extract_root)
+        except Exception as exc:
+            shutil.rmtree(extract_root, ignore_errors=True)
+            shutil.copytree(backup_dir, extract_root)
+            raise RuntimeError(f"extract failed, rolled back: {exc}")
+
+    # Mark as installed: drop the 'version' key so re-check shows no update,
+    # and record what was installed for reference.
     try:
         installed = manifest.get("version")
         manifest["installedVersion"] = installed
