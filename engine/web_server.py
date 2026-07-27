@@ -96,7 +96,7 @@ OUTRO_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 BRAND_LOGO_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
 MAX_LOGO_UPLOAD_BYTES = 20 * 1024 * 1024
 DEFAULT_OUTRO_PATH = REPO_ROOT / "outro.mp4"
-DEFAULT_BRAND_LOGO_PATH = REPO_ROOT / "web" / "fastscene-logo.png"
+DEFAULT_BRAND_LOGO_PATH = REPO_ROOT / "web" / "aurexvideo-logo.png"
 BRANDING_CONFIG_PATH = USER_DATA_ROOT / "config" / "branding.json"
 BRANDING_ASSET_DIR = USER_DATA_ROOT / "config" / "branding"
 UPLOAD_DEFAULTS_CONFIG_PATH = USER_DATA_ROOT / "config" / "upload-defaults.json"
@@ -2001,7 +2001,7 @@ def render_elevenlabs_guide_html() -> bytes:
         body="""
   <main class="guide-page">
     <header class="guide-hero">
-      <a class="app-back" href="/"><img src="/web/fastscene-logo.png" alt="" /><span><strong>Aurex</strong><small>← Quay lại Dashboard</small></span></a>
+      <a class="app-back" href="/"><img src="/web/aurexvideo-logo.png" alt="" /><span><strong>Aurex</strong><small>← Quay lại Dashboard</small></span></a>
       <h1>Hướng dẫn ElevenLabs</h1>
       <p>Dùng cách thủ công khi bạn muốn tự nghe và tải file audio. Dùng API khi muốn Web UI tự gọi ElevenLabs rồi render luôn.</p>
       <a class="affiliate-cta" href="https://try.elevenlabs.io/z38mu0hfbskn" target="_blank" rel="noreferrer">
@@ -2664,7 +2664,7 @@ def render_social_upload_guide_html(platform: str) -> bytes:
         return render_page_shell(
             title=missing_title,
             body=(
-                f'<main class="social-guide-page"><a class="app-back" href="/upload"><img src="/web/fastscene-logo.png" alt="" />'
+                f'<main class="social-guide-page"><a class="app-back" href="/upload"><img src="/web/aurexvideo-logo.png" alt="" />'
                 f'<span><strong>Aurex</strong><small>{html.escape(missing_back)}</small></span></a>'
                 f'<h1>{html.escape(missing_body)}</h1></main>'
             ),
@@ -2700,7 +2700,7 @@ def render_social_upload_guide_html(platform: str) -> bytes:
     body = f"""
   <main class="social-guide-page md-guide-page">
     <header class="guide-hero">
-      <a class="app-back" href="/upload"><img src="/web/fastscene-logo.png" alt="" /><span><strong>Aurex</strong><small>{html.escape(back_label)}</small></span></a>
+      <a class="app-back" href="/upload"><img src="/web/aurexvideo-logo.png" alt="" /><span><strong>Aurex</strong><small>{html.escape(back_label)}</small></span></a>
       <p class="kicker">{html.escape(str(guide["kicker"]))}</p>
       <h1>{html.escape(title)}</h1>
       <div class="guide-lead">{lead_html}</div>
@@ -3124,7 +3124,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         body=f"""
   <header class="dashboard-header">
     <div class="brand-lockup">
-      <img src="/web/fastscene-logo.png" alt="Aurex" class="brand-mark" />
+      <img src="/web/aurexvideo-logo.png" alt="Aurex" class="brand-mark" />
       <div>
         <h1>FastScene</h1>
       </div>
@@ -6265,7 +6265,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     <section class="upload-machine">
       <header class="top-upload-bar">
         <div class="brand-lockup upload-brand-lockup">
-          <img src="/web/fastscene-logo.png" alt="Aurex" class="brand-mark upload-brand-mark" />
+          <img src="/web/aurexvideo-logo.png" alt="Aurex" class="brand-mark upload-brand-mark" />
           <div>
             <h1>FastScene</h1>
           </div>
