@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Upload Center · FastScene</title>
+    <link rel="stylesheet" href="/webui/styles.css" />
+  </head>
+  <body class="upload-page">
+    <header class="topbar">
+      <a class="brand" href="/"><img src="/assets/generated/channel-avatar.png" alt="" /><span><strong>Aurex</strong><small>Upload Center</small></span></a>
+      <a class="button secondary" href="/" target="_self">← Quay lại render</a>
+    </header>
+    <main class="upload-shell">
+      <section class="upload-video-panel panel">
+        <p class="eyebrow">Video cuối</p>
+        <label>Chọn dự án<select id="uploadProject"></select></label>
+        <video id="uploadVideo" controls playsinline></video>
+        <p class="form-note" id="videoState">Đang tải video...</p>
+      </section>
+      <section class="upload-form-panel panel">
+        <div><p class="eyebrow">Nội dung đăng</p><h1>Đăng video</h1></div>
+        <label>Tiêu đề YouTube<input id="uploadTitle" maxlength="90" /></label>
+        <label>Mô tả YouTube<textarea id="youtubeDescription" rows="8"></textarea></label>
+        <label>Caption Facebook<textarea id="facebookCaption" rows="7"></textarea></label>
+        <div class="upload-platform-grid">
+          <section class="platform-card youtube-card">
+            <strong>YouTube</strong>
+            <select id="uploadYoutubeChannel"></select>
+            <label>Quyền riêng tư<select id="youtubePrivacy"><option value="private">Riêng tư</option><option value="unlisted">Không công khai</option><option value="public" selected>Công khai</option></select></label>
+            <button class="button primary wide" id="uploadYoutubeButton" type="button">Upload YouTube</button>
+          </section>
+          <section class="platform-card facebook-card">
+            <strong>Facebook Reels</strong>
+            <select id="uploadFacebookPage"></select>
+            <button class="button primary wide" id="uploadFacebookButton" type="button">Upload Facebook</button>
+          </section>
+        </div>
+        <div class="upload-result" id="uploadResult">Chọn nền tảng để upload.</div>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/webui/upload.js"></script>
+  </body>
+</html>

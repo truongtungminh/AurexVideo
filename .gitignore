@@ -1,0 +1,13 @@
+Aurex.app
+*.dmg
+*.zip
+*.icns
+engine/.venv
+decks
+preview
+__pycache__
+*.pyc
+.DS_Store
+engine/output
+engine/project
+engine/models

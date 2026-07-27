@@ -1,0 +1,48 @@
+{
+  "name": "human-presenter-comparison",
+  "canvas": {"width": 1080, "height": 1920, "fps": 30},
+  "brand": {"text": "FastScene", "fixed": true},
+  "assets": {
+    "background": "css:white-stage",
+    "poses": {
+      "neutral-left": "assets/generated/human-presenter/neutral-left.png",
+      "neutral-right": "assets/generated/human-presenter/neutral-right.png",
+      "question": "assets/generated/human-presenter/question.png",
+      "smile-left": "assets/generated/human-presenter/smile-left.png",
+      "smile-right": "assets/generated/human-presenter/smile-right.png"
+    },
+    "sfx": {
+      "point": "assets/sfx/pose-point.wav",
+      "question": "assets/sfx/pose-question.wav",
+      "conclusion": "assets/sfx/pose-conclusion.wav"
+    }
+  },
+  "normalizedLayout": {
+    "brandPlaque": {"x": 0.05, "y": 0.037, "w": 0.9, "h": 0.04},
+    "leftMedia": {"x": 0.05, "y": 0.171, "w": 0.444, "h": 0.256},
+    "rightMedia": {"x": 0.506, "y": 0.171, "w": 0.444, "h": 0.256},
+    "subtitle": {"x": 0.05, "y": 0.462, "w": 0.9, "h": 0.07},
+    "presenter": {"x": 0.21, "y": 0.525, "w": 0.58, "h": 0.46}
+  },
+  "subtitle": {
+    "maxWords": 6,
+    "maxLines": 1,
+    "fontFamily": "Inter, -apple-system, BlinkMacSystemFont, SF Pro Display, sans-serif",
+    "fontWeight": 950,
+    "italic": false,
+    "baseColor": "#271f11",
+    "activeColor": "#de370d",
+    "strokeColor": "transparent",
+    "strokePxAt1080": 0
+  },
+  "poseRules": {
+    "leftSubjectFirst": "neutral-left",
+    "rightSubjectFirst": "neutral-right",
+    "question": "question",
+    "leftSubjectExplaining": "smile-left",
+    "rightSubjectExplaining": "smile-right",
+    "sfxOnlyOnBodyPoseChange": true,
+    "sfxCooldownSeconds": 0.6,
+    "sfxLeadSeconds": 0.04
+  }
+}
