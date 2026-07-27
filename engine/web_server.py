@@ -66,7 +66,7 @@ BOOTSTRAP_SETTINGS_PATH = BOOTSTRAP_DATA_ROOT / "bootstrap-settings.json"
 NATIVE_COMMAND_PATH = BOOTSTRAP_DATA_ROOT / "native-command.json"
 NATIVE_REQUEST_LOCK = threading.Lock()
 DEFAULT_UI_LANGUAGE = "vi" if os.environ.get("FASTSCENE_UI_LANGUAGE") == "vi" else "en"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.1"
 UPDATE_MANIFEST_PATH = REPO_ROOT / "update-manifest.json"
 # Central update manifest (GitHub raw) — anyone can fetch the latest release
 # metadata from here. Falls back to the local update-manifest.json if offline.
@@ -9040,28 +9040,6 @@ def install_app_update() -> dict:
         manifest.pop("version", None)
         manifest.pop("source", None)
         UPDATE_MANIFEST_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # Signal the Tauri parent to relaunch the app after we exit.
-        import os
-        import signal
-        relaunch_flag = "/tmp/aurex_relaunch"
-        try:
-            with open(relaunch_flag, "w") as f:
-                f.write(installed or "")
-        except OSError:
-            pass
-        # Give the HTTP response a moment to flush, then terminate the Tauri
-        # parent (which will restart the whole app with the new engine).
-        parent = os.getppid()
-        def _relaunch_later():
-            import time
-            time.sleep(1.5)
-            try:
-                os.kill(parent, signal.SIGTERM)
-            except OSError:
-                pass
-        threading.Thread(target=_relaunch_later, daemon=True).start()
-
         return {
             "ok": True,
             "installedVersion": installed,

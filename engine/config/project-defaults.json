@@ -3,7 +3,7 @@
   "karaokeColor": "#271f11",
   "karaokeActiveColor": "#de370d",
   "karaokeSize": 1.2,
-  "backgroundType": "image",
+  "backgroundType": "color",
   "backgroundColor": "#f5eee3",
   "backgroundImageZoom": 1.0,
   "backgroundImageX": 0.0,
