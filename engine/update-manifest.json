@@ -1,4 +1,5 @@
 {
   "notes": "Release engine 0.2.1 - central OTA update",
-  "installedVersion": "0.2.1"
+  "installedVersion": "0.2.1",
+  "version": "0.1.0"
 }

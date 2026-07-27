@@ -1,13 +1,10 @@
-Aurex.app
-*.dmg
-*.zip
-*.icns
-engine/.venv
-decks
-preview
-__pycache__
+# Bundled runtime artifacts (downloaded by app at first launch)
+engine/python_base/
+engine/runtime/
+engine/models/
+py2app-setup.py
+__pycache__/
 *.pyc
 .DS_Store
-engine/output
-engine/project
-engine/models
+engine/.venv/
+decks/
