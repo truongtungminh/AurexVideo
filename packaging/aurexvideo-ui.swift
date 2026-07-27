@@ -12,7 +12,8 @@ final class AppState: ObservableObject {
 
     let engineBase = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Application Support/app.aurexvideo")
-    let downloadURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.1/aurexvideo-engine.tar.gz")!
+    let engineURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.2/aurexvideo-engine-0.2.2.tar.gz")!
+    let runtimeURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.2/aurexvideo-runtime-0.2.2.tar.gz")!
 
     var lang = "en"
 
@@ -28,40 +29,62 @@ final class AppState: ObservableObject {
     func bootstrap() {
         let fm = FileManager.default
         let engineDir = engineBase.appendingPathComponent("engine")
-        let marker = engineBase.appendingPathComponent(".engine_ready")
+        let runtimeDir = engineBase.appendingPathComponent("runtime")
+        let runtimeMarker = engineBase.appendingPathComponent(".runtime_ready")
+        let engineMarker = engineBase.appendingPathComponent(".engine_ready")
 
-        if fm.fileExists(atPath: marker.path), fm.fileExists(atPath: engineDir.path) {
+        // (A) Runtime missing -> download heavy runtime once (640MB)
+        if !fm.fileExists(atPath: runtimeMarker.path) || !fm.fileExists(atPath: runtimeDir.path) {
+            DispatchQueue.main.async { self.statusText = "Đang tải thư viện runtime (lần đầu cài)…"; self.progress = 0 }
+            downloadArchive(from: runtimeURL, to: "aurexvideo-runtime.tar.gz", marker: ".runtime_ready") { [weak self] ok in
+                guard ok else { return }
+                // after runtime, continue to engine
+                self?.fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
+            }
+            return
+        }
+
+        // (B) Runtime present -> just fetch lightweight engine code (26MB)
+        fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
+    }
+
+    func fetchEngine(engineMarker: URL, engineDir: URL) {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: engineMarker.path), fm.fileExists(atPath: engineDir.path) {
             startServerAndShow()
             return
         }
-        DispatchQueue.main.async { self.statusText = "Đang tải engine video về máy…"; self.progress = 0 }
-        downloadEngine()
+        DispatchQueue.main.async { self.statusText = "Đang tải engine video…"; self.progress = 0 }
+        downloadArchive(from: engineURL, to: "aurexvideo-engine.tar.gz", marker: ".engine_ready") { [weak self] ok in
+            guard ok else { return }
+            self?.startServerAndShow()
+        }
     }
 
-    func downloadEngine() {
-        let task = URLSession.shared.downloadTask(with: downloadURL) { [weak self] tmpURL, _, err in
+    // Generic downloader: downloads `from`, saves to engineBase/<saveAs>, unpacks into engineBase, writes <marker>
+    func downloadArchive(from url: URL, to saveAs: String, marker: String, completion: @escaping (Bool) -> Void) {
+        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmpURL, _, err in
             guard let self else { return }
             let logURL = self.engineBase.appendingPathComponent("app.log")
             if let err {
-                try? ("[download] error: \(err.localizedDescription)".write(to: logURL, atomically: true, encoding: .utf8))
+                try? ("[download] error (\(saveAs)): \(err.localizedDescription)".write(to: logURL, atomically: true, encoding: .utf8))
                 DispatchQueue.main.async { self.errorText = "Lỗi tải: \(err.localizedDescription)"; self.stage = .failed }
-                return
+                completion(false); return
             }
             guard let tmpURL else {
-                try? ("[download] no tmpURL".write(to: logURL, atomically: true, encoding: .utf8))
-                DispatchQueue.main.async { self.errorText = "Không tải được file engine."; self.stage = .failed }
-                return
+                try? ("[download] no tmpURL (\(saveAs))".write(to: logURL, atomically: true, encoding: .utf8))
+                DispatchQueue.main.async { self.errorText = "Không tải được file."; self.stage = .failed }
+                completion(false); return
             }
-            let dest = self.engineBase.appendingPathComponent("aurexvideo-engine.tar.gz")
+            let dest = self.engineBase.appendingPathComponent(saveAs)
             let fm = FileManager.default
             try? fm.createDirectory(at: self.engineBase, withIntermediateDirectories: true)
             try? fm.removeItem(at: dest)
-            do { try fm.moveItem(at: tmpURL, to: dest) }
-            catch {
+            do { try fm.moveItem(at: tmpURL, to: dest) } catch {
                 DispatchQueue.main.async { self.errorText = "Lỗi lưu file: \(error.localizedDescription)"; self.stage = .failed }
-                return
+                completion(false); return
             }
-            self.unpack(dest)
+            self.unpack(dest, marker: marker, completion: completion)
         }
         task.resume()
         Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { t in
@@ -70,42 +93,52 @@ final class AppState: ObservableObject {
         }
     }
 
-    func unpack(_ archive: URL) {
+    func unpack(_ archive: URL, marker: String, completion: @escaping (Bool) -> Void) {
         let logURL = engineBase.appendingPathComponent("app.log")
         try? ("[unpack] start, archive: \(archive.path)".write(to: logURL, atomically: true, encoding: .utf8))
         DispatchQueue.main.async { self.statusText = "Đang giải nén…"; self.progress = 1 }
         let fm = FileManager.default
         try? fm.createDirectory(at: engineBase, withIntermediateDirectories: true)
+        let engineDir = engineBase.appendingPathComponent("engine")
+        try? fm.createDirectory(at: engineDir, withIntermediateDirectories: true)
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        proc.arguments = ["xzf", archive.path, "-C", engineBase.path]
+        proc.arguments = ["xzf", archive.path, "-C", engineDir.path]
         proc.terminationHandler = { [weak self] p in
             guard let self else { return }
             try? ("[unpack] tar exit: \(p.terminationStatus)".write(to: logURL, atomically: true, encoding: .utf8))
             if p.terminationStatus != 0 {
                 DispatchQueue.main.async { self.errorText = "Giải nén thất bại (mã \(p.terminationStatus))."; self.stage = .failed }
-                return
+                completion(false); return
             }
-            fm.createFile(atPath: self.engineBase.appendingPathComponent(".engine_ready").path, contents: Data())
-            try? fm.createDirectory(at: self.engineBase.appendingPathComponent("engine/decks"), withIntermediateDirectories: true)
-            self.startServerAndShow()
+            fm.createFile(atPath: self.engineBase.appendingPathComponent(marker).path, contents: Data())
+            if marker == ".engine_ready" {
+                try? fm.createDirectory(at: self.engineBase.appendingPathComponent("engine/decks"), withIntermediateDirectories: true)
+            }
+            completion(true)
         }
         do { try proc.run() } catch {
             try? ("[unpack] tar run failed: \(error.localizedDescription)".write(to: logURL, atomically: true, encoding: .utf8))
             DispatchQueue.main.async { self.errorText = "Không chạy được tar: \(error.localizedDescription)"; self.stage = .failed }
+            completion(false)
         }
     }
+
+
 
     func startServerAndShow() {
         let fm = FileManager.default
         let engineDir = engineBase.appendingPathComponent("engine")
-        let venvPy = engineDir.appendingPathComponent(".venv/bin/python3")
+        let pyBase = engineBase.appendingPathComponent("python_base/bin/python3.11")
+        let venvPy = engineBase.appendingPathComponent(".venv/bin/python3")
         let server = engineDir.appendingPathComponent("web_server.py")
         let decks = engineDir.appendingPathComponent("decks")
         let logURL = engineBase.appendingPathComponent("app.log")
-        try? ("[startServer] called, venvPy exists: \(fm.fileExists(atPath: venvPy.path)), server exists: \(fm.fileExists(atPath: server.path))".write(to: logURL, atomically: true, encoding: .utf8))
+        try? ("[startServer] called, pyBase exists: \(fm.fileExists(atPath: pyBase.path)), venvPy exists: \(fm.fileExists(atPath: venvPy.path)), server exists: \(fm.fileExists(atPath: server.path))".write(to: logURL, atomically: true, encoding: .utf8))
 
-        guard fm.fileExists(atPath: venvPy.path), fm.fileExists(atPath: server.path) else {
+        // Prefer bundled python_base; fall back to venv symlink if present
+        let pythonExec: URL = fm.fileExists(atPath: pyBase.path) ? pyBase : venvPy
+        guard fm.fileExists(atPath: pythonExec.path), fm.fileExists(atPath: server.path) else {
             let m = "Thiếu python hoặc web_server.py trong engine."
             try? ("[startServer] \(m)".write(to: logURL, atomically: true, encoding: .utf8))
             DispatchQueue.main.async { self.errorText = m; self.stage = .failed }
@@ -116,12 +149,13 @@ final class AppState: ObservableObject {
             return
         }
         let proc = Process()
-        proc.executableURL = venvPy
+        proc.executableURL = pythonExec
         proc.arguments = [server.path, "--host", "127.0.0.1", "--port", "4173", "--source-root", decks.path]
         proc.currentDirectoryURL = engineDir
         var env = ProcessInfo.processInfo.environment
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
-        env["PYTHONHOME"] = engineDir.appendingPathComponent("python_base").path
+        env["PYTHONHOME"] = engineBase.appendingPathComponent("python_base").path
+        env["PATH"] = engineBase.appendingPathComponent("runtime/bin").path + ":" + (env["PATH"] ?? "")
         proc.environment = env
         let errPipe = Pipe()
         proc.standardError = errPipe
