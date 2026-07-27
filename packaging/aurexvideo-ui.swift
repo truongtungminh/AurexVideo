@@ -12,8 +12,8 @@ final class AppState: ObservableObject {
 
     let engineBase = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Application Support/app.aurexvideo")
-    let engineURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.2/aurexvideo-engine-0.2.2.tar.gz")!
-    let runtimeURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.2/aurexvideo-runtime-0.2.2.tar.gz")!
+    let engineURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-engine-0.2.3.tar.gz")!
+    let runtimeURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-runtime-0.2.2.tar.gz")!
 
     var lang = "en"
 
