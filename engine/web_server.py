@@ -3080,7 +3080,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         )
     )
     metrics_class = "account-popover-metrics is-pro" if is_pro_plan else "account-popover-metrics"
-    account_avatar_class = "account-avatar is-pro" if is_pro_plan else "account-avatar"
     popover_avatar_class = "account-popover-avatar is-pro" if is_pro_plan else "account-popover-avatar"
     plan_badge_class = "account-plan-badge is-pro" if is_pro_plan else "account-plan-badge"
     project_names = {project["name"] for project in projects}
@@ -3144,19 +3143,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     </div>
     <div class="header-account">
       <div class="header-stat"><strong>{len(projects)}</strong><span>dự án</span></div>
-      <button class="{account_avatar_class}" id="accountAvatarButton" type="button" title="{html.escape(account_email or account_name, quote=True)}" aria-label="Mở cài đặt tài khoản">{avatar_markup}</button>
-      <div class="account-popover" id="accountPopover" hidden>
-        <div class="account-popover-profile">
-          <div class="{popover_avatar_class}">{avatar_markup}</div>
-          <div><strong>{html.escape(account_name)}</strong><span>{html.escape(account_email or "Chưa đăng nhập")}</span><small class="{plan_badge_class}">{html.escape(display_plan_name)}</small></div>
-        </div>
-        <div class="{metrics_class}">
-          {trial_usage_markup}
-          <div class="account-popover-metric"><strong>{html.escape(access_status)}</strong><span>Trạng thái</span></div>
-        </div>
-        {account_upgrade_markup}
-        <button class="account-popover-row account-logout" id="accountLogoutButton" type="button">Đăng xuất</button>
-      </div>
     </div>
   </header>
 
@@ -3821,150 +3807,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       text-align: center;
     }
     .header-stat strong { display: block; color: var(--accent); font-size: 32px; line-height: 1; }
-    .header-stat span { color: var(--muted); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; }
-    .account-avatar {
-      width: 62px;
-      height: 62px;
-      flex: 0 0 62px;
-      display: grid;
-      place-items: center;
-      overflow: hidden;
-      border: 2px solid var(--line);
-      border-radius: 50%;
-      padding: 0;
-      color: #fff8ed;
-      background: linear-gradient(135deg, var(--accent), #d88435);
-      box-shadow: 0 12px 28px rgba(0, 0, 0, .18);
-      cursor: pointer;
-    }
-    .account-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .account-avatar span { font-size: 22px; font-weight: 950; }
-    .account-avatar.is-pro,
-    .account-popover-avatar.is-pro {
-      position: relative;
-      overflow: visible;
-      isolation: isolate;
-      border: 3px solid transparent;
-      background: linear-gradient(#181818, #181818) padding-box, conic-gradient(from 0deg, #fff2a8, #ffb84d, #9bff3f, #fff2a8) border-box;
-      box-shadow: 0 0 0 2px rgba(255, 212, 91, .16), 0 0 18px rgba(255, 184, 77, .38), 0 12px 28px rgba(0, 0, 0, .2);
-    }
-    .account-avatar.is-pro::before,
-    .account-popover-avatar.is-pro::before {
-      content: "";
-      position: absolute;
-      inset: -7px;
-      z-index: -1;
-      border-radius: inherit;
-      background: conic-gradient(from 0deg, rgba(255, 242, 168, .15), rgba(255, 184, 77, .7), rgba(155, 255, 63, .58), rgba(255, 242, 168, .15));
-      filter: blur(2px);
-      animation: premium-ring-spin 5s linear infinite;
-    }
-    .account-avatar.is-pro img,
-    .account-popover-avatar.is-pro img { border-radius: 50%; }
-    @keyframes premium-ring-spin { to { transform: rotate(1turn); } }
-    @media (prefers-reduced-motion: reduce) {
-      .account-avatar.is-pro::before,
-      .account-popover-avatar.is-pro::before { animation: none; }
-    }
-    .account-popover {
-      position: absolute;
-      top: calc(100% + 12px);
-      right: 0;
-      z-index: 1000;
-      width: min(380px, calc(100vw - 28px));
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 16px;
-      color: var(--text);
-      background: #181818;
-      box-shadow: 0 24px 70px rgba(0, 0, 0, .42);
-    }
-    body.theme-light .account-popover {
-      background: #f1ebe0;
-      box-shadow: 0 18px 48px rgba(32, 23, 15, 0.12);
-    }
-    body.theme-light .account-popover-profile {
-      background: rgba(79, 57, 31, 0.045);
-    }
-    body.theme-light .account-popover-metric {
-      background: rgba(79, 57, 31, 0.045);
-    }
-    .account-popover-profile {
-      display: grid;
-      grid-template-columns: 54px minmax(0, 1fr);
-      gap: 12px;
-      align-items: center;
-      padding: 14px;
-      border-radius: 16px;
-      background: linear-gradient(135deg, rgba(255, 180, 126, .22), rgba(196, 134, 73, .15));
-    }
-    .account-popover-avatar { width: 54px; height: 54px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--accent); font-weight: 950; }
-    .account-popover-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .account-popover-profile > div:last-child { min-width: 0; display: grid; gap: 2px; }
-    .account-popover-profile strong, .account-popover-profile span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .account-popover-profile span { color: var(--text-soft); font-size: 12px; }
-    .account-plan-badge { width: fit-content; color: var(--accent); font-size: 11px; font-weight: 900; }
-    .account-plan-badge.is-pro { margin-top: 4px; border: 1px solid rgba(255, 184, 77, .52); border-radius: 999px; padding: 4px 10px; color: #301800; background: linear-gradient(135deg, #fff2a8, #ffb84d 62%, #9bff3f); box-shadow: 0 5px 14px rgba(255, 184, 77, .2); font-size: 15px; font-weight: 950; line-height: 1; letter-spacing: .02em; }
-    .account-popover-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px 0; }
-    .account-popover-metrics.is-pro { grid-template-columns: 1fr; }
-    .account-popover-metric { min-width: 0; display: grid; gap: 3px; padding: 10px 12px; border-radius: 12px; background: rgba(196, 134, 73, .1); text-align: center; }
-    .account-popover-metrics.is-pro .account-popover-metric { padding-block: 12px; }
-    .account-popover-metrics strong { overflow: hidden; color: var(--text); font-size: 20px; line-height: 1.15; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
-    .account-popover-metrics span { color: var(--muted); font-size: 11px; font-weight: 800; }
-    .account-popover-row {
-      width: 100%;
-      min-height: 48px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      border: 1px solid rgba(255, 157, 140, 0.28);
-      border-radius: 14px;
-      margin-top: 10px;
-      padding: 12px 16px;
-      color: #ff9d8c;
-      background: rgba(255, 157, 140, 0.12);
-      box-shadow: inset 0 0 0 1px rgba(255, 157, 140, 0.06);
-      font: inherit;
-      font-size: 15px;
-      font-weight: 900;
-      letter-spacing: -0.01em;
-      text-align: center;
-      cursor: pointer;
-    }
-    .account-popover-row:hover {
-      color: #ffb4a8;
-      background: rgba(255, 157, 140, 0.2);
-      border-color: rgba(255, 157, 140, 0.4);
-    }
-    body.theme-light .account-popover-row,
-    body.theme-light .account-logout {
-      color: #b42318;
-      border-color: rgba(180, 35, 24, 0.18);
-      background: rgba(180, 35, 24, 0.08);
-      box-shadow: 0 8px 20px rgba(180, 35, 24, 0.08);
-    }
-    body.theme-light .account-popover-row:hover,
-    body.theme-light .account-logout:hover {
-      color: #912018;
-      border-color: rgba(145, 32, 24, 0.28);
-      background: rgba(180, 35, 24, 0.14);
-    }
-    .account-upgrade-button {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 34px minmax(0, 1fr);
-      column-gap: 10px;
-      align-items: center;
-      border: 1px solid rgba(112, 177, 49, .5);
-      border-radius: 15px;
-      padding: 12px 14px;
-      color: #16200e;
-      background: linear-gradient(135deg, #c9ff7f, #92ed42);
-      box-shadow: 0 10px 24px rgba(126, 213, 52, .18);
-      text-align: left;
-      cursor: pointer;
-    }
     .account-upgrade-button > span { grid-row: 1 / 3; color: #315a16; font-size: 24px; text-align: center; }
     .account-upgrade-button strong { font-size: 15px; line-height: 1.15; }
     .account-upgrade-button small { margin-top: 3px; color: #315021; font-size: 10px; font-weight: 750; line-height: 1.3; }
@@ -6108,31 +5950,9 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.__PROJECTS__ = {json.dumps(projects, ensure_ascii=False)};
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
-    const accountAvatarButton = document.getElementById('accountAvatarButton');
-    const accountPopover = document.getElementById('accountPopover');
-    accountAvatarButton?.addEventListener('click', (event) => {{
-      event.stopPropagation();
-      accountPopover.hidden = !accountPopover.hidden;
-    }});
-    accountPopover?.addEventListener('click', (event) => event.stopPropagation());
-    document.addEventListener('click', () => {{ if (accountPopover) accountPopover.hidden = true; }});
-    document.getElementById('accountLogoutButton')?.addEventListener('click', async (event) => {{
-      const button = event.currentTarget;
-      button.disabled = true;
-      button.textContent = document.documentElement.lang === 'vi' ? 'Đang đăng xuất…' : 'Logging out…';
-      try {{
-        const response = await fetch('/api/account/logout', {{ method: 'POST' }});
-        if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
-      }} catch (error) {{
-        button.disabled = false;
-        button.textContent = document.documentElement.lang === 'vi' ? 'Đăng xuất' : 'Log out';
-        window.alert(error?.message || String(error));
-      }}
-    }});
     const upgradePlanDialog = document.getElementById('upgradePlanDialog');
     const upgradePlanStatus = document.getElementById('upgradePlanStatus');
     function openUpgradePlanDialog() {{
-      if (accountPopover) accountPopover.hidden = true;
       if (upgradePlanStatus) upgradePlanStatus.textContent = '';
       upgradePlanDialog?.showModal();
     }}
