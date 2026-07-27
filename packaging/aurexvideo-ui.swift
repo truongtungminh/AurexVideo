@@ -129,12 +129,18 @@ final class AppState: ObservableObject {
     func startServerAndShow() {
         let fm = FileManager.default
         let engineDir = engineBase.appendingPathComponent("engine")
+        let studioDir = engineBase.appendingPathComponent("studio")
         let pyBase = engineBase.appendingPathComponent("python_base/bin/python3.11")
         let venvPy = engineBase.appendingPathComponent(".venv/bin/python3")
         let server = engineDir.appendingPathComponent("web_server.py")
-        let decks = engineDir.appendingPathComponent("decks")
+        let projectDir = studioDir.appendingPathComponent("project")
         let logURL = engineBase.appendingPathComponent("app.log")
         try? ("[startServer] called, pyBase exists: \(fm.fileExists(atPath: pyBase.path)), venvPy exists: \(fm.fileExists(atPath: venvPy.path)), server exists: \(fm.fileExists(atPath: server.path))".write(to: logURL, atomically: true, encoding: .utf8))
+
+        // Ensure personal data folder exists (separate from engine, survives OTA)
+        for sub in ["project", "output", "config", "assets"] {
+            try? fm.createDirectory(at: studioDir.appendingPathComponent(sub), withIntermediateDirectories: true)
+        }
 
         // Prefer bundled python_base; fall back to venv symlink if present
         let pythonExec: URL = fm.fileExists(atPath: pyBase.path) ? pyBase : venvPy
@@ -150,10 +156,12 @@ final class AppState: ObservableObject {
         }
         let proc = Process()
         proc.executableURL = pythonExec
-        proc.arguments = [server.path, "--host", "127.0.0.1", "--port", "4173", "--source-root", decks.path]
+        proc.arguments = [server.path, "--host", "127.0.0.1", "--port", "4173", "--source-root", projectDir.path]
         proc.currentDirectoryURL = engineDir
         var env = ProcessInfo.processInfo.environment
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
+        env["AUREX_DATA_ROOT"] = studioDir.path
+        env["AUREX_BOOTSTRAP_DATA_ROOT"] = studioDir.path
         env["PYTHONHOME"] = engineBase.appendingPathComponent("python_base").path
         env["PATH"] = engineBase.appendingPathComponent("runtime/bin").path + ":" + (env["PATH"] ?? "")
         proc.environment = env
