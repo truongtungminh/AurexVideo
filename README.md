@@ -19,12 +19,12 @@ cd engine
 
 ## Cách phát hành / cài máy khác
 
-DMG: `~/Desktop/AurexVideo-0.2.3-native.dmg`
+DMG: `~/Desktop/AurexVideo-0.2.3-tauri.dmg`
 
 Cài máy khác:
 1. Mở DMG, kéo `AurexVideo.app` vào `Applications`.
-2. Lần đầu mở, chọn ngôn ngữ (EN/VI) → app tự tải runtime 634MB rồi engine 26MB.
-3. Lần sau chỉ tải engine 26MB qua OTA, không tải lại runtime.
+2. Lần đầu mở, app tự tải python_base (~42MB) + engine (~26MB) từ GitHub releases.
+3. Lần sau chỉ tải engine qua OTA, không tải lại runtime.
 
 ## Cấu trúc runtime + data (giống FastScene 2-folder)
 
@@ -43,10 +43,10 @@ Cài máy khác:
 - Xóa app hoặc cài lại app không mất `studio/`.
 - Xóa `~/Library/Application Support/app.aurexvideo` thì mất hết.
 
-## Bootstrap / OTA
+## Kiến trúc app vỏ
 
-App vỏ (Swift + WKWebView) chỉ khoảng vài MB, không nhét engine vào `.app`.
-Khi cài mới, app tự tải các thành phần runtime **từ chính chủ** (không qua một file tarball lớn):
+App vỏ là **Tauri v2** (Rust + system WebView), không nhét engine vào `.app`.
+Khi cài mới, Rust bootstrap tự tải các thành phần runtime **từ chính chủ** (không qua một file tarball lớn):
 
 - **Python** (~42MB) ← GitHub Release `aurexvideo-python-0.2.3.tar.gz`
 - **faster-whisper-base** (145MB) ← HuggingFace `Systran/faster-whisper-base`
@@ -56,6 +56,10 @@ Khi cài mới, app tự tải các thành phần runtime **từ chính chủ** 
 
 Các component nặng tải song song, mỗi lần cài chỉ 1 lần (marker `.runtime_ready`).
 Chỉ engine được thay thế khi có bản cập nhật OTA (marker `.engine_ready`).
+
+**Lợi ích Tauri so với Swift WKWebView thủ công:** Tauri dùng system WebView (WKWebView macOS),
+tự xử lý native file dialog khi web gọi `<input type=file>` → **không cần viết UIDelegate**,
+fix triệt để lỗi "Upload PNG button không mở được picker" ở bản Swift cũ.
 
 ## Tốc độ tải tham chiếu
 
@@ -71,7 +75,8 @@ Chỉ engine được thay thế khi có bản cập nhật OTA (marker `.engine
 
 - Không dùng `server.py` gốc nữa; dùng `engine/web_server.py`.
 - Đừng đặt `source-root` trùng `studio/`; để trống hoặc trỏ `decks/` là đúng.
-- Nếu sửa packaging, rebuild Swift + rebuild DMG để máy khác nhận được.
+- Build app: `cd tauri-src && cargo build --release`, đóng gói bằng `bash packaging/make-dmg-tauri.sh`.
+- Swift app vỏ cũ (packaging/aurexvideo-ui.swift) đã bỏ, thay bằng Tauri (tauri-src/).
 
 ## Icon app (macOS)
 
@@ -81,7 +86,8 @@ Chỉ engine được thay thế khi có bản cập nhật OTA (marker `.engine
 
 ## Trạng thái build (2026-07-28)
 
-- ✅ `AurexVideo-0.2.3-native.dmg` (2.6MB) tại `~/Desktop/`: app vỏ Swift + ICNS + symlink `/Applications`.
+- ✅ `AurexVideo-0.2.3-tauri.dmg` (3.2MB) tại `~/Desktop/`: app vỏ **Tauri v2** + ICNS + symlink `/Applications`.
 - ✅ `codesign --verify` valid (ad-hoc signing, arm64).
-- ✅ Launch test thực tế: app mở, downloader UX hiển thị % / tốc độ MB/s / ETA (đã verify bằng screenshot).
+- ✅ Launch test thực tế: app mở, server up HTTP 200 (không trắng), UI dashboard đầy đủ (verify bằng screenshot).
+- ✅ Tauri WebView tự xử lý native file dialog → fix lỗi "Upload PNG không bấm được" của bản Swift cũ.
 - ✅ Version đồng bộ: `web_server.py APP_VERSION`, `engine/VERSION`, `update-manifest.json` đều `0.2.3`.
