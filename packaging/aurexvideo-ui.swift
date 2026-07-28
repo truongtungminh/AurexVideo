@@ -24,7 +24,16 @@ final class AppState: ObservableObject {
     let engineBase = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Application Support/app.aurexvideo")
     let engineURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-engine-0.2.3.tar.gz")!
-    let runtimeURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-runtime-0.2.2.tar.gz")!
+    // Python giữ từ GitHub (nhẹ ~80MB) — các component nặng tải từ chính chủ
+    let pythonURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-python-0.2.3.tar.gz")!
+    // whisper-base từ HuggingFace chính chủ (Systran)
+    let whisperFiles = [
+        "config.json", "model.bin", "tokenizer.json", "vocabulary.txt",
+        "preprocessor_config.json", "tokenizer_config.json"
+    ]
+    let whisperBase = "https://huggingface.co/Systran/faster-whisper-base/resolve/main/"
+    // ffmpeg từ evermeet.cx (mac ffmpeg chính chủ)
+    let ffmpegURL = URL(string: "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip")!
 
     var lang = "en"
 
@@ -49,34 +58,169 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Multi-source bootstrap
     func bootstrap() {
         let fm = FileManager.default
         let engineDir = engineBase.appendingPathComponent("engine")
         let runtimeDir = engineBase.appendingPathComponent("runtime")
-        let runtimeMarker = engineBase.appendingPathComponent(".runtime_ready")
+        let pythonBase = engineBase.appendingPathComponent("python_base")
         let engineMarker = engineBase.appendingPathComponent(".engine_ready")
+        let runtimeMarker = engineBase.appendingPathComponent(".runtime_ready")
 
-        // (A) Runtime missing -> download heavy runtime once (~634MB)
-        if !fm.fileExists(atPath: runtimeMarker.path) || !fm.fileExists(atPath: runtimeDir.path) {
-            DispatchQueue.main.async {
-                self.statusText = "Đang tải thư viện runtime (lần đầu cài, ~634MB)…"
-                self.progress = 0
-                self.speedText = ""
-                self.etaText = ""
-            }
-            downloadArchive(from: runtimeURL, to: "aurexvideo-runtime.tar.gz", marker: ".runtime_ready", label: "runtime") { [weak self] ok in
-                guard ok else { return }
-                self?.fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
-            }
+        // B1: Nếu chưa có runtime (python + chromium + ffmpeg + whisper) -> tải từ chính chủ
+        let needRuntime = !fm.fileExists(atPath: runtimeMarker.path)
+            || !fm.fileExists(atPath: pythonBase.appendingPathComponent("bin/python3.11").path)
+            || !fm.fileExists(atPath: runtimeDir.appendingPathComponent("ms-playwright/chromium_headless_shell-1228").path)
+            || !fm.fileExists(atPath: runtimeDir.appendingPathComponent("models/faster-whisper-base/model.bin").path)
+
+        if needRuntime {
+            downloadPythonThenComponents(runtimeMarker: runtimeMarker, engineMarker: engineMarker, engineDir: engineDir)
             return
         }
 
         fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
     }
 
+    // Tải Python (GitHub, nhẹ) trước, sau đó dùng Python đó chạy playwright install + tải HF/ffmpeg
+    func downloadPythonThenComponents(runtimeMarker: URL, engineMarker: URL, engineDir: URL) {
+        DispatchQueue.main.async {
+            self.statusText = "Đang tải Python (~80MB)…"
+            self.progress = 0
+            self.speedText = ""
+            self.etaText = ""
+        }
+        downloadArchive(from: pythonURL, to: "aurexvideo-python.tar.gz", marker: ".python_ready", label: "python") { [weak self] ok in
+            guard ok, let self else { return }
+            self.unpackPython { ok2 in
+                guard ok2 else { return }
+                self.downloadComponents(runtimeMarker: runtimeMarker, engineMarker: engineMarker, engineDir: engineDir)
+            }
+        }
+    }
+
+    // Tải song song: whisper (HF) + ffmpeg (evermeet) + chromium (playwright install)
+    func downloadComponents(runtimeMarker: URL, engineMarker: URL, engineDir: URL) {
+        let group = DispatchGroup()
+        var whisperOK = true, ffmpegOK = true, chromiumOK = true
+
+        // (1) whisper-base từ HuggingFace
+        group.enter()
+        DispatchQueue.main.async { self.statusText = "Đang tải whisper model (HuggingFace)…" }
+        downloadWhisper { ok in whisperOK = ok; group.leave() }
+
+        // (2) ffmpeg từ evermeet.cx
+        group.enter()
+        DispatchQueue.main.async { self.statusText = "Đang tải ffmpeg (evermeet)…" }
+        downloadFFmpeg { ok in ffmpegOK = ok; group.leave() }
+
+        // (3) chromium qua playwright install (tự tải CDN chính chủ)
+        group.enter()
+        DispatchQueue.main.async { self.statusText = "Đang tải Chromium (Playwright CDN)…" }
+        installChromium { ok in chromiumOK = ok; group.leave() }
+
+        group.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            guard whisperOK, ffmpegOK, chromiumOK else {
+                self.errorText = "Tải component thất bại (whisper=\(whisperOK) ffmpeg=\(ffmpegOK) chromium=\(chromiumOK))"
+                self.stage = .failed
+                return
+            }
+            try? FileManager.default.createFile(atPath: runtimeMarker.path, contents: Data())
+            self.fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
+        }
+    }
+
+    func downloadWhisper(completion: @escaping (Bool) -> Void) {
+        let destDir = engineBase.appendingPathComponent("runtime/models/faster-whisper-base")
+        let fm = FileManager.default
+        try? fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+        let group = DispatchGroup()
+        var allOK = true
+        for f in whisperFiles {
+            group.enter()
+            let url = URL(string: whisperBase + f)!
+            let dest = destDir.appendingPathComponent(f)
+            downloadFile(from: url, to: dest) { ok in
+                if !ok { allOK = false }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { completion(allOK) }
+    }
+
+    func downloadFFmpeg(completion: @escaping (Bool) -> Void) {
+        let zipDest = engineBase.appendingPathComponent("ffmpeg.zip")
+        downloadFile(from: ffmpegURL, to: zipDest) { ok in
+            guard ok else { completion(false); return }
+            let binDir = self.engineBase.appendingPathComponent("runtime/bin")
+            try? FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            proc.arguments = ["-o", zipDest.path, "-d", binDir.path]
+            proc.terminationHandler = { p in
+                let ff = binDir.appendingPathComponent("ffmpeg")
+                try? FileManager.default.removeItem(at: zipDest)
+                completion(p.terminationStatus == 0 && FileManager.default.fileExists(atPath: ff.path))
+            }
+            try? proc.run()
+        }
+    }
+
+    func installChromium(completion: @escaping (Bool) -> Void) {
+        let py = engineBase.appendingPathComponent("python_base/bin/python3.11")
+        guard FileManager.default.fileExists(atPath: py.path) else { completion(false); return }
+        let proc = Process()
+        proc.executableURL = py
+        proc.arguments = ["-m", "playwright", "install", "chromium-headless-shell"]
+        proc.currentDirectoryURL = engineBase
+        var env = ProcessInfo.processInfo.environment
+        // KHÔNG set PYTHONHOME — gây lỗi import module. Chỉ cần PATH trỏ python_base/bin.
+        env["PATH"] = engineBase.appendingPathComponent("python_base/bin").path + ":" + (env["PATH"] ?? "")
+        env["PLAYWRIGHT_BROWSERS_PATH"] = engineBase.appendingPathComponent("runtime/ms-playwright").path
+        proc.environment = env
+        proc.terminationHandler = { p in
+            let ok = p.terminationStatus == 0
+                && FileManager.default.fileExists(atPath: self.engineBase.appendingPathComponent("runtime/ms-playwright/chromium_headless_shell-1228").path)
+            completion(ok)
+        }
+        try? proc.run()
+    }
+
+    // Generic file download (URLSession background download)
+    func downloadFile(from url: URL, to dest: URL, completion: @escaping (Bool) -> Void) {
+        let session = URLSession.shared
+        let task = session.downloadTask(with: url) { [weak self] tmp, _, err in
+            guard let self, let tmp, err == nil else {
+                try? ("[download] error \(url.lastPathComponent): \(err?.localizedDescription ?? "")".write(to: self?.engineBase.appendingPathComponent("app.log") ?? URL(fileURLWithPath: "/tmp/aurex.log"), atomically: true, encoding: .utf8))
+                completion(false); return
+            }
+            let fm = FileManager.default
+            try? fm.removeItem(at: dest)
+            do { try fm.moveItem(at: tmp, to: dest); completion(true) }
+            catch { completion(false) }
+        }
+        task.resume()
+    }
+
+    func unpackPython(completion: @escaping (Bool) -> Void) {
+        let archive = engineBase.appendingPathComponent("aurexvideo-python.tar.gz")
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        proc.arguments = ["xzf", archive.path, "-C", engineBase.path]
+        proc.terminationHandler = { p in
+            try? FileManager.default.removeItem(at: archive)
+            completion(p.terminationStatus == 0)
+        }
+        try? proc.run()
+    }
+
     func fetchEngine(engineMarker: URL, engineDir: URL) {
         let fm = FileManager.default
-        if fm.fileExists(atPath: engineMarker.path), fm.fileExists(atPath: engineDir.path) {
+        let server = engineDir.appendingPathComponent("web_server.py")
+        let engineReady = fm.fileExists(atPath: engineMarker.path)
+            && fm.fileExists(atPath: engineDir.path)
+            && fm.fileExists(atPath: server.path)
+        if engineReady {
             startServerAndShow()
             return
         }
@@ -251,8 +395,9 @@ final class AppState: ObservableObject {
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
         env["AUREX_DATA_ROOT"] = studioDir.path
         env["AUREX_BOOTSTRAP_DATA_ROOT"] = studioDir.path
-        env["PYTHONHOME"] = engineBase.appendingPathComponent("python_base").path
+        // KHÔNG set PYTHONHOME — gây lỗi import engine modules. Chỉ PATH + AUREX_FFMPEG.
         env["PATH"] = engineBase.appendingPathComponent("runtime/bin").path + ":" + (env["PATH"] ?? "")
+        env["AUREX_FFMPEG"] = engineBase.appendingPathComponent("runtime/bin/ffmpeg").path
         proc.environment = env
         let errPipe = Pipe()
         proc.standardError = errPipe
