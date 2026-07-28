@@ -549,10 +549,18 @@ struct WebContentView: NSViewRepresentable {
         let cfg = WKWebViewConfiguration()
         cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
         let wv = WKWebView(frame: .zero, configuration: cfg)
+        wv.translatesAutoresizingMaskIntoConstraints = false
         wv.load(URLRequest(url: url))
         return wv
     }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        NSLayoutConstraint.activate([
+            nsView.leadingAnchor.constraint(equalTo: nsView.superview!.leadingAnchor),
+            nsView.trailingAnchor.constraint(equalTo: nsView.superview!.trailingAnchor),
+            nsView.topAnchor.constraint(equalTo: nsView.superview!.topAnchor),
+            nsView.bottomAnchor.constraint(equalTo: nsView.superview!.bottomAnchor),
+        ])
+    }
 }
 
 @main
