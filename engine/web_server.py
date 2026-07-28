@@ -8960,6 +8960,17 @@ def main() -> None:
         help="Folder chứa các project, hoặc chính một project folder có topic.json.",
     )
     args = parser.parse_args()
+
+    # Seed default characters bundled with the engine so the app always
+    # has at least one character available on first launch.
+    try:
+        from aurexvideo_paths import ensure_user_layout
+        ensure_user_layout()
+        m3._seed_default_characters()
+        print(color_text("   ✓ Character mặc định đã sẵn sàng", "green"))
+    except Exception as exc:
+        print(color_text(f"   ⚠ Không seed được character mặc định: {exc}", "yellow"))
+
     try:
         source_root = args.source_root or os.environ.get("AUREX_SOURCE_ROOT") or os.environ.get("AUREX_PROJECT_ROOT")
         configure_source_root(source_root or DEFAULT_PROJECT_ROOT)

@@ -357,8 +357,30 @@ def enrich_character_poses(poses: list) -> list[dict]:
     return enriched
 
 
+def _seed_default_characters() -> None:
+    """Copy characters bundled with the engine into the user data root
+    on first launch so the app always has at least one character."""
+    bundled = (RESOURCE_ROOT / "assets" / "characters")
+    if not bundled.is_dir():
+        return
+    for src in sorted(bundled.glob("*/manifest.json")):
+        char_id = src.parent.name
+        if char_id.startswith("."):
+            continue
+        dst = CHARACTERS_ROOT / char_id
+        if dst.exists():
+            continue
+        try:
+            shutil.copytree(src.parent, dst)
+        except (OSError, FileNotFoundError):
+            continue
+
+
 def list_characters() -> list[dict]:
     CHARACTERS_ROOT.mkdir(parents=True, exist_ok=True)
+    # Seed default characters bundled with the engine on first launch
+    # (studio data root starts empty; engine ships hieu-ham-hoc etc.).
+    _seed_default_characters()
     result = []
     for path in sorted(CHARACTERS_ROOT.glob("*/manifest.json")):
         if path.parent.name.startswith("."):
