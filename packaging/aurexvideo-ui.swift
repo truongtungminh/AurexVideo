@@ -389,7 +389,7 @@ final class AppState: ObservableObject {
         }
         let proc = Process()
         proc.executableURL = pythonExec
-        proc.arguments = [server.path, "--host", "0.0.0.0", "--port", "4173", "--source-root", projectDir.path]
+        proc.arguments = [server.path, "--host", "0.0.0.0", "--port", "4173", "--source-root", engineDir.path]
         proc.currentDirectoryURL = engineDir
         var env = ProcessInfo.processInfo.environment
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
