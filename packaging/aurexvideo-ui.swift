@@ -383,13 +383,13 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async { self.errorText = m; self.stage = .failed }
             return
         }
-        if let s = try? String(contentsOf: URL(string: "http://localhost:4173/")!), s.contains("<") {
+        if let s = try? String(contentsOf: URL(string: "http://127.0.0.1:4173/")!), s.contains("<") {
             DispatchQueue.main.async { self.stage = .ready }
             return
         }
         let proc = Process()
         proc.executableURL = pythonExec
-        proc.arguments = [server.path, "--host", "127.0.0.1", "--port", "4173", "--source-root", projectDir.path]
+        proc.arguments = [server.path, "--host", "0.0.0.0", "--port", "4173", "--source-root", projectDir.path]
         proc.currentDirectoryURL = engineDir
         var env = ProcessInfo.processInfo.environment
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
@@ -413,7 +413,7 @@ final class AppState: ObservableObject {
         var tries = 0
         while tries < 80 {
             usleep(500_000)
-            if let url = URL(string: "http://localhost:4173/"),
+            if let url = URL(string: "http://127.0.0.1:4173/"),
                let code = try? String(contentsOf: url),
                code.contains("<") {
                 try? ("[startServer] server up, switching to ready".write(to: logURL, atomically: true, encoding: .utf8))
@@ -565,7 +565,7 @@ struct AurexVideoApp: App {
                 case .language: LanguageView(state: state)
                 case .downloading: DownloadView(state: state)
                 case .failed: FailedView(state: state)
-                case .ready: WebContentView(url: URL(string: "http://localhost:4173/")!)
+                case .ready: WebContentView(url: URL(string: "http://127.0.0.1:4173/")!)
                     .frame(minWidth: 1100, minHeight: 720)
                 }
             }
