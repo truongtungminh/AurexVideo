@@ -8,3 +8,9 @@ __pycache__/
 .DS_Store
 engine/.venv/
 decks/
+
+# Tauri build artifacts
+tauri-src/target/
+tauri-src/gen/schemas/
+tauri-src/icons/icon.png
+packaging/AurexVideo.icns
