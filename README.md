@@ -45,14 +45,21 @@ Cài máy khác:
 
 ## Bootstrap / OTA
 
-- Trên GitHub Release `v0.2.3` có:
-  - `aurexvideo-runtime-0.2.2.tar.gz` (~634MB), tải 1 lần khi cài mới.
-  - `aurexvideo-engine-0.2.3.tar.gz` (~26MB), tải mỗi bản cập nhật.
-- App vỏ (Swift + WKWebView) chỉ khoảng vài MB, không nhét engine vào `.app`.
+App vỏ (Swift + WKWebView) chỉ khoảng vài MB, không nhét engine vào `.app`.
+Khi cài mới, app tự tải các thành phần runtime **từ chính chủ** (không qua một file tarball lớn):
+
+- **Python** (~42MB) ← GitHub Release `aurexvideo-python-0.2.3.tar.gz`
+- **faster-whisper-base** (145MB) ← HuggingFace `Systran/faster-whisper-base`
+- **ffmpeg** (80MB) ← evermeet.cx (mac build)
+- **Chromium** (headless shell) ← Playwright CDN qua `python -m playwright install`
+- **Engine** (~26MB) ← GitHub Release `aurexvideo-engine-0.2.3.tar.gz`, tải lại mỗi OTA
+
+Các component nặng tải song song, mỗi lần cài chỉ 1 lần (marker `.runtime_ready`).
+Chỉ engine được thay thế khi có bản cập nhật OTA (marker `.engine_ready`).
 
 ## Tốc độ tải tham chiếu
 
-- Runtime: ~9.3 MB/s → ~70 giây trong điều kiện mạng ổn định.
+- Tổng runtime ~270MB tải song song từ nhiều host: thường < 60 giây mạng ổn định.
 - Engine: ~26MB → vài giây đến vài chục giây.
 
 ## Model
