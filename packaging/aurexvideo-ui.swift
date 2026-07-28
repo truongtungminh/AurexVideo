@@ -1,6 +1,15 @@
 import SwiftUI
 import WebKit
 
+// MARK: - Brand logo (from AurexVideoLogo.png in bundle, fallback to system icon)
+func aurexBrandLogo() -> Image {
+    if let url = Bundle.main.url(forResource: "AurexVideoLogo", withExtension: "png"),
+       let img = NSImage(contentsOf: url) {
+        return Image(nsImage: img).resizable()
+    }
+    return Image(systemName: "play.rectangle.fill").resizable()
+}
+
 // MARK: - Shared state
 final class AppState: ObservableObject {
     @Published var stage: Stage = .language
@@ -301,7 +310,7 @@ struct LanguageView: View {
     var body: some View {
         VStack(spacing: 22) {
             Spacer().frame(height: 36)
-            Image(systemName: "play.rectangle.fill").resizable().frame(width: 56, height: 56).foregroundColor(.orange)
+            aurexBrandLogo().frame(width: 56, height: 56)
             Text("AurexVideo").font(.system(size: 30, weight: .bold)).foregroundColor(.white)
             Text("Turn scripts into videos, fast.").foregroundColor(.gray).font(.system(size: 13))
             Spacer().frame(height: 18)
@@ -332,7 +341,7 @@ struct DownloadView: View {
     var body: some View {
         VStack(spacing: 22) {
             Spacer().frame(height: 40)
-            Image(systemName: "play.rectangle.fill").resizable().frame(width: 52, height: 52).foregroundColor(.orange)
+            aurexBrandLogo().frame(width: 52, height: 52)
             Text("AurexVideo").font(.system(size: 26, weight: .bold)).foregroundColor(.white)
             Text("Turn scripts into videos, fast.").foregroundColor(.gray).font(.system(size: 12))
             Spacer().frame(height: 18)
