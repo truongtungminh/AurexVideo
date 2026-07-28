@@ -6,6 +6,8 @@ final class AppState: ObservableObject {
     @Published var stage: Stage = .language
     @Published var progress: Double = 0
     @Published var statusText: String = ""
+    @Published var speedText: String = ""
+    @Published var etaText: String = ""
     @Published var errorText: String = ""
 
     enum Stage { case language, downloading, ready, failed }
@@ -20,7 +22,19 @@ final class AppState: ObservableObject {
     func proceed(_ lang: String) {
         self.lang = lang
         stage = .downloading
-        // offload from main thread
+        let marker = NSHomeDirectory() + "/.aurexvideo-autolang"
+        try? lang.write(toFile: marker, atomically: true, encoding: .utf8)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.bootstrap()
+        }
+    }
+
+    func retry() {
+        stage = .downloading
+        progress = 0
+        speedText = ""
+        etaText = ""
+        errorText = ""
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.bootstrap()
         }
@@ -33,18 +47,21 @@ final class AppState: ObservableObject {
         let runtimeMarker = engineBase.appendingPathComponent(".runtime_ready")
         let engineMarker = engineBase.appendingPathComponent(".engine_ready")
 
-        // (A) Runtime missing -> download heavy runtime once (640MB)
+        // (A) Runtime missing -> download heavy runtime once (~634MB)
         if !fm.fileExists(atPath: runtimeMarker.path) || !fm.fileExists(atPath: runtimeDir.path) {
-            DispatchQueue.main.async { self.statusText = "Đang tải thư viện runtime (lần đầu cài)…"; self.progress = 0 }
-            downloadArchive(from: runtimeURL, to: "aurexvideo-runtime.tar.gz", marker: ".runtime_ready") { [weak self] ok in
+            DispatchQueue.main.async {
+                self.statusText = "Đang tải thư viện runtime (lần đầu cài, ~634MB)…"
+                self.progress = 0
+                self.speedText = ""
+                self.etaText = ""
+            }
+            downloadArchive(from: runtimeURL, to: "aurexvideo-runtime.tar.gz", marker: ".runtime_ready", label: "runtime") { [weak self] ok in
                 guard ok else { return }
-                // after runtime, continue to engine
                 self?.fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
             }
             return
         }
 
-        // (B) Runtime present -> just fetch lightweight engine code (26MB)
         fetchEngine(engineMarker: engineMarker, engineDir: engineDir)
     }
 
@@ -54,49 +71,118 @@ final class AppState: ObservableObject {
             startServerAndShow()
             return
         }
-        DispatchQueue.main.async { self.statusText = "Đang tải engine video…"; self.progress = 0 }
-        downloadArchive(from: engineURL, to: "aurexvideo-engine.tar.gz", marker: ".engine_ready") { [weak self] ok in
+        DispatchQueue.main.async {
+            self.statusText = "Đang tải engine video (~26MB)…"
+            self.progress = 0
+            self.speedText = ""
+            self.etaText = ""
+        }
+        downloadArchive(from: engineURL, to: "aurexvideo-engine.tar.gz", marker: ".engine_ready", label: "engine") { [weak self] ok in
             guard ok else { return }
             self?.startServerAndShow()
         }
     }
 
-    // Generic downloader: downloads `from`, saves to engineBase/<saveAs>, unpacks into engineBase, writes <marker>
-    func downloadArchive(from url: URL, to saveAs: String, marker: String, completion: @escaping (Bool) -> Void) {
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmpURL, _, err in
-            guard let self else { return }
-            let logURL = self.engineBase.appendingPathComponent("app.log")
-            if let err {
-                try? ("[download] error (\(saveAs)): \(err.localizedDescription)".write(to: logURL, atomically: true, encoding: .utf8))
-                DispatchQueue.main.async { self.errorText = "Lỗi tải: \(err.localizedDescription)"; self.stage = .failed }
-                completion(false); return
-            }
-            guard let tmpURL else {
-                try? ("[download] no tmpURL (\(saveAs))".write(to: logURL, atomically: true, encoding: .utf8))
-                DispatchQueue.main.async { self.errorText = "Không tải được file."; self.stage = .failed }
-                completion(false); return
-            }
-            let dest = self.engineBase.appendingPathComponent(saveAs)
-            let fm = FileManager.default
-            try? fm.createDirectory(at: self.engineBase, withIntermediateDirectories: true)
-            try? fm.removeItem(at: dest)
-            do { try fm.moveItem(at: tmpURL, to: dest) } catch {
-                DispatchQueue.main.async { self.errorText = "Lỗi lưu file: \(error.localizedDescription)"; self.stage = .failed }
-                completion(false); return
-            }
-            self.unpack(dest, marker: marker, completion: completion)
+    // MARK: - Download delegate
+    func downloadArchive(from url: URL, to saveAs: String, marker: String, label: String, completion: @escaping (Bool) -> Void) {
+        let session = URLSession(configuration: .default,
+                                delegate: DownloadDelegate(parent: self, saveAs: saveAs, marker: marker, label: label, completion: completion),
+                                delegateQueue: .main)
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 180
+        session.downloadTask(with: req).resume()
+    }
+
+    final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+        weak var parent: AppState?
+        let saveAs: String
+        let marker: String
+        let label: String
+        let completion: (Bool) -> Void
+        var lastBytes: Int64 = 0
+        var lastTime = Date()
+        var retries = 0
+
+        init(parent: AppState, saveAs: String, marker: String, label: String, completion: @escaping (Bool) -> Void) {
+            self.parent = parent
+            self.saveAs = saveAs
+            self.marker = marker
+            self.label = label
+            self.completion = completion
         }
-        task.resume()
-        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { t in
-            DispatchQueue.main.async { let p = task.progress.fractionCompleted; if p > 0 { self.progress = p } }
-            if task.state == .completed || task.state == .canceling { t.invalidate() }
+
+        private func fail(parent: AppState, error: String) {
+            let logURL = parent.engineBase.appendingPathComponent("app.log")
+            try? ("[download] error (\(saveAs)): \(error)".write(to: logURL, atomically: true, encoding: .utf8))
+            DispatchQueue.main.async {
+                parent.errorText = "Lỗi tải \(self.label): \(error)"
+                parent.stage = .failed
+            }
+            completion(false)
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                        didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+            guard let parent else { return }
+            let frac = totalBytesExpectedToWrite > 0 ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0
+            DispatchQueue.main.async {
+                parent.progress = frac
+                let now = Date()
+                let dt = now.timeIntervalSince(self.lastTime)
+                if dt >= 0.5 {
+                    let dps = Double(totalBytesWritten - self.lastBytes) / dt
+                    self.lastBytes = totalBytesWritten
+                    self.lastTime = now
+                    let mb = dps / 1024 / 1024
+                    parent.speedText = String(format: "%.1f MB/s", mb)
+                    if totalBytesExpectedToWrite > 0 && dps > 0 {
+                        let remain = Double(totalBytesExpectedToWrite - totalBytesWritten) / dps
+                        parent.etaText = String(format: "~%d giây", Int(remain))
+                    }
+                }
+                parent.statusText = "Đang tải \(self.label)… \(Int(frac * 100))%"
+            }
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+            guard let parent else { return }
+            let dest = parent.engineBase.appendingPathComponent(saveAs)
+            let fm = FileManager.default
+            try? fm.createDirectory(at: parent.engineBase, withIntermediateDirectories: true)
+            try? fm.removeItem(at: dest)
+            do {
+                try fm.moveItem(at: location, to: dest)
+                parent.unpack(dest, marker: marker, completion: completion)
+            } catch {
+                fail(parent: parent, error: error.localizedDescription)
+            }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            guard let parent else { return }
+            if let error {
+                if retries < 2 {
+                    retries += 1
+                    DispatchQueue.main.async { parent.statusText = "Lỗi mạng, thử lại (\(self.retries)/2)…" }
+                    var req = URLRequest(url: task.originalRequest?.url ?? task.currentRequest?.url ?? URL(string: "https://github.com")!)
+                    req.timeoutInterval = 180
+                    session.downloadTask(with: req).resume()
+                } else {
+                    fail(parent: parent, error: error.localizedDescription)
+                }
+            }
         }
     }
 
     func unpack(_ archive: URL, marker: String, completion: @escaping (Bool) -> Void) {
         let logURL = engineBase.appendingPathComponent("app.log")
         try? ("[unpack] start, archive: \(archive.path)".write(to: logURL, atomically: true, encoding: .utf8))
-        DispatchQueue.main.async { self.statusText = "Đang giải nén…"; self.progress = 1 }
+        DispatchQueue.main.async {
+            self.statusText = "Đang giải nén… (bước này mất khoảng 1-2 phút)"
+            self.progress = 1
+            self.speedText = ""
+            self.etaText = ""
+        }
         let fm = FileManager.default
         try? fm.createDirectory(at: engineBase, withIntermediateDirectories: true)
         let engineDir = engineBase.appendingPathComponent("engine")
@@ -112,9 +198,6 @@ final class AppState: ObservableObject {
                 completion(false); return
             }
             fm.createFile(atPath: self.engineBase.appendingPathComponent(marker).path, contents: Data())
-            if marker == ".engine_ready" {
-                try? fm.createDirectory(at: self.engineBase.appendingPathComponent("engine/decks"), withIntermediateDirectories: true)
-            }
             completion(true)
         }
         do { try proc.run() } catch {
@@ -123,8 +206,6 @@ final class AppState: ObservableObject {
             completion(false)
         }
     }
-
-
 
     func startServerAndShow() {
         let fm = FileManager.default
@@ -142,7 +223,6 @@ final class AppState: ObservableObject {
             try? fm.createDirectory(at: studioDir.appendingPathComponent(sub), withIntermediateDirectories: true)
         }
 
-        // Prefer bundled python_base; fall back to venv symlink if present
         let pythonExec: URL = fm.fileExists(atPath: pyBase.path) ? pyBase : venvPy
         guard fm.fileExists(atPath: pythonExec.path), fm.fileExists(atPath: server.path) else {
             let m = "Thiếu python hoặc web_server.py trong engine."
@@ -175,7 +255,6 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async { self.errorText = "Không khởi được server: \(error.localizedDescription)"; self.stage = .failed }
             return
         }
-        // Give the server a moment, then show the web UI (WebView will keep loading)
         var tries = 0
         while tries < 80 {
             usleep(500_000)
@@ -188,15 +267,8 @@ final class AppState: ObservableObject {
             }
             tries += 1
         }
-        // Fallback: still show UI even if poll missed
         try? ("[startServer] poll timeout, forcing ready".write(to: logURL, atomically: true, encoding: .utf8))
         DispatchQueue.main.async { self.stage = .ready }
-    }
-
-    func retry() {
-        stage = .downloading
-        progress = 0
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.bootstrap() }
     }
 }
 
@@ -274,6 +346,15 @@ struct DownloadView: View {
                 ProgressView(value: state.progress).progressViewStyle(LinearProgressViewStyle(tint: .orange)).frame(height: 6)
                 Text(state.statusText.isEmpty ? "Đang tải engine video về máy…" : state.statusText)
                     .foregroundColor(.gray).font(.system(size: 12))
+                HStack(spacing: 12) {
+                    if !state.speedText.isEmpty {
+                        Text(state.speedText).foregroundColor(.green).font(.system(size: 12, weight: .medium))
+                    }
+                    if !state.etaText.isEmpty {
+                        Text(state.etaText).foregroundColor(.orange).font(.system(size: 12))
+                    }
+                    Spacer()
+                }
                 Text("Giữ AurexVideo mở trong lúc tải.").foregroundColor(.orange.opacity(0.85)).font(.system(size: 12))
             }
             .padding(18)
