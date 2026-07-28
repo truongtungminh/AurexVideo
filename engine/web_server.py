@@ -8970,7 +8970,10 @@ def main() -> None:
     print(f"   {color_text('↻ Chạy lại server', 'yellow')}: {restart_cmd}")
     print()
     sys.stdout.flush()
-    webbrowser.open(url)
+    # Không tự mở trình duyệt khi chạy bên trong desktop app (Swift đã nhúng WKWebView).
+    # Chỉ mở browser mặc định khi chạy standalone (dev / dòng lệnh).
+    if not os.environ.get("AUREXVIDEO_DESKTOP"):
+        webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

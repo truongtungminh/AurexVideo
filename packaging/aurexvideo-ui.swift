@@ -393,6 +393,7 @@ final class AppState: ObservableObject {
         proc.currentDirectoryURL = engineDir
         var env = ProcessInfo.processInfo.environment
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
+        env["AUREXVIDEO_DESKTOP"] = "1"
         env["AUREX_DATA_ROOT"] = studioDir.path
         env["AUREX_BOOTSTRAP_DATA_ROOT"] = studioDir.path
         // KHÔNG set PYTHONHOME — gây lỗi import engine modules. Chỉ PATH + AUREX_FFMPEG.
