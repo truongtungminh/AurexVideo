@@ -543,6 +543,21 @@ struct FailedView: View {
 }
 
 // MARK: - WebView
+class WebViewUIDelegate: NSObject, WKUIDelegate {
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        if parameters.allowsDirectories { panel.canChooseDirectories = true }
+        if panel.runModal() == .OK {
+            completionHandler(panel.urls)
+        } else {
+            completionHandler(nil)
+        }
+    }
+}
+
 struct WebContentView: NSViewRepresentable {
     let url: URL
     func makeNSView(context: Context) -> WKWebView {
@@ -550,6 +565,7 @@ struct WebContentView: NSViewRepresentable {
         cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
         let wv = WKWebView(frame: .zero, configuration: cfg)
         wv.translatesAutoresizingMaskIntoConstraints = false
+        wv.uiDelegate = WebViewUIDelegate()
         wv.load(URLRequest(url: url))
         return wv
     }
