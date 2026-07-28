@@ -305,6 +305,10 @@ def current_account() -> dict:
 
 
 def entitlement_is_active_pro(entitlement: dict | None) -> bool:
+    # Desktop app (Swift shell) is always full-featured: no trial, no Pro gating.
+    # AUREXVIDEO_DESKTOP is set by the launcher, so local builds are fully unlocked.
+    if os.environ.get("AUREXVIDEO_DESKTOP"):
+        return True
     entitlement = entitlement if isinstance(entitlement, dict) else {}
     plan = str(entitlement.get("product_id") or entitlement.get("plan") or "").strip().lower()
     if "pro" not in plan or "trial" in plan:
@@ -324,6 +328,9 @@ def entitlement_is_active_pro(entitlement: dict | None) -> bool:
 
 
 def trial_branding_required(account: dict | None = None) -> bool:
+    # Desktop app is fully unlocked — never show trial branding.
+    if os.environ.get("AUREXVIDEO_DESKTOP"):
+        return False
     account = account if isinstance(account, dict) else current_account()
     entitlement = account.get("entitlement") if isinstance(account.get("entitlement"), dict) else {}
     return not entitlement_is_active_pro(entitlement)
@@ -405,6 +412,9 @@ def local_development_render_enabled() -> bool:
 
 
 def reserve_trial_export(project: str) -> tuple[str | None, dict | None]:
+    # Desktop app is fully unlocked — no licensing/export limits.
+    if os.environ.get("AUREXVIDEO_DESKTOP"):
+        return None, None
     if os.environ.get("AUREX_NATIVE_BRIDGE") != "1":
         if local_development_render_enabled():
             return None, None
