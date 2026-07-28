@@ -1,5 +1,5 @@
 {
-  "notes": "Release engine 0.2.2 - remove account avatar, central OTA update",
-  "installedVersion": "0.2.2",
-  "version": "0.2.2"
+  "notes": "Release engine 0.2.3 - downloader UX (real %/speed/ETA/retry), bootstrap/OTA 2-layer",
+  "installedVersion": "0.2.3",
+  "version": "0.2.3"
 }

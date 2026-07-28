@@ -65,3 +65,16 @@ Cài máy khác:
 - Không dùng `server.py` gốc nữa; dùng `engine/web_server.py`.
 - Đừng đặt `source-root` trùng `studio/`; để trống hoặc trỏ `decks/` là đúng.
 - Nếu sửa packaging, rebuild Swift + rebuild DMG để máy khác nhận được.
+
+## Icon app (macOS)
+
+- Icon app `.icns` sinh từ `assets/aurexvideo-logo.png` (emblem xanh cyan + nút play + film strip, 1024x1024).
+- Sinh bằng: resize PNG sang iconset (16→1024, đủ @2x) → `iconutil --convert icns`.
+- Không dùng `~/Desktop/Aurex.png` cũ; file `aurexvideo-logo.png` là chuẩn app icon từ bản 0.2.3.
+
+## Trạng thái build (2026-07-28)
+
+- ✅ `AurexVideo-0.2.3-native.dmg` (2.6MB) tại `~/Desktop/`: app vỏ Swift + ICNS + symlink `/Applications`.
+- ✅ `codesign --verify` valid (ad-hoc signing, arm64).
+- ✅ Launch test thực tế: app mở, downloader UX hiển thị % / tốc độ MB/s / ETA (đã verify bằng screenshot).
+- ✅ Version đồng bộ: `web_server.py APP_VERSION`, `engine/VERSION`, `update-manifest.json` đều `0.2.3`.
