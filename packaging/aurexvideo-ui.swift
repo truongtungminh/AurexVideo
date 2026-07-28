@@ -362,6 +362,13 @@ final class AppState: ObservableObject {
 
     func startServerAndShow() {
         let fm = FileManager.default
+        // Kill any stale process holding port 4173 (e.g. previous app install)
+        // so a fresh launch never collides with an old server and goes blank.
+        let killProc = Process()
+        killProc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        killProc.arguments = ["-c", "lsof -ti tcp:4173 2>/dev/null | xargs -r kill -9 2>/dev/null"]
+        try? killProc.run()
+        sleep(1)
         let engineDir = engineBase.appendingPathComponent("engine")
         let studioDir = engineBase.appendingPathComponent("studio")
         let pyBase = engineBase.appendingPathComponent("python_base/bin/python3.11")
@@ -422,8 +429,9 @@ final class AppState: ObservableObject {
             }
             tries += 1
         }
-        try? ("[startServer] poll timeout, forcing ready".write(to: logURL, atomically: true, encoding: .utf8))
-        DispatchQueue.main.async { self.stage = .ready }
+        let m = "Server không khởi động được (port 4173 bị chiếm hoặc python lỗi). Hãy đóng app cũ và mở lại."
+        try? ("[startServer] poll timeout: \(m)".write(to: logURL, atomically: true, encoding: .utf8))
+        DispatchQueue.main.async { self.errorText = m; self.stage = .failed }
     }
 }
 
