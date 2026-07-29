@@ -16,7 +16,7 @@ cd engine
 ## Version
 
 - Code/app: `0.2.3`
-- Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites`, với nút play/pause tròn ngay bên phải dropdown phát trực tiếp `previewUrl`. Không còn hàng preview riêng, text mẫu, custom Voice ID hay ElevenLabs trong render page.
+- Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites`, với dropdown 56px và nút play/pause tròn rõ nét ngay bên phải phát trực tiếp `previewUrl`. OncoinX và Mạnh Dũng có link preview fallback khi API không trả link. Checkbox tạo lại cache được đặt sát hàng chọn voice. Không còn hàng preview riêng, text mẫu, custom Voice ID hay ElevenLabs trong render page.
 
 ## Cách phát hành / cài máy khác
 

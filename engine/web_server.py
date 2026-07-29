@@ -3224,7 +3224,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             </button>
           </div>
         </div>
-        <div class="advanced-check-grid">
+        <div class="advanced-check-grid maziao-cache-row">
           <label class="check">
             <input id="maziaoForce" type="checkbox" />
             Tạo lại audio cache
@@ -4013,34 +4013,49 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     .field-label { display: inline-flex; align-items: center; gap: 7px; }
     .maziao-voice-control {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 48px;
+      grid-template-columns: minmax(0, 1fr) 56px;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+    }
+    .maziao-voice-field { margin-bottom: 4px; }
+    .maziao-voice-control #maziaoVoice {
+      min-height: 56px;
+      padding: 13px 44px 13px 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    .maziao-voice-control #maziaoVoice option {
+      min-height: 40px;
+      padding: 10px 14px;
+      font-size: 16px;
     }
     .maziao-preview-button {
       display: grid;
       place-items: center;
-      width: 48px;
-      min-width: 48px;
-      height: 48px;
+      width: 56px;
+      min-width: 56px;
+      height: 56px;
       padding: 0;
       border: 0;
       border-radius: 50%;
-      color: #5557e8;
-      background: #eef0ff;
+      color: #4c4fe3;
+      background: #e9edff;
       cursor: pointer;
       transition: background-color 150ms ease, transform 150ms ease;
     }
     .maziao-preview-button:hover { background: #e5e8ff; }
     .maziao-preview-button:active { transform: scale(0.96); }
     .maziao-preview-button:focus-visible { outline: 3px solid rgba(85, 87, 232, 0.32); outline-offset: 2px; }
-    .maziao-preview-button:disabled { cursor: not-allowed; opacity: 0.45; }
+    .maziao-preview-button:disabled { cursor: not-allowed; opacity: 0.72; }
     .maziao-preview-play {
-      width: 17px;
-      height: 19px;
-      margin-left: 3px;
-      border: 2px solid currentColor;
-      clip-path: polygon(0 0, 100% 50%, 0 100%);
+      width: 0;
+      height: 0;
+      margin-left: 4px;
+      border-top: 11px solid transparent;
+      border-bottom: 11px solid transparent;
+      border-left: 18px solid currentColor;
     }
     .maziao-preview-pause {
       display: none;
@@ -4051,6 +4066,8 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     }
     .maziao-preview-button.is-playing .maziao-preview-play { display: none; }
     .maziao-preview-button.is-playing .maziao-preview-pause { display: block; }
+    .maziao-cache-row { margin-top: 0; }
+    .maziao-cache-row .check { margin: 4px 0 6px; }
     .mode-toggle {
       display: grid;
       grid-template-columns: repeat(2, 1fr);

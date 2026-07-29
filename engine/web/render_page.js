@@ -8,6 +8,10 @@
     ? window.__PROJECTS__
     : (fallbackProject ? [{ name: fallbackProject, url: `/project/${fallbackProject}/`, output_url: fallbackOutputUrl, video_url: fallbackOutputUrl, script_count: 0 }] : []);
   const projectMap = new Map(projects.map((project) => [project.name, project]));
+  const MAZIAO_PREVIEW_FALLBACKS = {
+    clone_8ci7vkGMoJLyKe9IJ7MfV: 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice_TKAC9TA2IZKeB9iUgHrke.mp3',
+    'clone_fY2_e5-7EbOgfEQlggwg0': 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice__kDkJCtGB4qx1fPI8XqgO.mp3',
+  };
   const state = {
     engine: 'maziao',
     jobId: null,
@@ -1557,7 +1561,7 @@
         if (!voiceId) continue;
         const option = new Option(String(item?.name || voiceId), voiceId);
         option.dataset.voiceId = voiceId;
-        option.dataset.previewUrl = String(item?.previewUrl || '').trim();
+        option.dataset.previewUrl = String(item?.previewUrl || MAZIAO_PREVIEW_FALLBACKS[voiceId] || '').trim();
         option.dataset.language = String(item?.language || '').trim();
         option.dataset.gender = String(item?.gender || '').trim();
         voiceSelect.appendChild(option);
