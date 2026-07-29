@@ -246,7 +246,7 @@ def prepare_render_audio(source: Path, project: Path, speed: float, volume: floa
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("project", type=Path)
-    parser.add_argument("--engine", choices=["project", "upload", "elevenlabs", "edge"], required=True)
+    parser.add_argument("--engine", choices=["project", "upload", "maziao", "elevenlabs", "edge"], required=True)
     parser.add_argument("--audio", type=Path)
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--volume", type=float, default=1.0)

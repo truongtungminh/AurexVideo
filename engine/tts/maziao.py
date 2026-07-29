@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from pathlib import Path
 
@@ -97,15 +98,14 @@ def _resolve_api_config(
 
 
 def _resolve_voice(voice: str | None = None) -> tuple[str, str]:
-    """Resolve voice name/shortcut → (voice_id, model_id)."""
-    resolved = str(voice or "").strip().lower()
-    if resolved in VN_VOICES:
-        v = VN_VOICES[resolved]
-        return v["id"], v["modelId"]
-    # Check if it looks like a direct voice ID (long alphanumeric)
-    if resolved and len(resolved) > 10 and "-" in resolved:
-        return resolved, DEFAULT_MODEL_ID
-    # Default
+    """Resolve a voice shortcut or preserve a direct voice ID."""
+    raw = str(voice or "").strip()
+    shortcut = raw.lower()
+    if shortcut in VN_VOICES:
+        resolved = VN_VOICES[shortcut]
+        return resolved["id"], resolved["modelId"]
+    if raw and len(raw) > 10 and re.fullmatch(r"[A-Za-z0-9_-]+", raw):
+        return raw, DEFAULT_MODEL_ID
     return DEFAULT_VOICE_ID, DEFAULT_MODEL_ID
 
 

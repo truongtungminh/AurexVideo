@@ -16,6 +16,7 @@ cd engine
 ## Version
 
 - Code/app: `0.2.3`
+- Render pipeline accepts `--engine maziao` end to end. Direct Maziao voice IDs from the favourites dropdown are preserved exactly, including mixed-case IDs without hyphens, so rendering uses the selected voice instead of falling back to OncoinX.
 - Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites`, với dropdown 56px và nút play/pause tròn rõ nét ngay bên phải phát trực tiếp `previewUrl`. OncoinX và Mạnh Dũng có link preview fallback khi API không trả link. Checkbox tạo lại cache được đặt sát hàng chọn voice. Không còn hàng preview riêng, text mẫu, custom Voice ID hay ElevenLabs trong render page.
 
 ## Cách phát hành / cài máy khác
