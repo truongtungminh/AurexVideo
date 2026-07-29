@@ -3197,10 +3197,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div class="render-heading">
         <h2>{ui_icon("sparkles", "render-lead-icon")}<span>Bộ máy render</span></h2>
       </div>
-      <div class="render-guide-links" aria-label="Hướng dẫn âm thanh">
-        <a class="refresh-btn icon-btn guide-header-btn" href="/elevenlabs-guide#manual">{ui_icon("help")}<span>Hướng dẫn Maziao</span></a>
-        <a class="refresh-btn icon-btn guide-header-btn" href="/elevenlabs-guide#api-credit">{ui_icon("help")}<span>Voice ID</span></a>
-      </div>
 
       <div class="selected-box">
         <div>
@@ -3219,12 +3215,8 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <label class="field">
           <span class="field-label">{ui_icon("message", "field-icon")}<span>TTS Voice</span></span>
           <select id="maziaoVoice">
-            <option value="custom">Chọn giọng...</option>
+            <option value="">Đang tải giọng...</option>
           </select>
-        </label>
-        <label class="field" id="maziaoVoiceCustomField" hidden>
-          <span class="field-label">{ui_icon("pencil", "field-icon")}<span>Mã giọng tùy chỉnh</span></span>
-          <input id="maziaoVoiceCustom" type="text" placeholder="Ví dụ: clone_..." autocomplete="off" spellcheck="false" />
         </label>
         <div class="advanced-check-grid">
           <label class="check">
@@ -3264,23 +3256,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <span class="advanced-heading-title">Cài đặt nâng cao</span>
         </div>
         <div class="advanced-body">
-          <div data-advanced-engine="elevenlabs">
-            <div data-eleven-mode-pane="tts" hidden>
-              <label class="field">
-                <span class="field-label">
-                  {ui_icon("mic", "field-icon advanced-field-icon")}
-                  <span>Voice ID, mặc định giọng “Nhật”</span>
-                </span>
-                <input id="elevenVoice" type="text" placeholder="JBFqnCBsd6RMkjVDRZzb" />
-              </label>
-              <div class="advanced-check-grid">
-                <label class="check">
-                  <input id="elevenForce" type="checkbox" />
-                  Tạo lại audio cache
-                </label>
-              </div>
-            </div>
-          </div>
 
           <div data-advanced-engine="edgetts" hidden>
             <label class="field">
@@ -8131,50 +8106,15 @@ class WebHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/voices/favourites":
             try:
-                payload = self.read_json_body() if self.command == "POST" else {}
-                api_key = str(payload.get("api_key") or DEFAULT_API_KEY).strip()
-                api_base = str(payload.get("api_base") or DEFAULT_API_BASE).rstrip("/")
-                headers = {
-                    "Authorization": f"Bearer {api_key}",
-                    "Accept": "application/json",
-                    "User-Agent": "Mozilla/5.0",
-                }
-                r = requests.get(f"{api_base}/api/voices/favourites", headers=headers, timeout=30)
-                r.raise_for_status()
-                self.send_json(200, r.json())
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path in {"/api/tts/maziao/preview", "/api/tts/maziao/preview"}:
-            if self.command != "POST":
-                self.send_json(405, {"error": "Method not allowed."})
-                return
-            try:
-                payload = self.read_json_body()
-                preview_url = str(payload.get("preview_url") or "").strip()
-                voice = str(payload.get("voice") or "oncoinx").strip()
-                text = str(payload.get("text") or "").strip()
-                audio_bytes = None
-                if preview_url:
-                    try:
-                        audio_bytes = _download_audio(preview_url, headers={})
-                    except Exception as exc:
-                        return self.send_json(400, {"error": f"Preview download failed: {exc}"})
-                else:
-                    text = text[:220]
-                    if len(text) < 100:
-                        text = (text + " " + text)[:220]
-                    voice_id, model_id = _resolve_voice(voice)
-                    _, api_base, headers = _resolve_api_config(None, DEFAULT_API_BASE)
-                    audio_bytes = _submit_and_poll_single(text, voice_id, model_id, api_base, headers)
-                self.send_json(200, {
-                    "voice": voice,
-                    "voice_id": payload.get("voice_id"),
-                    "text": text,
-                    "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
-                    "source": "preview_url" if preview_url else "tts",
-                })
+                _, api_base, headers = _resolve_api_config(None, DEFAULT_API_BASE)
+                request = urllib.request.Request(
+                    f"{api_base}/api/voices/favourites",
+                    headers=headers,
+                    method="GET",
+                )
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                self.send_json(200, payload)
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return

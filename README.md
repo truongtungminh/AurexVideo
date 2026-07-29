@@ -16,6 +16,7 @@ cd engine
 ## Version
 
 - Code/app: `0.2.3`
+- Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites` và nút Nghe thử phát trực tiếp `previewUrl` do Maziao trả về. Không còn text mẫu, custom Voice ID hay ElevenLabs trong render page.
 
 ## Cách phát hành / cài máy khác
 

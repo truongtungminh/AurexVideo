@@ -30,10 +30,7 @@
       brandName: 'aurexvideo.app',
     },
   };
-  let elevenVoiceSaveTimer = null;
-  let elevenVoiceSaving = false;
-  let elevenApiKeySaveTimer = null;
-  let elevenApiKeySaving = false;
+
   let youtubeConfigSaving = false;
   let facebookConfigSaving = false;
   let renameProjectTarget = '';
@@ -1003,11 +1000,6 @@
     });
   }
 
-  function syncMaziaoCustomField() {
-    const voice = $('#maziaoVoice')?.value;
-    const customField = $('#maziaoVoiceCustomField');
-    if (customField) customField.hidden = !(voice === 'custom');
-  }
 
   function currentEdgeVoice() {
     const selectedVoice = $('#edgeVoice')?.value || 'vi-VN-NamMinhNeural';
@@ -1018,9 +1010,7 @@
 
   function currentMaziaoVoice() {
     const selectedVoice = $('#maziaoVoice')?.value?.trim();
-    if (selectedVoice && selectedVoice !== 'custom') return selectedVoice;
-    const customVoice = $('#maziaoVoiceCustom')?.value.trim();
-    if (customVoice) return customVoice;
+    if (selectedVoice) return selectedVoice;
     return 'oncoinx';
   }
 
@@ -1040,116 +1030,6 @@
     });
   }
 
-  function currentElevenMode() {
-    return document.querySelector('input[name="elevenMode"]:checked')?.value || 'upload';
-  }
-
-  function syncElevenMode() {
-    const mode = currentElevenMode();
-    $all('[data-eleven-mode-pane]').forEach((pane) => {
-      pane.hidden = pane.dataset.elevenModePane !== mode;
-    });
-  }
-
-  function syncElevenLabsApiKeyUi(configured) {
-    const panel = $('#elevenApiKeyPanel');
-    const apiState = $('#elevenApiKeyState');
-    if (panel) panel.hidden = Boolean(configured);
-    if (apiState) {
-      apiState.textContent = configured
-        ? 'Đã lưu API key trong config/tts.json'
-        : 'Chưa lưu API key';
-    }
-  }
-
-  async function loadElevenLabsConfig() {
-    const input = $('#elevenVoice');
-    if (!input) return;
-    try {
-      const response = await fetch('/api/tts/elevenlabs/config', { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      input.value = data.voice_id || '';
-      input.placeholder = data.voice_id || 'JBFqnCBsd6RMkjVDRZzb';
-      syncElevenLabsApiKeyUi(Boolean(data.api_key_configured));
-    } catch (error) {
-      setStatus(error.message || String(error), 'bad');
-    }
-  }
-
-  async function saveElevenLabsVoice() {
-    const input = $('#elevenVoice');
-    const voiceId = input?.value.trim() || '';
-    if (!voiceId) {
-      return;
-    }
-    if (elevenVoiceSaving) return;
-    elevenVoiceSaving = true;
-    try {
-      const response = await fetch('/api/tts/elevenlabs/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice_id: voiceId }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      if (input) input.value = data.voice_id || voiceId;
-      setStatus('Đã lưu ElevenLabs voice ID vào config/tts.json.', 'good');
-    } catch (error) {
-      setStatus(error.message || String(error), 'bad');
-    } finally {
-      elevenVoiceSaving = false;
-    }
-  }
-
-  function scheduleElevenLabsVoiceSave(delay = 450) {
-    const input = $('#elevenVoice');
-    if (!input || !input.value.trim()) return;
-    if (elevenVoiceSaveTimer) window.clearTimeout(elevenVoiceSaveTimer);
-    elevenVoiceSaveTimer = window.setTimeout(() => {
-      elevenVoiceSaveTimer = null;
-      saveElevenLabsVoice();
-    }, delay);
-  }
-
-  async function saveElevenLabsApiKey() {
-    const input = $('#elevenApiKey');
-    const apiKey = input?.value.trim() || '';
-    if (!apiKey) {
-      return;
-    }
-    if (elevenApiKeySaving) return;
-    elevenApiKeySaving = true;
-    const apiState = $('#elevenApiKeyState');
-    if (apiState) apiState.textContent = 'Đang lưu API key...';
-    try {
-      const response = await fetch('/api/tts/elevenlabs/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      if (input) input.value = '';
-      syncElevenLabsApiKeyUi(Boolean(data.api_key_configured));
-      setStatus('Đã lưu ElevenLabs API key vào config/tts.json.', 'good');
-    } catch (error) {
-      setStatus(error.message || String(error), 'bad');
-      if (apiState) apiState.textContent = 'Lưu API key thất bại';
-    } finally {
-      elevenApiKeySaving = false;
-    }
-  }
-
-  function scheduleElevenLabsApiKeySave(delay = 450) {
-    const input = $('#elevenApiKey');
-    if (!input || !input.value.trim()) return;
-    if (elevenApiKeySaveTimer) window.clearTimeout(elevenApiKeySaveTimer);
-    elevenApiKeySaveTimer = window.setTimeout(() => {
-      elevenApiKeySaveTimer = null;
-      saveElevenLabsApiKey();
-    }, delay);
-  }
 
   async function copyProjectScript(projectName, button) {
     const project = String(projectName || '').trim();
@@ -1654,85 +1534,74 @@
     }
   }
 
-  async function startRender() {
-
-    const startButton = $('#startRender');
-    const stopButton = $('#stopRender');
-    const videoLink = $('#videoLink');
-    if (startButton) startButton.disabled = true;
-    if (stopButton) {
-      stopButton.hidden = true;
-      stopButton.disabled = true;
+  async function loadMaziaoFavourites() {
+    const voiceSelect = $('#maziaoVoice');
+    const previewState = $('#maziaoPreviewState');
+    if (!voiceSelect) return;
+    voiceSelect.disabled = true;
+    voiceSelect.replaceChildren(new Option('Đang tải giọng...', ''));
+    try {
+      const response = await fetch('/api/voices/favourites', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      const items = Array.isArray(payload?.data?.items)
+        ? payload.data.items
+        : (Array.isArray(payload?.data)
+          ? payload.data
+          : (Array.isArray(payload?.items) ? payload.items : []));
+      voiceSelect.replaceChildren();
+      for (const item of items) {
+        const voiceId = String(item?.id || '').trim();
+        if (!voiceId) continue;
+        const option = new Option(String(item?.name || voiceId), voiceId);
+        option.dataset.voiceId = voiceId;
+        option.dataset.previewUrl = String(item?.previewUrl || '').trim();
+        option.dataset.language = String(item?.language || '').trim();
+        option.dataset.gender = String(item?.gender || '').trim();
+        voiceSelect.appendChild(option);
+      }
+      if (!voiceSelect.options.length) {
+        voiceSelect.appendChild(new Option('Chưa có giọng yêu thích', ''));
+        if (previewState) previewState.textContent = 'Maziao chưa trả về voice yêu thích.';
+      } else if (previewState) {
+        previewState.textContent = `Đã tải ${voiceSelect.options.length} giọng. Chọn giọng rồi bấm Nghe thử.`;
+      }
+    } catch (error) {
+      voiceSelect.replaceChildren(new Option('Không tải được danh sách giọng', ''));
+      if (previewState) previewState.textContent = `Không tải được giọng Maziao: ${error.message || error}`;
+    } finally {
+      voiceSelect.disabled = false;
     }
-    if (videoLink) videoLink.hidden = true;
-    setRevealOutputButton(state.project, false);
-    state.busy = true;
-    state.canceling = false;
-    setRenderState(tr('Đang chuẩn bị render', 'Preparing to render'), [tr('Kiểm tra project và thông số render.', 'Checking project and render settings.')]);
   }
 
   function requestMaziaoPreview() {
     const previewState = $('#maziaoPreviewState');
     try {
-      previewState.textContent = 'Đang phát thử...';
-      const voiceSelect = $('#maziaoVoice');
-      const selectedOption = voiceSelect?.options?.[voiceSelect.value];
+      if (previewState) previewState.textContent = 'Đang phát thử...';
+      const selectedOption = $('#maziaoVoice')?.selectedOptions?.[0];
       const previewUrl = String(selectedOption?.dataset?.previewUrl || '').trim();
-      const voice = String(selectedOption?.dataset?.voiceId || '').trim() || currentMaziaoVoice();
-
-      if (previewUrl) {
-        fetch('/api/tts/maziao/preview', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({voice, text: '', preview_url: previewUrl}),
-          cache: 'no-store',
-        })
-        .then((res) => {
-          if (!res.ok) return res.json().then((data) => Promise.reject(data.error || `HTTP ${res.status}`));
-          return res.json();
-        })
-        .then((data) => data.audio_base64)
-        .then((audioBase64) => playPreviewAudio(previewState, audioBase64))
-        .catch((error) => {
-          if (previewState) previewState.textContent = `Không chiếm được preview: ${error}`;
-        });
+      if (!previewUrl) {
+        if (previewState) previewState.textContent = 'Voice này chưa có previewUrl sẵn. Chọn giọng có link preview để nghe thử.';
         return;
       }
-
-      const text = ($('#maziaoPreviewText')?.value || '').trim();
-      if (!text) {
-        if (previewState) previewState.textContent = 'Voice này chưa có previewUrl sẵn. Hãy chọn giọng có link preview hoặc nhập text mẫu.';
-        return;
-      }
-
-      fetch('/api/tts/maziao/preview', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({voice, text, preview_url: ''}),
-        cache: 'no-store',
-      })
-      .then((res) => {
-        if (!res.ok) return res.json().then((data) => Promise.reject(data.error || `HTTP ${res.status}`));
-        return res.json();
-      })
-      .then((data) => data.audio_base64)
-      .then((audioBase64) => playPreviewAudio(previewState, audioBase64))
-      .catch((error) => {
-        if (previewState) previewState.textContent = `Không thể phát thử: ${error}`;
-      });
+      playPreviewAudio(previewState, previewUrl);
     } catch (error) {
       if (previewState) previewState.textContent = `Lỗi: ${error}`;
     }
   }
 
-  function playPreviewAudio(previewState, audioBase64) {
-    const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
+  function playPreviewAudio(previewState, audioUrl) {
     if (!previewState) return;
     previewState.innerHTML = '';
     const audio = document.createElement('audio');
     audio.controls = true;
+    audio.autoplay = true;
     audio.src = audioUrl;
+    audio.addEventListener('error', () => {
+      previewState.textContent = 'Không thể phát link preview của giọng này.';
+    }, { once: true });
     previewState.appendChild(audio);
+    audio.play().catch(() => {});
   }
 
   async function startRender() {
@@ -1785,28 +1654,6 @@
             'OncoinX generates a voiceover from the current script; the system then realigns each sentence and word.'
           )],
         );
-      } else if (state.engine === 'elevenlabs') {
-        payload.mode = currentElevenMode();
-        if (payload.mode === 'upload') {
-          const file = $('#elevenFile')?.files?.[0];
-          if (!file) throw new Error(tr('Vui lòng chọn file audio ElevenLabs trước.', 'Please choose an ElevenLabs audio file first.'));
-          if (file.size > MAX_AUDIO_BYTES) throw new Error(tr('File audio lớn hơn 200 MB.', 'Audio file is larger than 200 MB.'));
-          setRenderState(tr('Đang chuẩn bị render', 'Preparing to render'), [tr(`Đang nạp file audio: ${file.name}`, `Loading audio file: ${file.name}`)]);
-          payload.audio = {
-            name: file.name,
-            data: await fileToBase64(file),
-          };
-        } else {
-          payload.voice = $('#elevenVoice')?.value.trim() || '';
-          payload.force = Boolean($('#elevenForce')?.checked);
-          setRenderState(
-            tr('Đang chuẩn bị render', 'Preparing to render'),
-            [tr(
-              'ElevenLabs tạo một voiceover đầy đủ; Whisper sẽ căn lại từng câu và từng từ.',
-              'ElevenLabs creates one full voiceover; Whisper will realign each sentence and word.',
-            )],
-          );
-        }
       } else {
         payload.voice = currentEdgeVoice();
         payload.force = $('#edgeForce')?.checked;
@@ -1974,19 +1821,14 @@
   });
 
   syncAdvancedSettings();
-  syncMaziaoCustomField();
-  loadElevenLabsConfig();
+  loadMaziaoFavourites();
 
   const maziaoVoiceInput = $('#maziaoVoice');
   if (maziaoVoiceInput) {
-    maziaoVoiceInput.addEventListener('change', syncMaziaoCustomField);
-    syncMaziaoCustomField();
-  }
-
-  const maziaoVoiceCustomInput = $('#maziaoVoiceCustom');
-  if (maziaoVoiceCustomInput) {
-    maziaoVoiceCustomInput.addEventListener('input', syncMaziaoCustomField);
-    maziaoVoiceCustomInput.addEventListener('change', syncMaziaoCustomField);
+    maziaoVoiceInput.addEventListener('change', () => {
+      const previewState = $('#maziaoPreviewState');
+      if (previewState) previewState.textContent = 'Bấm Nghe thử để phát giọng đã chọn.';
+    });
   }
 
   const maziaoPreviewButton = $('#maziaoPreviewButton');
@@ -1994,21 +1836,6 @@
     maziaoPreviewButton.addEventListener('click', requestMaziaoPreview);
   }
 
-  const elevenVoiceInput = $('#elevenVoice');
-  if (elevenVoiceInput) {
-    elevenVoiceInput.addEventListener('paste', () => {
-      window.setTimeout(() => scheduleElevenLabsVoiceSave(80), 0);
-    });
-    elevenVoiceInput.addEventListener('input', () => scheduleElevenLabsVoiceSave(700));
-  }
-
-  const elevenApiKeyInput = $('#elevenApiKey');
-  if (elevenApiKeyInput) {
-    elevenApiKeyInput.addEventListener('paste', () => {
-      window.setTimeout(() => scheduleElevenLabsApiKeySave(80), 0);
-    });
-    elevenApiKeyInput.addEventListener('input', () => scheduleElevenLabsApiKeySave(700));
-  }
 
   $all('.speed-preset[data-speed]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -2033,14 +1860,6 @@
   if (volumeInput) volumeInput.addEventListener('input', syncVolumePresets);
   syncVolumePresets();
 
-  const elevenFileInput = $('#elevenFile');
-  const elevenFileName = $('#elevenFileName');
-  if (elevenFileInput && elevenFileName) {
-    elevenFileInput.addEventListener('change', () => {
-      const file = elevenFileInput.files?.[0];
-      elevenFileName.textContent = file ? file.name : 'Chưa chọn file';
-    });
-  }
 
   loadRenderPreferences();
   loadBrandingConfig().catch((error) => setStatus(error.message || String(error), 'bad'));
