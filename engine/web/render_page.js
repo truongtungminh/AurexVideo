@@ -1674,38 +1674,83 @@
   function requestMaziaoPreview() {
     const previewState = $('#maziaoPreviewState');
     try {
-      previewState.textContent = 'Đang gửi yêu cầu...';
-      const voice = currentMaziaoVoice();
-      const modelId = (currentMaziaoModel && typeof currentMaziaoModel === 'function') ? currentMaziaoModel() : 'vietten_speech';
-      const text = $('#maziaoPreviewText')?.value || '';
-      if (!text.trim()) throw new Error('Vui lòng nhập text mẫu.');
+      previewState.textContent = 'Đang phát thử...';
+      const voiceSelect = $('#maziaoVoice');
+      const selectedOption = voiceSelect?.options?.[voiceSelect.value];
+      const previewUrl = String(selectedOption?.dataset?.previewUrl || '').trim();
+      const voice = String(selectedOption?.dataset?.voiceId || '').trim() || currentMaziaoVoice();
+
+      if (previewUrl) {
+        fetch('/api/tts/maziao/preview', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({voice, text: '', preview_url: previewUrl}),
+          cache: 'no-store',
+        })
+        .then((res) => {
+          if (!res.ok) return res.json().then((data) => Promise.reject(data.error || `HTTP ${res.status}`));
+          return res.json();
+        })
+        .then((data) => data.audio_base64)
+        .then((audioBase64) => playPreviewAudio(previewState, audioBase64))
+        .catch((error) => {
+          if (previewState) previewState.textContent = `Không chiếm được preview: ${error}`;
+        });
+        return;
+      }
+
+      const text = ($('#maziaoPreviewText')?.value || '').trim();
+      if (!text) {
+        if (previewState) previewState.textContent = 'Voice này chưa có previewUrl sẵn. Hãy chọn giọng có link preview hoặc nhập text mẫu.';
+        return;
+      }
+
       fetch('/api/tts/maziao/preview', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text, voice, modelId, model: modelId}),
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({voice, text, preview_url: ''}),
         cache: 'no-store',
       })
       .then((res) => {
         if (!res.ok) return res.json().then((data) => Promise.reject(data.error || `HTTP ${res.status}`));
         return res.json();
       })
-      .then((data) => {
-        const audioBase64 = data.audio_base64;
-        const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
-        if (!previewState) return;
-        previewState.innerHTML = '';
-        const audio = document.createElement('audio');
-        audio.controls = true;
-        audio.src = audioUrl;
-        previewState.appendChild(audio);
-      })
+      .then((data) => data.audio_base64)
+      .then((audioBase64) => playPreviewAudio(previewState, audioBase64))
       .catch((error) => {
-        previewState.textContent = `Không thể phát thử: ${error}`;
+        if (previewState) previewState.textContent = `Không thể phát thử: ${error}`;
       });
     } catch (error) {
       if (previewState) previewState.textContent = `Lỗi: ${error}`;
     }
   }
+
+  function playPreviewAudio(previewState, audioBase64) {
+    const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
+    if (!previewState) return;
+    previewState.innerHTML = '';
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.src = audioUrl;
+    previewState.appendChild(audio);
+  }
+
+  async function startRender() {
+
+    const startButton = $('#startRender');
+    const stopButton = $('#stopRender');
+    const videoLink = $('#videoLink');
+    if (startButton) startButton.disabled = true;
+    if (stopButton) {
+      stopButton.hidden = true;
+      stopButton.disabled = true;
+    }
+    if (videoLink) videoLink.hidden = true;
+    setRevealOutputButton(state.project, false);
+    state.busy = true;
+    state.canceling = false;
+    setRenderState(tr('Đang chuẩn bị render', 'Preparing to render'), [tr('Kiểm tra project và thông số render.', 'Checking project and render settings.')]);
+
     try {
       const project = currentProject();
       if (!project) throw new Error(tr('Vui lòng chọn một dự án trước.', 'Please select a project first.'));
@@ -2517,6 +2562,6 @@
   const initialFromUrl = new URLSearchParams(window.location.search).get('project');
   const initialProject = window.__INITIAL_PROJECT__ || initialFromUrl || projects[0]?.name;
   if (initialProject) setSelectedProject(initialProject, false);
-  syncEdgeVoiceCustomField();
+  if (typeof syncEdgeVoiceCustomField === 'function') syncEdgeVoiceCustomField();
   syncSpeedPresets();
 })();
