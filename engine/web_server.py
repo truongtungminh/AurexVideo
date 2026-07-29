@@ -3212,21 +3212,23 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
 
       <div data-pane="maziao">
-        <label class="field">
+        <div class="field maziao-voice-field">
           <span class="field-label">{ui_icon("message", "field-icon")}<span>TTS Voice</span></span>
-          <select id="maziaoVoice">
-            <option value="">Đang tải giọng...</option>
-          </select>
-        </label>
+          <div class="maziao-voice-control">
+            <select id="maziaoVoice" aria-label="TTS Voice">
+              <option value="">Đang tải giọng...</option>
+            </select>
+            <button class="maziao-preview-button" type="button" id="maziaoPreviewButton" aria-label="Nghe thử giọng" title="Nghe thử giọng" aria-pressed="false">
+              <span class="maziao-preview-play" aria-hidden="true"></span>
+              <span class="maziao-preview-pause" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
         <div class="advanced-check-grid">
           <label class="check">
             <input id="maziaoForce" type="checkbox" />
             Tạo lại audio cache
           </label>
-        </div>
-        <div class="advanced-check-grid">
-          <button class="secondary" type="button" id="maziaoPreviewButton">{ui_icon("play", "btn-icon")}<span>Nghe thử</span></button>
-          <span class="config-state" id="maziaoPreviewState">Bấm Nghe thử để phát giọng đã chọn.</span>
         </div>
       </div>
 
@@ -4009,6 +4011,46 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     .field { display: grid; gap: 7px; margin: 10px 0; }
     .field span { color: var(--muted); font-size: 12px; font-weight: 900; }
     .field-label { display: inline-flex; align-items: center; gap: 7px; }
+    .maziao-voice-control {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 48px;
+      align-items: center;
+      gap: 10px;
+    }
+    .maziao-preview-button {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      min-width: 48px;
+      height: 48px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      color: #5557e8;
+      background: #eef0ff;
+      cursor: pointer;
+      transition: background-color 150ms ease, transform 150ms ease;
+    }
+    .maziao-preview-button:hover { background: #e5e8ff; }
+    .maziao-preview-button:active { transform: scale(0.96); }
+    .maziao-preview-button:focus-visible { outline: 3px solid rgba(85, 87, 232, 0.32); outline-offset: 2px; }
+    .maziao-preview-button:disabled { cursor: not-allowed; opacity: 0.45; }
+    .maziao-preview-play {
+      width: 17px;
+      height: 19px;
+      margin-left: 3px;
+      border: 2px solid currentColor;
+      clip-path: polygon(0 0, 100% 50%, 0 100%);
+    }
+    .maziao-preview-pause {
+      display: none;
+      width: 15px;
+      height: 19px;
+      border-left: 4px solid currentColor;
+      border-right: 4px solid currentColor;
+    }
+    .maziao-preview-button.is-playing .maziao-preview-play { display: none; }
+    .maziao-preview-button.is-playing .maziao-preview-pause { display: block; }
     .mode-toggle {
       display: grid;
       grid-template-columns: repeat(2, 1fr);

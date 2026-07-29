@@ -33,6 +33,7 @@
 
   let youtubeConfigSaving = false;
   let facebookConfigSaving = false;
+  let maziaoPreviewAudio = null;
   let renameProjectTarget = '';
   let renameProjectTrigger = null;
 
@@ -1536,9 +1537,10 @@
 
   async function loadMaziaoFavourites() {
     const voiceSelect = $('#maziaoVoice');
-    const previewState = $('#maziaoPreviewState');
+    const previewButton = $('#maziaoPreviewButton');
     if (!voiceSelect) return;
     voiceSelect.disabled = true;
+    if (previewButton) previewButton.disabled = true;
     voiceSelect.replaceChildren(new Option('Đang tải giọng...', ''));
     try {
       const response = await fetch('/api/voices/favourites', { cache: 'no-store' });
@@ -1562,46 +1564,75 @@
       }
       if (!voiceSelect.options.length) {
         voiceSelect.appendChild(new Option('Chưa có giọng yêu thích', ''));
-        if (previewState) previewState.textContent = 'Maziao chưa trả về voice yêu thích.';
-      } else if (previewState) {
-        previewState.textContent = `Đã tải ${voiceSelect.options.length} giọng. Chọn giọng rồi bấm Nghe thử.`;
       }
     } catch (error) {
       voiceSelect.replaceChildren(new Option('Không tải được danh sách giọng', ''));
-      if (previewState) previewState.textContent = `Không tải được giọng Maziao: ${error.message || error}`;
+      setStatus(`Không tải được giọng Maziao: ${error.message || error}`, 'bad');
     } finally {
       voiceSelect.disabled = false;
+      syncMaziaoPreviewAvailability();
     }
+  }
+
+  function setMaziaoPreviewPlaying(playing) {
+    const button = $('#maziaoPreviewButton');
+    if (!button) return;
+    button.classList.toggle('is-playing', playing);
+    button.setAttribute('aria-pressed', String(playing));
+    button.setAttribute('aria-label', playing ? 'Tạm dừng nghe thử' : 'Nghe thử giọng');
+    button.title = playing ? 'Tạm dừng nghe thử' : 'Nghe thử giọng';
+  }
+
+  function stopMaziaoPreview() {
+    if (maziaoPreviewAudio) {
+      maziaoPreviewAudio.pause();
+      maziaoPreviewAudio.currentTime = 0;
+      maziaoPreviewAudio = null;
+    }
+    setMaziaoPreviewPlaying(false);
+  }
+
+  function syncMaziaoPreviewAvailability() {
+    const option = $('#maziaoVoice')?.selectedOptions?.[0];
+    const button = $('#maziaoPreviewButton');
+    if (!button) return;
+    button.disabled = !String(option?.dataset?.previewUrl || '').trim();
   }
 
   function requestMaziaoPreview() {
-    const previewState = $('#maziaoPreviewState');
     try {
-      if (previewState) previewState.textContent = 'Đang phát thử...';
       const selectedOption = $('#maziaoVoice')?.selectedOptions?.[0];
       const previewUrl = String(selectedOption?.dataset?.previewUrl || '').trim();
       if (!previewUrl) {
-        if (previewState) previewState.textContent = 'Voice này chưa có previewUrl sẵn. Chọn giọng có link preview để nghe thử.';
         return;
       }
-      playPreviewAudio(previewState, previewUrl);
+      if (maziaoPreviewAudio && !maziaoPreviewAudio.paused) {
+        maziaoPreviewAudio.pause();
+        setMaziaoPreviewPlaying(false);
+        return;
+      }
+      if (!maziaoPreviewAudio || maziaoPreviewAudio.src !== previewUrl) {
+        stopMaziaoPreview();
+        maziaoPreviewAudio = new Audio(previewUrl);
+        maziaoPreviewAudio.addEventListener('ended', () => {
+          maziaoPreviewAudio = null;
+          setMaziaoPreviewPlaying(false);
+        }, { once: true });
+        maziaoPreviewAudio.addEventListener('error', () => {
+          maziaoPreviewAudio = null;
+          setMaziaoPreviewPlaying(false);
+          setStatus('Không thể phát link preview của giọng này.', 'bad');
+        }, { once: true });
+      }
+      maziaoPreviewAudio.play()
+        .then(() => setMaziaoPreviewPlaying(true))
+        .catch((error) => {
+          setMaziaoPreviewPlaying(false);
+          setStatus(`Không thể phát thử: ${error.message || error}`, 'bad');
+        });
     } catch (error) {
-      if (previewState) previewState.textContent = `Lỗi: ${error}`;
+      setStatus(`Không thể phát thử: ${error.message || error}`, 'bad');
     }
-  }
-
-  function playPreviewAudio(previewState, audioUrl) {
-    if (!previewState) return;
-    previewState.innerHTML = '';
-    const audio = document.createElement('audio');
-    audio.controls = true;
-    audio.autoplay = true;
-    audio.src = audioUrl;
-    audio.addEventListener('error', () => {
-      previewState.textContent = 'Không thể phát link preview của giọng này.';
-    }, { once: true });
-    previewState.appendChild(audio);
-    audio.play().catch(() => {});
   }
 
   async function startRender() {
@@ -1826,8 +1857,8 @@
   const maziaoVoiceInput = $('#maziaoVoice');
   if (maziaoVoiceInput) {
     maziaoVoiceInput.addEventListener('change', () => {
-      const previewState = $('#maziaoPreviewState');
-      if (previewState) previewState.textContent = 'Bấm Nghe thử để phát giọng đã chọn.';
+      stopMaziaoPreview();
+      syncMaziaoPreviewAvailability();
     });
   }
 
