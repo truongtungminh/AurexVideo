@@ -190,7 +190,11 @@ function fitLabelPair() {
 }
 
 function fitHeadings() {
-  fitLabelPair();
+  if (!elements.stage.classList.contains('character-bietchichomet')) fitLabelPair();
+  else {
+    elements.leftLabel.style.removeProperty('font-size');
+    elements.rightLabel.style.removeProperty('font-size');
+  }
 }
 
 function tokenize(text) {
@@ -276,7 +280,7 @@ function buildGroups(words) {
   const groups = [];
   let index = 0;
   const compactCjk = usesCompactCjkText();
-  const maxWords = compactCjk ? maxCjkCharacters() : 5;
+  const maxWords = compactCjk ? maxCjkCharacters() : 3;
   const maxChars = compactCjk ? maxWords : maxLatinCharacters();
   while (index < words.length) {
     const segmentEnd = words[index].segmentEnd;
@@ -847,8 +851,17 @@ function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   wordGroups = buildGroups(timedWords);
   currentPose = topic.poseTimeline?.[0]?.pose || Object.keys(topic.poseAssets || {})[0] || "question";
   lastPoseIndex = -1;
-  elements.teacherWrap.classList.toggle("custom-character", Boolean(topic.characterId && topic.characterId !== "human-presenter"));
-  if (!elements.teacherWrap.classList.contains("custom-character")) clearImportedPresenterLayout();
+  const isCustomCharacter = Boolean(topic.characterId && topic.characterId !== "human-presenter");
+  elements.teacherWrap.classList.toggle("custom-character", isCustomCharacter);
+  // Gắn class character-<id> để CSS tuỳ biến riêng từng nhân vật (vd. character-bietchichomet).
+  // Gắn cả lên #stage để style các sibling (media-slot, label...) theo nhân vật.
+  const stageClasses = elements.stage.classList;
+  stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("character-")));
+  if (isCustomCharacter && topic.characterId) {
+    elements.teacherWrap.classList.add(`character-${topic.characterId}`);
+    stageClasses.add(`character-${topic.characterId}`);
+  }
+  if (!isCustomCharacter) clearImportedPresenterLayout();
   currentComparisonKey = "";
   applyStageBackground(topic);
   applyComparisonToView(baseComparison(topic), true);

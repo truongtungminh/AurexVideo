@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import unicodedata
 import shlex
 import signal
 import subprocess
@@ -508,7 +509,11 @@ def configure_source_root(path: str | Path | None) -> None:
 
 
 def project_lookup_root() -> Path:
-    return PROJECT_ROOT.parent if SOURCE_ROOT_IS_PROJECT else PROJECT_ROOT
+    if SOURCE_ROOT_IS_PROJECT:
+        return PROJECT_ROOT.parent
+    if PROJECT_ROOT.name == "engine" and (USER_DATA_ROOT / "projects").is_dir():
+        return USER_DATA_ROOT / "projects"
+    return PROJECT_ROOT
 
 
 def source_root_mode() -> str:
@@ -572,7 +577,14 @@ def validate_project_name(project: str) -> str:
     project = unquote(str(project or "")).strip()
     if not project or project in {".", ".."} or "/" in project or "\\" in project or "\x00" in project:
         raise ValueError("Invalid project name.")
-    return project
+    slug = unicodedata.normalize("NFKD", project).lower()
+    slug = slug.replace("đ", "d")
+    slug = "".join(ch for ch in slug if not unicodedata.combining(ch))
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if not slug:
+        raise ValueError("Invalid project name.")
+    return slug
 
 
 def project_url(project: str) -> str:
@@ -717,6 +729,16 @@ def coerce_volume(value: object) -> float:
     if not 1.0 <= volume <= 3.0:
         raise ValueError("Volume must be between 1.0 and 3.0.")
     return volume
+
+
+def coerce_render_fps(value: object) -> int:
+    try:
+        fps = int(float(str(value).strip() or "0"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Render FPS must be a number.") from exc
+    if fps < 1:
+        raise ValueError("Render FPS must be positive.")
+    return fps
 
 
 def coerce_render_size(value: object) -> str:
@@ -1590,10 +1612,12 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     speed = coerce_speed(payload.get("speed", 1.1))
     volume = coerce_volume(payload.get("volume", 1.0))
     render_size = coerce_render_size(payload.get("size", "720x1280"))
+    render_fps = coerce_render_fps(payload.get("fps", 30))
     engine = str(payload.get("engine") or "").strip().lower()
     cmd = [
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
+        "--fps", str(render_fps),
     ]
 
     if engine in {"elevenlabs"}:
@@ -3304,12 +3328,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
                 {ui_icon("gauge", "field-icon advanced-field-icon")}
                 <span>Tốc độ audio</span>
               </span>
-              <input id="renderSpeed" type="number" min="0.5" max="2" step="0.05" value="1.1" />
+              <input id="renderSpeed" type="number" min="0.5" max="2" step="0.05" value="1.0" />
             </label>
             <div class="render-options-stack">
               <div class="render-option-row">
                 <label class="check render-option-check">
-                  <input id="renderBranding" type="checkbox" checked {branding_lock_attributes} />
+                  <input id="renderBranding" type="checkbox" {branding_lock_attributes} />
                   Logo + brand
                 </label>
                 <button class="render-option-choose" id="openBrandConfig" type="button" {branding_lock_attributes}>Chọn</button>

@@ -2,7 +2,7 @@ const state = {
   projects: [],
   jobs: new Map(),
   selected: localStorage.getItem("tho-selected-project") || "",
-  engine: "elevenlabs",
+  engine: "maziao",
   activeJob: null,
   poller: 0,
   characters: [],
@@ -12,11 +12,11 @@ const state = {
 const elements = Object.fromEntries([
   "projectGrid", "projectCount", "pageStatus", "dependencies", "refreshButton", "newProjectButton",
   "projectDialog", "projectForm", "duplicateDialog", "duplicateForm", "jobList", "toast", "selectedProject",
-  "renderAudioFile", "renderAudioName", "elevenApiKey", "elevenVoiceId", "elevenModelId", "saveElevenConfig",
-  "elevenConfigState", "edgeVoice", "renderSpeed", "renderSize", "startRender", "stopRender", "renderLive",
+  "renderAudioFile", "renderAudioName", "maziaoApiKey", "maziaoVoiceId", "maziaoModelId", "saveMaziaoConfig",
+  "maziaoConfigState", "elevenApiKey", "elevenVoiceId", "elevenModelId", "saveElevenConfig", "elevenConfigState",
+  "edgeVoice", "renderSpeed", "renderSize", "startRender", "stopRender", "renderLive",
   "renderLiveTitle", "renderPercent", "renderProgress", "renderLogs", "renderOutput",
-  "socialState", "uploadSettingsLink",
-  "openUploadCenter", "renderUpload",
+  "socialState", "uploadSettingsLink", "openUploadCenter", "renderUpload",
   "characterDialog", "characterForm", "createCharacterButton", "characterSelect", "characterCover", "characterMeta",
   "characterPrompt", "copyCharacterPrompt", "characterSheetFile", "characterSplitStatus", "poseDraftGrid",
   "characterName", "characterId", "saveCharacterButton",
@@ -282,7 +282,7 @@ async function startRender() {
       uploadYoutube: false,
       uploadFacebook: false,
     };
-    if (state.engine === "edge") {
+    if (state.engine === "edge" || state.engine === "edgetts") {
       source = "edge";
       payload.voice = elements.edgeVoice.value.trim();
     } else {
@@ -371,10 +371,15 @@ document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addE
 document.querySelectorAll("[data-engine]").forEach((button) => button.addEventListener("click", () => {
   state.engine = button.dataset.engine;
   document.querySelectorAll("[data-engine]").forEach((item) => item.classList.toggle("active", item === button));
-  document.querySelectorAll("[data-engine-pane]").forEach((pane) => pane.classList.toggle("active", pane.dataset.enginePane === state.engine));
+  document.querySelectorAll("[data-pane]").forEach((pane) => {
+    pane.hidden = pane.dataset.pane !== state.engine;
+  });
+  document.querySelectorAll("[data-advanced-engine]").forEach((pane) => {
+    pane.hidden = pane.dataset.advancedEngine !== state.engine;
+  });
 }));
-document.querySelectorAll('input[name="elevenMode"]').forEach((radio) => radio.addEventListener("change", () => {
-  document.querySelectorAll("[data-eleven-mode]").forEach((pane) => { pane.hidden = pane.dataset.elevenMode !== radio.value; });
+document.querySelectorAll('input[name="maziaoMode"]').forEach((radio) => radio.addEventListener("change", () => {
+  document.querySelectorAll("[data-maziao-mode]").forEach((pane) => { pane.hidden = pane.dataset.maziaoMode !== radio.value; });
 }));
 document.querySelectorAll("[data-speed]").forEach((button) => button.addEventListener("click", () => {
   elements.renderSpeed.value = button.dataset.speed;

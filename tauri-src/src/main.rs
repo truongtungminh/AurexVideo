@@ -128,7 +128,7 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
         .arg(&server_py)
         .arg("--host").arg(SERVER_HOST)
         .arg("--port").arg(SERVER_PORT.to_string())
-        .arg("--source-root").arg(engine)
+        .arg("--source-root").arg(studio_dir().join("project"))
         .current_dir(engine)
         .env("AUREXVIDEO_DESKTOP", "1")
         .env("AUREX_DATA_ROOT", studio_dir())

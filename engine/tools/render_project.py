@@ -243,6 +243,51 @@ def prepare_render_audio(source: Path, project: Path, speed: float, volume: floa
     return output
 
 
+def file_digest(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def alignment_signature(prepared_topic: Path, render_audio: Path, whisper_model: str) -> str:
+    align_script = ROOT / "tools" / "align_voiceover.py"
+    payload = b"\0".join([
+        b"align-cache-v2",
+        whisper_model.encode("utf-8"),
+        file_digest(prepared_topic).encode("ascii"),
+        str(render_audio.resolve()).encode("utf-8"),
+        str(render_audio.stat().st_size).encode("utf-8"),
+        str(render_audio.stat().st_mtime_ns).encode("utf-8"),
+        file_digest(align_script).encode("ascii"),
+    ])
+    return hashlib.sha256(payload).hexdigest()
+def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
+    topic = topic_path.read_bytes()
+    payload = b"\0".join(
+        [
+            topic,
+            args.engine.encode("utf-8"),
+            str(args.audio.resolve() if args.audio else "").encode("utf-8"),
+            f"{float(args.speed):.6f}".encode("utf-8"),
+            f"{float(args.volume):.6f}".encode("utf-8"),
+            str(int(args.fps)).encode("utf-8"),
+            args.size.encode("utf-8"),
+            args.voice.encode("utf-8"),
+            args.model_id.encode("utf-8"),
+            args.whisper_model.encode("utf-8"),
+            str(bool(args.force_tts)).encode("utf-8"),
+            str(bool(args.outro)).encode("utf-8"),
+            str(args.outro_video.resolve() if args.outro_video else "").encode("utf-8"),
+            str(bool(args.no_branding)).encode("utf-8"),
+            str(args.brand_logo.resolve() if args.brand_logo else "").encode("utf-8"),
+            args.brand_name.encode("utf-8"),
+        ]
+    )
+    return hashlib.sha256(payload).hexdigest()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("project", type=Path)
@@ -251,6 +296,7 @@ def main() -> None:
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--volume", type=float, default=1.0)
     parser.add_argument("--size", choices=["720x1280", "1080x1920"], default="1080x1920")
+    parser.add_argument("--fps", type=int)
     parser.add_argument("--voice", default="vi-VN-NamMinhNeural")
     parser.add_argument("--model-id", default="eleven_v3")
     parser.add_argument("--whisper-model", default="base")
@@ -270,8 +316,21 @@ def main() -> None:
         raise ValueError("Tốc độ phải nằm trong khoảng 0.5-2.0.")
     if not 1.0 <= args.volume <= 3.0:
         raise ValueError("Âm lượng phải nằm trong khoảng 1.0-3.0.")
-    if not PYTHON.is_file():
-        raise RuntimeError("Không tìm thấy Python runtime của AurexVideo.")
+    if args.fps is not None and args.fps < 1:
+        raise ValueError("FPS phải lớn hơn 0.")
+    args.fps = int(args.fps or os.environ.get("AUREXVIDEO_RENDER_FPS", "30") or "30")
+
+    signature = render_signature(topic_path, args)
+    output = project / "output" / "final_video.mp4"
+    signature_file = output.with_suffix(".signature.json")
+    if output.is_file() and output.stat().st_size > 0 and signature_file.is_file():
+        try:
+            if json.loads(signature_file.read_text(encoding="utf-8")).get("signature") == signature:
+                print(f"Render cache hit: dùng lại {output}", flush=True)
+                print(f"Done: {output}", flush=True)
+                return
+        except json.JSONDecodeError:
+            pass
 
     token = uuid.uuid4().hex[:8]
     original = json.loads(topic_path.read_text(encoding="utf-8"))
@@ -287,7 +346,6 @@ def main() -> None:
     prepared_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     aligned_topic = project / "topic.rendered.json"
-    output = project / "output" / "final_video.mp4"
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = (int(value) for value in args.size.split("x"))
 
@@ -299,10 +357,11 @@ def main() -> None:
             "--model", args.whisper_model,
         ])
         print("Rendering one-scene video frame-by-frame...", flush=True)
+        render_fps = max(1, int(args.fps))
         run([
             str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
             str(aligned_topic), "--output", str(output),
-            "--width", str(width), "--height", str(height),
+            "--width", str(width), "--height", str(height), "--fps", str(render_fps),
         ])
         if not args.no_branding:
             apply_branding(output, args.brand_logo, args.brand_name, width, height, token)
@@ -313,6 +372,7 @@ def main() -> None:
 
     if not output.is_file() or output.stat().st_size == 0:
         raise RuntimeError("Render xong nhưng không có final_video.mp4.")
+    signature_file.write_text(json.dumps({"signature": signature}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Done: {output}", flush=True)
 
 

@@ -209,7 +209,7 @@ Keep the face, hair, outfit, body proportions, size, style, and line weight iden
 
 Transparent background only. Do not mirror poses. No text, logo, watermark, border, shadow, floor, props, extra characters, or extra symbols. Export at least 2500 px wide.</textarea></div>
       <div class="reference-sheet"><img src="/assets/characters/hieu-ham-hoc/pose-sheet-reference.png" alt="Ảnh mẫu gồm 5 dáng pose" /><div><strong>Ảnh mẫu 5 pose</strong><button class="copy-button tiny" id="copyReferenceImage" type="button">Copy ảnh</button><small>Chỉ tham chiếu pose; AI phải tạo nhân vật mới.</small></div></div>
-      <div class="upload-actions"><label class="primary" id="chooseSheet" for="sheetFile">Upload PNG</label><a class="secondary" href="https://photoshop.adobe.com/" target="_blank" rel="noopener noreferrer">Mở Photoshop xoá nền ↗</a><input id="sheetFile" type="file" accept="image/png" hidden /></div>
+      <div class="upload-actions"><button class="primary" id="chooseSheet" type="button">Upload PNG</button><a class="secondary" href="https://photoshop.adobe.com/" target="_blank" rel="noopener noreferrer">Mở Photoshop xoá nền ↗</a><input id="sheetFile" type="file" accept="image/png" hidden /></div>
       <div class="upload-guidance"><p class="upload-note">Chọn PNG pose-sheet nền trong suốt để hệ thống tự cắt pose. Nếu ảnh AI còn nền, hãy xoá nền trước khi upload.</p><p class="split-status" id="splitStatus">Các dáng cần nằm trên một hàng và không chạm nhau.</p></div>
       <div class="draft" id="draft"></div>
       <label id="characterNameField" hidden>Tên nhân vật<input id="characterId" required minlength="3" maxlength="64" pattern="[a-z0-9][a-z0-9\-]{1,62}[a-z0-9]" placeholder="minh-thong-thai" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" /><small>Chỉ dùng chữ thường không dấu, số và dấu gạch ngang; không có khoảng trắng.</small></label>
@@ -252,11 +252,14 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     };
     const projectNameInputEl=$('#projectNameInput');
     const projectNameHint=$('#projectNameHint');
+    const slugifyProjectName=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'');
+    const forceProjectSlug=input=>input.addEventListener('input',()=>{const start=input.selectionStart,end=input.selectionEnd,next=slugifyProjectName(input.value);if(next===input.value)return;input.value=next;if(start!==null&&end!==null)input.setSelectionRange(start,end)});
     if(projectNameInputEl){
       projectNameInputEl.placeholder=tr('vi-du-noi-com-vs-noi-ap-suat','rice-cooker-vs-pressure-cooker');
       if(!projectNameInputEl.value||projectNameInputEl.value==='vi-du-noi-com-vs-noi-ap-suat'){
         projectNameInputEl.value='';
       }
+      forceProjectSlug(projectNameInputEl);
     }
     if(projectNameHint){
       projectNameHint.textContent=tr(
@@ -297,9 +300,10 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     saveCharacter.onclick=async()=>{if(!split)return;const id=$('#characterId').value.trim(),poseNames=[...draft.querySelectorAll('[data-name]')].map(x=>x.value.trim());try{if(!validCharacterId(id))throw new Error(tr('Tên nhân vật chỉ dùng chữ thường không dấu, số và dấu gạch ngang (3-64 ký tự).','Character names must use lowercase letters, numbers, and hyphens (3-64 characters).'));saveCharacter.disabled=true;const d=await api('/api/characters',{method:'POST',body:JSON.stringify({token:split.token,id,name:id,poseNames})});characters.push(d.character);renderCharacters(d.character.id);closeCreator();splitStatus.textContent=tr('Đã lưu vào thư viện.','Saved to the library.')}catch(e){splitStatus.textContent=e.message;saveCharacter.disabled=false}};
     saveEditCharacter.onclick=async()=>{const id=$('#editCharacterId').value.trim(),poseNames=[...editPoseList.querySelectorAll('[data-edit-pose-name]')].map(input=>input.value.trim());try{if(!editingCharacterId)throw new Error(tr('Chưa chọn nhân vật để sửa.','No character selected to edit.'));if(!validCharacterId(id))throw new Error(tr('Tên nhân vật chỉ dùng chữ thường không dấu, số và dấu gạch ngang (3-64 ký tự).','Character names must use lowercase letters, numbers, and hyphens (3-64 characters).'));if(!poseNames.length||poseNames.some(name=>!name))throw new Error(tr('Cần đặt tên cho đủ tất cả pose.','Every pose needs a name.'));saveEditCharacter.disabled=true;editCharacterStatus.textContent=tr('Đang lưu và đồng bộ project...','Saving and syncing projects…');const d=await api(`/api/characters/${encodeURIComponent(editingCharacterId)}`,{method:'PUT',body:JSON.stringify({id,poseNames})});characters=characters.map(item=>item.id===editingCharacterId?d.character:item);renderCharacters(d.character.id);editCharacterStatus.textContent=d.updatedProjects?.length?tr(`Đã lưu và đồng bộ ${d.updatedProjects.length} project.`,`Saved and synced ${d.updatedProjects.length} projects.`):tr('Đã lưu vào thư viện nhân vật.','Saved to the character library.');editingCharacterId=d.character.id;setTimeout(closeEditor,700)}catch(e){editCharacterStatus.textContent=e.message}finally{saveEditCharacter.disabled=false}};
     const projectNameInput=form.elements.id;
-    projectNameInput.addEventListener('input',()=>{const start=projectNameInput.selectionStart,end=projectNameInput.selectionEnd,next=projectNameInput.value.toLowerCase();if(next===projectNameInput.value)return;projectNameInput.value=next;if(start!==null&&end!==null)projectNameInput.setSelectionRange(start,end)});
+    const normalizeProjectSlug=value=>slugifyProjectName(value);
+    projectNameInput.addEventListener('input',()=>{const start=projectNameInput.selectionStart,end=projectNameInput.selectionEnd,next=normalizeProjectSlug(projectNameInput.value);if(next===projectNameInput.value)return;projectNameInput.value=next;if(start!==null&&end!==null)projectNameInput.setSelectionRange(start,end)});
     characterSelect.onchange=()=>renderCharacters(characterSelect.value);load().catch(e=>statusEl.textContent=e.message);
-    form.addEventListener('submit',async event=>{event.preventDefault();statusEl.textContent=tr('Đang tạo dự án...','Creating project…');const payload=Object.fromEntries(new FormData(form));payload.language=window.__AUREX_LANGUAGE__||document.documentElement.lang||'vi';try{const data=await api('/api/projects',{method:'POST',body:JSON.stringify(payload)});location.href=`/project/${encodeURIComponent(data.project.id)}/`}catch(error){statusEl.textContent=error.message}});
+    form.addEventListener('submit',async event=>{event.preventDefault();statusEl.textContent=tr('Đang tạo dự án...','Creating project…');const payload=Object.fromEntries(new FormData(form));payload.id=normalizeProjectSlug(payload.id);projectNameInput.value=payload.id;payload.language=window.__AUREX_LANGUAGE__||document.documentElement.lang||'vi';try{const data=await api('/api/projects',{method:'POST',body:JSON.stringify(payload)});location.href=data.project.url||`/project/${encodeURIComponent(data.project.id)}/`}catch(error){statusEl.textContent=error.message}});
   </script>
 </body>
 </html>

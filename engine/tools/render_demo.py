@@ -256,14 +256,14 @@ async def render_frames(
             raise RuntimeError(f"FFmpeg không mã hóa được video frame-by-frame: {stderr.strip()}")
 
 
-async def render(topic_path: Path, output: Path, width: int, height: int) -> None:
+async def render(topic_path: Path, output: Path, width: int, height: int, fps: int = 15) -> None:
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="aurexvideo-") as temp:
         work_dir = Path(temp)
         mixed_audio = work_dir / "mixed-audio.wav"
         build_mixed_audio(topic_path, topic, mixed_audio)
         duration = media_duration(mixed_audio)
-        await render_frames(topic_path, mixed_audio, output, width, height, duration)
+        await render_frames(topic_path, mixed_audio, output, width, height, duration, fps=fps)
 
 
 def main() -> None:
@@ -281,8 +281,9 @@ def main() -> None:
     )
     parser.add_argument("--width", type=int, default=1080)
     parser.add_argument("--height", type=int, default=1920)
+    parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args()
-    asyncio.run(render(args.topic.resolve(), args.output.resolve(), args.width, args.height))
+    asyncio.run(render(args.topic.resolve(), args.output.resolve(), args.width, args.height, args.fps))
     print(args.output.resolve())
 
 

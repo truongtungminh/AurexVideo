@@ -1259,8 +1259,19 @@
     }
   }
 
+  function slugifyProjectName(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
   function validateRenameProjectName(value, currentName = '') {
-    const name = String(value || '').trim();
+    const name = slugifyProjectName(value);
     if (!name) return 'Vui lòng nhập tên project.';
     if (name.length > 120) return 'Tên project tối đa 120 ký tự.';
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
@@ -1283,6 +1294,8 @@
     const input = $('#renameProjectInput');
     const submit = $('#renameProjectSubmit');
     if (!input || !submit) return false;
+    const normalized = slugifyProjectName(input.value);
+    if (normalized !== input.value) input.value = normalized;
     const error = validateRenameProjectName(input.value, renameProjectTarget);
     const unchanged = input.value.trim() === renameProjectTarget;
     setRenameProjectError(error);
@@ -1662,9 +1675,10 @@
       const payload = {
         project: project.name,
         engine: state.engine,
-        speed: Number($('#renderSpeed').value || 1.1),
+        speed: Number($('#renderSpeed').value || 1.0),
         volume: Number($('#renderVolume').value || 1),
         size: $('#renderSize')?.value || '1080x1920',
+        fps: 30,
         outro: false,
         branding: $('#renderBranding')?.disabled ? true : $('#renderBranding')?.checked !== false,
       };
@@ -1895,7 +1909,6 @@
   if (volumeInput) volumeInput.addEventListener('input', syncVolumePresets);
   syncVolumePresets();
 
-
   loadRenderPreferences();
   loadBrandingConfig().catch((error) => setStatus(error.message || String(error), 'bad'));
 
@@ -1953,7 +1966,8 @@
       event.preventDefault();
       if (!syncRenameProjectValidation()) return;
       const submit = $('#renameProjectSubmit');
-      const nextName = renameProjectInput.value.trim();
+      const nextName = slugifyProjectName(renameProjectInput.value);
+      renameProjectInput.value = nextName;
       if (renameProjectTrigger) renameProjectTrigger.disabled = true;
       await renameProject(renameProjectTarget, nextName, submit);
     });
@@ -2406,6 +2420,14 @@
       setSelectedProject(row.dataset.project);
     });
   });
+
+  function syncEdgeVoiceCustomField() {
+    const edgeVoice = $('#edgeVoice');
+    const customField = $('#edgeVoiceCustomField');
+    if (edgeVoice && customField) {
+      customField.hidden = edgeVoice.value !== 'custom';
+    }
+  }
 
   const startButton = $('#startRender');
   if (startButton) startButton.addEventListener('click', startRender);

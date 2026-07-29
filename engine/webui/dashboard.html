@@ -35,35 +35,44 @@
           </div>
 
           <div class="engine-tabs">
-            <button class="active" data-engine="elevenlabs" type="button">ElevenLabs</button>
+            <button class="active" data-engine="maziao" type="button">Maziao</button>
             <button data-engine="edge" type="button">Edge TTS</button>
           </div>
-
-          <section class="engine-pane active" data-engine-pane="elevenlabs">
+          <section class="engine-pane active" data-engine-pane="maziao">
             <div class="mode-toggle">
-              <label><input type="radio" name="elevenMode" value="upload" checked /> File audio</label>
-              <label><input type="radio" name="elevenMode" value="api" /> API</label>
+              <label><input type="radio" name="maziaoMode" value="api" checked /> API Maziao</label>
+              <label><input type="radio" name="maziaoMode" value="upload" /> File audio</label>
             </div>
-            <div data-eleven-mode="upload">
-              <label class="audio-drop">Voiceover đầy đủ
-                <input id="renderAudioFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg" />
-                <span id="renderAudioName">Chưa chọn file — sẽ dùng audio trong project</span>
-              </label>
-            </div>
-            <div data-eleven-mode="api" hidden>
-              <label>ElevenLabs API key<input id="elevenApiKey" type="password" autocomplete="off" placeholder="Đã lưu thì có thể để trống" /></label>
+            <div data-maziao-mode="api">
+              <label>Maziao API key<input id="maziaoApiKey" type="password" autocomplete="off" placeholder="Đã lưu thì có thể để trống" /></label>
               <div class="form-grid">
-                <label>Voice ID<input id="elevenVoiceId" type="text" /></label>
-                <label>Model<input id="elevenModelId" type="text" value="eleven_v3" /></label>
+                <label>Giọng<input id="maziaoVoiceId" type="text" value="OncoinX" /></label>
+                <label>Model<input id="maziaoModelId" type="text" value="vietten_speech" /></label>
               </div>
-              <button class="button tiny secondary" id="saveElevenConfig" type="button">Lưu cấu hình API</button>
-              <p class="form-note" id="elevenConfigState">Đang kiểm tra cấu hình...</p>
+              <button class="button tiny secondary" id="saveMaziaoConfig" type="button">Lưu cấu hình API</button>
+              <p class="form-note" id="maziaoConfigState">Đang kiểm tra cấu hình...</p>
+            </div>
+            <div data-maziao-mode="upload" hidden>
+              <label class="audio-drop">Voiceover đầy đủ
+                <input id="maziaoAudioFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg" />
+                <span id="maziaoAudioName">Chưa chọn file — sẽ dùng audio trong project</span>
+              </label>
             </div>
           </section>
 
           <section class="engine-pane" data-engine-pane="edge">
             <label>Giọng Edge TTS<input id="edgeVoice" type="text" value="vi-VN-NamMinhNeural" /></label>
             <p class="form-note">Không cần API key. Web UI sẽ tạo voiceover từ script hiện tại.</p>
+          </section>
+
+          <section class="engine-pane" data-engine-pane="elevenlabs">
+            <label>ElevenLabs API key<input id="elevenApiKey" type="password" autocomplete="off" placeholder="Đã lưu thì có thể để trống" /></label>
+            <div class="form-grid">
+              <label>Voice ID<input id="elevenVoiceId" type="text" /></label>
+              <label>Model<input id="elevenModelId" type="text" value="eleven_v3" /></label>
+            </div>
+            <button class="button tiny secondary" id="saveElevenConfig" type="button">Lưu cấu hình API</button>
+            <p class="form-note" id="elevenConfigState">Đang kiểm tra cấu hình...</p>
           </section>
 
           <details class="render-settings" open>

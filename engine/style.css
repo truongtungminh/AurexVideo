@@ -389,3 +389,102 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
     width: 100%;
   }
 }
+
+/* ===========================================================================
+   CUSTOM CHARACTER: bietchichomet
+   Copy toàn bộ quy tắc character để bạn tuỳ chỉnh riêng cho nhân vật này.
+   app.js tự động gắn class `character-bietchichomet` lên #teacherWrap
+   khi topic.characterId = "bietchichomet".
+   Block này nằm cuối file nên ghi đè lên .teacher-wrap.custom-character và .teacher.
+   Sửa thoải mái — mọi thay đổi chỉ ảnh hưởng riêng bietchichomet.
+   =========================================================================== */
+.teacher-wrap.character-bietchichomet {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Hạ xuống dưới media-slot (z-index 2) để 2 khung media nằm TRÊN nhân vật,
+     nhưng vẫn trên background (z-index 0) và dưới karaoke/label (z-index 5-6). */
+  z-index: 1;
+}
+
+.teacher-wrap.character-bietchichomet .teacher {
+  position: absolute !important;
+  inset: 0 !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  object-fit: cover !important;
+  object-position: center center !important;
+  /* --- tuỳ chỉnh của bietchichomet (sửa thoải mái bên dưới) --- */
+  filter: drop-shadow(0 8px 7px rgba(45, 24, 9, 0.14));
+  transition: opacity 140ms ease;
+}
+
+.teacher-wrap.character-bietchichomet .teacher.pose-swap {
+  opacity: 0.18;
+}
+
+/* Ví dụ glow/tint riêng cho brand — bỏ comment để dùng:
+.teacher-wrap.character-bietchichomet .teacher {
+  filter: drop-shadow(0 0 18px rgba(168, 85, 247, 0.55));
+}
+*/
+
+/* Ví dụ scale/vị trí riêng — bỏ comment để dùng:
+.teacher-wrap.character-bietchichomet .teacher {
+  left: 50% !important;
+  top: 0 !important;
+  transform: translateX(-50%) scale(1.08);
+}
+*/
+
+/* Thu nhỏ 2 media-slot (trái/phải) khi nhân vật là bietchichomet (ảnh full).
+   Style card: bo góc tròn, viền gỗ liền nét bao quanh, nền nhạt, không đổ bóng.
+   Chỉ áp dụng khi #stage có class character-bietchichomet. */
+.stage.character-bietchichomet .media-slot {
+  width: 36%;
+  height: 18%;
+  top: 27%;
+  border: 0.6cqw solid;           /* viền gỗ liền nét, bao quanh */
+  border-radius: 2.2cqw;
+  background: #fbf7f2;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.stage.character-bietchichomet .media-slot-left {
+  left: 16.5%;
+  border-color: #8b5a2b;          /* viền gỗ */
+  background: #fbf7f2;
+}
+
+.stage.character-bietchichomet .media-slot-right {
+  left: 54%;
+  border-color: #8b5a2b;          /* viền gỗ */
+  background: #edf1f4;
+}
+
+/* Đẩy topic label xuống thấp hơn phù hợp với media-slot mới. */
+.stage.character-bietchichomet .topic-label-stack {
+  top: 26%;
+}
+.stage.character-bietchichomet .topic-label-left {
+  left: 12%;
+}
+
+/* Vintage label + karaoke only for bietchichomet */
+.stage.character-bietchichomet .topic-label {
+  color: #1B2E35;
+  font-size: 4.2cqw;
+}
+
+.stage.character-bietchichomet .karaoke.vietnamese.visible {
+  color: #1B2E35;
+}
+
+.stage.character-bietchichomet .karaoke.vietnamese.visible .active {
+  color: #A83220;
+}

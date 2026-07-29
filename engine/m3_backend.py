@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import signal
 import shutil
+import unicodedata
 import subprocess
 import sys
 from threading import Lock, Thread
@@ -277,8 +278,17 @@ def set_social_active(platform: str, value: str) -> dict:
     raise ValueError("Nền tảng upload không hợp lệ.")
 
 
+def slugify_project_name(value: object) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "")).strip().lower()
+    text = text.replace("đ", "d")
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text
+
+
 def validate_slug(value: str) -> str:
-    slug = str(value or "").strip().lower()
+    slug = slugify_project_name(value)
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}[a-z0-9]", slug):
         raise ValueError("Mã dự án chỉ gồm chữ thường, số và dấu gạch ngang (3-64 ký tự).")
     return slug
