@@ -51,6 +51,7 @@ from tts.elevenlabs import (
     update_elevenlabs_api_key,
     update_elevenlabs_voice_id,
 )
+from tts.maziao import _submit_and_poll_single, _resolve_api_config, _resolve_voice, DEFAULT_API_KEY, DEFAULT_API_BASE
 
 
 if sys.platform.startswith("win"):
@@ -1595,7 +1596,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
     ]
 
-    if engine in {"elevenlabs", "elevenlab"}:
+    if engine in {"elevenlabs"}:
         mode = str(payload.get("mode") or "tts").strip().lower()
         if mode == "upload":
             audio_path = decode_audio_payload(payload.get("audio", {}), project_dir)
@@ -1614,6 +1615,15 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
             cmd.append("--force-tts")
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "elevenlabs"
+
+    if engine in {"maziao"}:
+        voice = str(payload.get("voice") or "OncoinX").strip()
+        model_id = str(payload.get("modelId") or "vietten_speech").strip()
+        cmd.extend(["--engine", "maziao", "--voice", voice, "--model-id", model_id])
+        if bool(payload.get("force", False)):
+            cmd.append("--force-tts")
+        append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
+        return cmd, "maziao"
 
     if engine in {"edgetts", "edtts", "edge_tts", "edge-tts"}:
         voice = str(payload.get("voice") or "vi-VN-NamMinhNeural").strip()
@@ -3188,8 +3198,8 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <h2>{ui_icon("sparkles", "render-lead-icon")}<span>Bộ máy render</span></h2>
       </div>
       <div class="render-guide-links" aria-label="Hướng dẫn âm thanh">
-        <a class="refresh-btn icon-btn guide-header-btn" href="/elevenlabs-guide#manual">{ui_icon("help")}<span>Audio ElevenLabs</span></a>
-        <a class="refresh-btn icon-btn guide-header-btn" href="/elevenlabs-guide#api-credit">{ui_icon("help")}<span>API + Voice ID</span></a>
+        <a class="refresh-btn icon-btn guide-header-btn" href="/elevenlabs-guide#manual">{ui_icon("help")}<span>Hướng dẫn Maziao</span></a>
+        <a class="refresh-btn icon-btn guide-header-btn" href="/elevenlabs-guide#api-credit">{ui_icon("help")}<span>Voice ID</span></a>
       </div>
 
       <div class="selected-box">
@@ -3201,36 +3211,44 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div class="status warn" id="renderStatus" hidden></div>
 
       <div class="tabs">
-        <button class="tab active" data-engine="elevenlabs" type="button">{ui_icon("mic", "tab-icon")}<span>ElevenLabs</span></button>
+        <button class="tab active" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
         <button class="tab" data-engine="edgetts" type="button">{ui_icon("audio-lines", "tab-icon")}<span>Edge TTS</span></button>
       </div>
 
-      <div data-pane="elevenlabs">
-        <div class="mode-toggle" aria-label="Chọn kiểu ElevenLabs">
-          <label><input type="radio" name="elevenMode" value="upload" checked /> Tải file</label>
-          <label><input type="radio" name="elevenMode" value="tts" /> API</label>
-        </div>
-        <div data-eleven-mode-pane="upload">
-          <label class="field primary-field">
-            <span class="field-label">{ui_icon("upload", "field-icon")}<span>File voiceover đầy đủ</span></span>
-            <span class="file-picker">
-              <input id="elevenFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" />
-              <span class="file-picker-button">Chọn file</span>
-              <span class="file-picker-name" id="elevenFileName">Chưa chọn file</span>
-            </span>
+      <div data-pane="maziao">
+        <label class="field">
+          <span class="field-label">{ui_icon("message", "field-icon")}<span>TTS Voice</span></span>
+          <select id="maziaoVoice">
+            <option value="oncoinx">OncoinX</option>
+            <option value="manhdung">Mạnh Dũng V2</option>
+            <option value="ngochuyen">Huyền V2</option>
+            <option value="quananh">Quân Anh</option>
+            <option value="cdmedia">CD Media</option>
+            <option value="truyen-mix">Truyện Mix</option>
+            <option value="ngoc-ngan">Ngọc Ngạn V2</option>
+            <option value="adam">Adam</option>
+            <option value="dinh-doan">Đinh Đoàn</option>
+            <option value="custom">Tùy chỉnh mã giọng…</option>
+          </select>
+        </label>
+        <label class="field" id="maziaoVoiceCustomField" hidden>
+          <span class="field-label">{ui_icon("pencil", "field-icon")}<span>Mã giọng tùy chỉnh</span></span>
+          <input id="maziaoVoiceCustom" type="text" placeholder="Ví dụ: clone_..." autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="advanced-check-grid">
+          <label class="check">
+            <input id="maziaoForce" type="checkbox" />
+            Tạo lại audio cache
           </label>
         </div>
-        <div data-eleven-mode-pane="tts" hidden>
-          <div class="api-key-panel" id="elevenApiKeyPanel">
-            <label class="field api-key-field">
-              <span class="field-label">{ui_icon("key", "field-icon")}<span>ElevenLabs API key</span></span>
-              <input id="elevenApiKey" type="password" autocomplete="off" placeholder="Dán API key rồi lưu vào config/tts.json" />
-            </label>
-            <div class="eleven-actions api-key-actions">
-              <span class="config-state" id="elevenApiKeyState">Chưa kiểm tra API key</span>
-            </div>
-          </div>
+        <div class="advanced-check-grid">
+          <button class="secondary" type="button" id="maziaoPreviewButton">{ui_icon("play", "btn-icon")}<span>Nghe thử</span></button>
+          <span class="config-state" id="maziaoPreviewState">Dán text mẫu rồi bấm Nghe thử.</span>
         </div>
+        <label class="field">
+          <span class="field-label">{ui_icon("message", "field-icon")}<span>Text mẫu</span></span>
+          <textarea id="maziaoPreviewText" rows="4">Xin chào, đây là giọng thử của Maziao.</textarea>
+        </label>
       </div>
 
       <div data-pane="edgetts" hidden>
@@ -8104,6 +8122,50 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, elevenlabs_public_config())
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/tts/maziao/config":
+            try:
+                api_key = DEFAULT_API_KEY
+                api_base = DEFAULT_API_BASE
+                try:
+                    api_key = os.environ.get("MAZIAO_API_KEY") or api_key
+                    api_base = (os.environ.get("MAZIAO_API_BASE") or api_base).rstrip("/")
+                except Exception:
+                    pass
+                self.send_json(200, {
+                    "api_key_configured": bool(api_key),
+                    "api_base": api_base,
+                    "default_voice": "oncoinx",
+                })
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/tts/maziao/preview":
+            if self.command == "POST":
+                try:
+                    payload = self.read_json_body()
+                    text = str(payload.get("text") or "").strip()
+                    voice = str(payload.get("voice") or "oncoinx").strip()
+                    if not text:
+                        raise ValueError("Missing preview text.")
+                    if len(text) > 220:
+                        text = text[:220]
+                    voice_id, model_id = _resolve_voice(voice)
+                    _, api_base, headers = _resolve_api_config(None, DEFAULT_API_BASE)
+                    audio_bytes = _submit_and_poll_single(text, voice_id, model_id, api_base, headers)
+                    self.send_json(200, {
+                        "voice": voice,
+                        "voice_id": voice_id,
+                        "model_id": model_id,
+                        "text": text,
+                        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    })
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                return
+            self.send_json(405, {"error": "Method not allowed."})
             return
 
         if path == "/api/render-branding":

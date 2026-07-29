@@ -9,7 +9,7 @@
     : (fallbackProject ? [{ name: fallbackProject, url: `/project/${fallbackProject}/`, output_url: fallbackOutputUrl, video_url: fallbackOutputUrl, script_count: 0 }] : []);
   const projectMap = new Map(projects.map((project) => [project.name, project]));
   const state = {
-    engine: 'elevenlabs',
+    engine: 'maziao',
     jobId: null,
     pollTimer: null,
     project: null,
@@ -1003,22 +1003,25 @@
     });
   }
 
-  function syncEdgeVoiceCustomField() {
-    const customField = $('#edgeVoiceCustomField');
-    if (customField) customField.hidden = $('#edgeVoice')?.value !== 'custom';
+  function syncMaziaoCustomField() {
+    const voice = $('#maziaoVoice')?.value;
+    const customField = $('#maziaoVoiceCustomField');
+    if (customField) customField.hidden = !(voice === 'custom');
   }
 
   function currentEdgeVoice() {
     const selectedVoice = $('#edgeVoice')?.value || 'vi-VN-NamMinhNeural';
     if (selectedVoice !== 'custom') return selectedVoice;
     const customVoice = $('#edgeVoiceCustom')?.value.trim() || '';
-    if (!customVoice) {
-      throw new Error(tr(
-        'Vui lòng nhập mã giọng Edge TTS tùy chỉnh.',
-        'Please enter a custom Edge TTS voice ID.',
-      ));
-    }
     return customVoice;
+  }
+
+  function currentMaziaoVoice() {
+    const selectedVoice = $('#maziaoVoice')?.value?.trim();
+    if (selectedVoice && selectedVoice !== 'custom') return selectedVoice;
+    const customVoice = $('#maziaoVoiceCustom')?.value.trim();
+    if (customVoice) return customVoice;
+    return 'oncoinx';
   }
 
   function syncSpeedPresets() {
@@ -1652,6 +1655,7 @@
   }
 
   async function startRender() {
+
     const startButton = $('#startRender');
     const stopButton = $('#stopRender');
     const videoLink = $('#videoLink');
@@ -1665,7 +1669,43 @@
     state.busy = true;
     state.canceling = false;
     setRenderState(tr('Đang chuẩn bị render', 'Preparing to render'), [tr('Kiểm tra project và thông số render.', 'Checking project and render settings.')]);
+  }
 
+  function requestMaziaoPreview() {
+    const previewState = $('#maziaoPreviewState');
+    try {
+      previewState.textContent = 'Đang gửi yêu cầu...';
+      const voice = currentMaziaoVoice();
+      const modelId = (currentMaziaoModel && typeof currentMaziaoModel === 'function') ? currentMaziaoModel() : 'vietten_speech';
+      const text = $('#maziaoPreviewText')?.value || '';
+      if (!text.trim()) throw new Error('Vui lòng nhập text mẫu.');
+      fetch('/api/tts/maziao/preview', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, voice, modelId, model: modelId}),
+        cache: 'no-store',
+      })
+      .then((res) => {
+        if (!res.ok) return res.json().then((data) => Promise.reject(data.error || `HTTP ${res.status}`));
+        return res.json();
+      })
+      .then((data) => {
+        const audioBase64 = data.audio_base64;
+        const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
+        if (!previewState) return;
+        previewState.innerHTML = '';
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = audioUrl;
+        previewState.appendChild(audio);
+      })
+      .catch((error) => {
+        previewState.textContent = `Không thể phát thử: ${error}`;
+      });
+    } catch (error) {
+      if (previewState) previewState.textContent = `Lỗi: ${error}`;
+    }
+  }
     try {
       const project = currentProject();
       if (!project) throw new Error(tr('Vui lòng chọn một dự án trước.', 'Please select a project first.'));
@@ -1690,7 +1730,17 @@
         }
       }
 
-      if (state.engine === 'elevenlabs') {
+      if (state.engine === 'maziao') {
+        payload.voice = currentMaziaoVoice();
+        payload.force = $('#maziaoForce')?.checked;
+        setRenderState(
+          tr('Đang chuẩn bị render', 'Preparing to render'),
+          [tr(
+            'OncoinX tạo voiceover từ kịch bản hiện tại; sau đó hệ thống căn lại từng câu và từng từ.',
+            'OncoinX generates a voiceover from the current script; the system then realigns each sentence and word.'
+          )],
+        );
+      } else if (state.engine === 'elevenlabs') {
         payload.mode = currentElevenMode();
         if (payload.mode === 'upload') {
           const file = $('#elevenFile')?.files?.[0];
@@ -1714,7 +1764,7 @@
         }
       } else {
         payload.voice = currentEdgeVoice();
-        payload.force = $('#edgeForce').checked;
+        payload.force = $('#edgeForce')?.checked;
         setRenderState(
           tr('Đang chuẩn bị render', 'Preparing to render'),
           [tr(
@@ -1878,13 +1928,26 @@
     button.addEventListener('click', () => setEngine(button.dataset.engine));
   });
 
-  $all('input[name="elevenMode"]').forEach((input) => {
-    input.addEventListener('change', syncElevenMode);
-  });
-  syncElevenMode();
-
   syncAdvancedSettings();
+  syncMaziaoCustomField();
   loadElevenLabsConfig();
+
+  const maziaoVoiceInput = $('#maziaoVoice');
+  if (maziaoVoiceInput) {
+    maziaoVoiceInput.addEventListener('change', syncMaziaoCustomField);
+    syncMaziaoCustomField();
+  }
+
+  const maziaoVoiceCustomInput = $('#maziaoVoiceCustom');
+  if (maziaoVoiceCustomInput) {
+    maziaoVoiceCustomInput.addEventListener('input', syncMaziaoCustomField);
+    maziaoVoiceCustomInput.addEventListener('change', syncMaziaoCustomField);
+  }
+
+  const maziaoPreviewButton = $('#maziaoPreviewButton');
+  if (maziaoPreviewButton) {
+    maziaoPreviewButton.addEventListener('click', requestMaziaoPreview);
+  }
 
   const elevenVoiceInput = $('#elevenVoice');
   if (elevenVoiceInput) {

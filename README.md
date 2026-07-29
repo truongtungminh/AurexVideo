@@ -91,3 +91,14 @@ fix triệt để lỗi "Upload PNG button không mở được picker" ở bả
 - ✅ Launch test thực tế: app mở, server up HTTP 200 (không trắng), UI dashboard đầy đủ (verify bằng screenshot).
 - ✅ Tauri WebView tự xử lý native file dialog → fix lỗi "Upload PNG không bấm được" của bản Swift cũ.
 - ✅ Version đồng bộ: `web_server.py APP_VERSION`, `engine/VERSION`, `update-manifest.json` đều `0.2.3`.
+
+## Custom character CSS (per-character override)
+
+Mỗi `topic.characterId` được `engine/app.js` tự động gắn thêm class `character-<id>` lên `#teacherWrap`
+(kèm class `custom-character` chung). Nhờ đó có thể viết CSS riêng cho từng nhân vật mà không ảnh hưởng nhân vật khác.
+
+- Quy tắc chung: `.teacher-wrap.custom-character` (engine/style.css).
+- Quy tắc riêng ví dụ: `.teacher-wrap.character-bietchichomet` (đã copy sẵn ở cuối engine/style.css, bạn sửa thoải mái).
+- Đổi nhân vật → class `character-*` cũ tự gỡ, class mới tự gắn (app.js dọn sạch prefix `character-` trước khi add).
+- Style block nằm CUỐI engine/style.css nên ghi đè `.teacher-wrap.custom-character`/`.teacher`.
+- Khi sửa style.css nhớ tăng query version trong engine/index.html (`style.css?v=...`) để trình duyệt reload.
