@@ -3219,16 +3219,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <label class="field">
           <span class="field-label">{ui_icon("message", "field-icon")}<span>TTS Voice</span></span>
           <select id="maziaoVoice">
-            <option value="oncoinx">OncoinX</option>
-            <option value="manhdung">Mạnh Dũng V2</option>
-            <option value="ngochuyen">Huyền V2</option>
-            <option value="quananh">Quân Anh</option>
-            <option value="cdmedia">CD Media</option>
-            <option value="truyen-mix">Truyện Mix</option>
-            <option value="ngoc-ngan">Ngọc Ngạn V2</option>
-            <option value="adam">Adam</option>
-            <option value="dinh-doan">Đinh Đoàn</option>
-            <option value="custom">Tùy chỉnh mã giọng…</option>
+            <option value="custom">Chọn giọng...</option>
           </select>
         </label>
         <label class="field" id="maziaoVoiceCustomField" hidden>
@@ -3243,12 +3234,8 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         </div>
         <div class="advanced-check-grid">
           <button class="secondary" type="button" id="maziaoPreviewButton">{ui_icon("play", "btn-icon")}<span>Nghe thử</span></button>
-          <span class="config-state" id="maziaoPreviewState">Dán text mẫu rồi bấm Nghe thử.</span>
+          <span class="config-state" id="maziaoPreviewState">Bấm Nghe thử để phát giọng đã chọn.</span>
         </div>
-        <label class="field">
-          <span class="field-label">{ui_icon("message", "field-icon")}<span>Text mẫu</span></span>
-          <textarea id="maziaoPreviewText" rows="4">Xin chào, đây là giọng thử của Maziao.</textarea>
-        </label>
       </div>
 
       <div data-pane="edgetts" hidden>
@@ -8142,30 +8129,54 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
-        if path == "/api/tts/maziao/preview":
-            if self.command == "POST":
-                try:
-                    payload = self.read_json_body()
-                    text = str(payload.get("text") or "").strip()
-                    voice = str(payload.get("voice") or "oncoinx").strip()
-                    if not text:
-                        raise ValueError("Missing preview text.")
-                    if len(text) > 220:
-                        text = text[:220]
+        if path == "/api/voices/favourites":
+            try:
+                payload = self.read_json_body() if self.command == "POST" else {}
+                api_key = str(payload.get("api_key") or DEFAULT_API_KEY).strip()
+                api_base = str(payload.get("api_base") or DEFAULT_API_BASE).rstrip("/")
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                }
+                r = requests.get(f"{api_base}/api/voices/favourites", headers=headers, timeout=30)
+                r.raise_for_status()
+                self.send_json(200, r.json())
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path in {"/api/tts/maziao/preview", "/api/tts/maziao/preview"}:
+            if self.command != "POST":
+                self.send_json(405, {"error": "Method not allowed."})
+                return
+            try:
+                payload = self.read_json_body()
+                preview_url = str(payload.get("preview_url") or "").strip()
+                voice = str(payload.get("voice") or "oncoinx").strip()
+                text = str(payload.get("text") or "").strip()
+                audio_bytes = None
+                if preview_url:
+                    try:
+                        audio_bytes = _download_audio(preview_url, headers={})
+                    except Exception as exc:
+                        return self.send_json(400, {"error": f"Preview download failed: {exc}"})
+                else:
+                    text = text[:220]
+                    if len(text) < 100:
+                        text = (text + " " + text)[:220]
                     voice_id, model_id = _resolve_voice(voice)
                     _, api_base, headers = _resolve_api_config(None, DEFAULT_API_BASE)
                     audio_bytes = _submit_and_poll_single(text, voice_id, model_id, api_base, headers)
-                    self.send_json(200, {
-                        "voice": voice,
-                        "voice_id": voice_id,
-                        "model_id": model_id,
-                        "text": text,
-                        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
-                    })
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                return
-            self.send_json(405, {"error": "Method not allowed."})
+                self.send_json(200, {
+                    "voice": voice,
+                    "voice_id": payload.get("voice_id"),
+                    "text": text,
+                    "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    "source": "preview_url" if preview_url else "tts",
+                })
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
             return
 
         if path == "/api/render-branding":
@@ -8297,6 +8308,39 @@ class WebHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/social/default-tags":
             try:
                 self.send_json(200, save_default_upload_tags(self.read_json_body()))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/tts/maziao/preview":
+            if self.command != "POST":
+                self.send_json(405, {"error": "Method not allowed."})
+                return
+            try:
+                payload = self.read_json_body()
+                preview_url = str(payload.get("preview_url") or "").strip()
+                voice = str(payload.get("voice") or "oncoinx").strip()
+                text = str(payload.get("text") or "").strip()
+                audio_bytes = None
+                if preview_url:
+                    try:
+                        audio_bytes = _download_audio(preview_url, headers={})
+                    except Exception as exc:
+                        return self.send_json(400, {"error": f"Preview download failed: {exc}"})
+                else:
+                    text = text[:220]
+                    if len(text) < 100:
+                        text = (text + " " + text)[:220]
+                    voice_id, model_id = _resolve_voice(voice)
+                    _, api_base, headers = _resolve_api_config(None, DEFAULT_API_BASE)
+                    audio_bytes = _submit_and_poll_single(text, voice_id, model_id, api_base, headers)
+                self.send_json(200, {
+                    "voice": voice,
+                    "voice_id": payload.get("voice_id"),
+                    "text": text,
+                    "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    "source": "preview_url" if preview_url else "tts",
+                })
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
