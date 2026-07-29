@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate one full-script voiceover with ElevenLabs or Edge TTS."""
+"""Generate one full-script voiceover with Maziao, Edge TTS or upload."""
 
 from __future__ import annotations
 
@@ -8,6 +8,11 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import sys
+
+LOCAL_ROOT = Path(__file__).resolve().parents[1]
+if str(LOCAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(LOCAL_ROOT))
 
 
 def read_config(path: Path) -> dict:
@@ -73,11 +78,11 @@ def generate_elevenlabs(text: str, output: Path, config: dict, voice: str, model
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("topic", type=Path)
-    parser.add_argument("--engine", choices=["elevenlabs", "edge"], required=True)
+    parser.add_argument("--engine", choices=["maziao", "elevenlabs", "edge"], required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--voice", required=True)
-    parser.add_argument("--model-id", default="eleven_v3")
+    parser.add_argument("--model-id", default="vietten_speech")
     args = parser.parse_args()
     text = script_text(args.topic.resolve())
     output = args.output.resolve()
@@ -86,6 +91,22 @@ async def main() -> None:
     print(f"Tạo voiceover {args.engine}: {len(text)} ký tự")
     if args.engine == "edge":
         await generate_edge(text, output, args.voice)
+    elif args.engine == "maziao":
+        from tts.maziao import generate_maziao_full_audio, _resolve_voice, _resolve_api_config
+        api_key = str((read_config(args.config.resolve()).get("maziao") or {}).get("api_key") or "").strip()
+        api_base = str((read_config(args.config.resolve()).get("maziao") or {}).get("api_base") or "https://app.maziao.com").strip()
+        voice_id, model_id = _resolve_voice(args.voice)
+        await generate_maziao_full_audio(
+            args.topic.parent,
+            output.parent,
+            text.splitlines(),
+            voice=voice_id,
+            api_key=api_key or None,
+            api_base=api_base or None,
+            full_text=text,
+        )
+        if output.exists() is False and (output.parent / "maziao_full_voiceover.mp3").exists():
+            (output.parent / "maziao_full_voiceover.mp3").rename(output)
     else:
         await asyncio.to_thread(generate_elevenlabs, text, output, read_config(args.config.resolve()), args.voice, args.model_id)
     if not output.is_file() or output.stat().st_size == 0:
