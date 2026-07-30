@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
-const APP_VERSION: &str = "0.2.4";
+const APP_VERSION: &str = "0.2.3";
 const GITHUB_REPO: &str = "truongtungminh/AurexVideo";
 const SERVER_PORT: u16 = 4173;
 const SERVER_HOST: &str = "127.0.0.1";
@@ -76,7 +76,7 @@ fn ensure_engine() -> Result<(), String> {
     }
     fs::create_dir_all(&eng).ok();
     let tmp = support_dir().join("engine-download.tar.gz");
-    download_file(&release_asset_url("aurexvideo-engine-0.2.4.tar.gz"), &tmp)?;
+    download_file(&release_asset_url("aurexvideo-engine-0.2.3.tar.gz"), &tmp)?;
     // Engine tarball is git-archive of `engine/` -> unpack directly into engine_dir
     extract_tar_gz(&tmp, &eng)?;
     fs::remove_file(&tmp).ok();
@@ -91,7 +91,7 @@ fn ensure_python() -> Result<PathBuf, String> {
     }
     fs::create_dir_all(&runtime_dir()).ok();
     let tmp = support_dir().join("python-download.tar.gz");
-    download_file(&release_asset_url("aurexvideo-python-0.2.4.tar.gz"), &tmp)?;
+    download_file(&release_asset_url("aurexvideo-python-0.2.3.tar.gz"), &tmp)?;
     extract_tar_gz(&tmp, &runtime_dir())?;
     fs::remove_file(&tmp).ok();
     Ok(py)

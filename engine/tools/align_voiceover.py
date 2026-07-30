@@ -459,7 +459,15 @@ def main() -> None:
     print(f"Ngôn ngữ căn subtitle: {language or 'auto'}")
     duration = float(topic.get("duration") or 0)
     if existing_alignment_is_compatible(args.output, lines, duration):
-        print(f"Alignment cache hit: dùng lại {args.output}")
+        existing = json.loads(args.output.read_text(encoding="utf-8"))
+        # Reuse only timing results. Visual/editor properties must come from the
+        # current topic so background/layout changes are reflected in renders.
+        result = dict(topic)
+        for key in ("duration", "segments", "poseTimeline", "language", "alignmentMethod"):
+            if key in existing:
+                result[key] = existing[key]
+        args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"Alignment cache hit: giữ timing, cập nhật visual config tại {args.output}")
         return
     try:
         words = transcribe(args.audio.resolve(), args.model, language=language)

@@ -1644,7 +1644,7 @@ async function loadProject() {
     renderPoseSfxMap();
     renderPoseList();
     const previewTopic = result.previewTopicUrl || `/project/${project}/topic.json`;
-    elements.previewFrame.src = `/index.html?topic=${encodeURIComponent(previewTopic)}&render=1&preview=1`;
+    elements.previewFrame.src = `/index.html?topic=${encodeURIComponent(previewTopic)}&render=1&preview=1&v=${Date.now()}`;
     state.previewSegmentIndex = -1;
     state.previewTime = 0;
     state.previewComparisonId = "";

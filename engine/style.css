@@ -351,6 +351,34 @@ body.offline-render .teacher.pose-swap {
   opacity: 1;
 }
 
+/* Shared neon media frames for every project. */
+.media-slot {
+  border: 0.58cqw solid;
+  border-radius: 0.8cqw;
+  background: #050508;
+  overflow: hidden;
+}
+
+.media-slot-left {
+  border-color: #ff9a58;
+  box-shadow:
+    0 0 0 0.24cqw rgba(255, 239, 216, 1),
+    0 0 1.15cqw rgba(255, 112, 34, 1),
+    0 0 2.6cqw rgba(255, 62, 12, 0.88),
+    inset 0 0 0.85cqw rgba(255, 224, 184, 0.96),
+    inset 0 0 1.7cqw rgba(255, 68, 12, 0.58);
+}
+
+.media-slot-right {
+  border-color: #a797ff;
+  box-shadow:
+    0 0 0 0.24cqw rgba(239, 236, 255, 1),
+    0 0 1.15cqw rgba(124, 88, 255, 1),
+    0 0 2.6cqw rgba(52, 27, 255, 0.92),
+    inset 0 0 0.85cqw rgba(226, 220, 255, 0.96),
+    inset 0 0 1.7cqw rgba(66, 31, 255, 0.62);
+}
+
 /* Editor live preview: match soft page tone; keep pure black only for real renders. */
 body.render-mode.preview-frame {
   background:
