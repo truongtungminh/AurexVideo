@@ -28,6 +28,7 @@ Cài máy khác:
 1. Mở DMG, kéo `AurexVideo.app` vào `Applications`.
 2. Lần đầu mở, app tự tải python_base (~42MB) + engine (~26MB) từ GitHub releases.
 3. Lần sau chỉ tải engine qua OTA, không tải lại runtime.
+4. OTA engine 0.2.4 đã được publish lên GitHub Release `v0.2.4` và manifest update trỏ trực tiếp tới asset `aurexvideo-engine-0.2.4.tar.gz`.
 
 ## Cấu trúc runtime + data (giống FastScene 2-folder)
 
