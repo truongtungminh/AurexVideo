@@ -304,7 +304,7 @@ function switchCharacter(characterId) {
   ]));
   state.poseBySegment = state.poseBySegment.map((item) => {
     const oldIndex = Math.max(0, oldOptions.indexOf(item.pose));
-    return { pose: nextIds[Math.min(oldIndex, nextIds.length - 1)] || nextIds[0] };
+    return { pose: nextIds[oldIndex % nextIds.length] || nextIds[0] };
   });
   Object.assign(state.topic, {
     characterId: character.id,
