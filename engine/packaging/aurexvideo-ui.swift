@@ -23,9 +23,9 @@ final class AppState: ObservableObject {
 
     let engineBase = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Application Support/app.aurexvideo")
-    let engineURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-engine-0.2.3.tar.gz")!
+    let engineURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.4/aurexvideo-engine-0.2.4.tar.gz")!
     // Python giữ từ GitHub (nhẹ ~80MB) — các component nặng tải từ chính chủ
-    let pythonURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.3/aurexvideo-python-0.2.3.tar.gz")!
+    let pythonURL = URL(string: "https://github.com/truongtungminh/AurexVideo/releases/download/v0.2.4/aurexvideo-python-0.2.4.tar.gz")!
     // whisper-base từ HuggingFace chính chủ (Systran)
     let whisperFiles = [
         "config.json", "model.bin", "tokenizer.json", "vocabulary.txt",
