@@ -331,8 +331,47 @@ function activeWordAt(time) {
 
 function poseImage(poseName, speaking) {
   const pose = topic.poseAssets[poseName] || topic.poseAssets.question || Object.values(topic.poseAssets)[0];
-  const source = resolveTopicAsset(speaking ? pose.speaking : pose.closed);
-  return presenterFrameCache.get(source) || source;
+  return resolveTopicAsset(speaking ? pose.speaking : pose.closed);
+}
+
+function mediaSource(element) {
+  return element.currentSrc || element.src;
+}
+
+function mediaReady(element) {
+  return element instanceof HTMLVideoElement
+    ? element.readyState >= 2 && element.videoWidth > 0 && element.videoHeight > 0
+    : element.complete && element.naturalWidth > 0 && element.naturalHeight > 0;
+}
+
+function mediaIntrinsicWidth(element) {
+  return element instanceof HTMLVideoElement ? element.videoWidth || 1 : element.naturalWidth || 1;
+}
+
+function mediaIntrinsicHeight(element) {
+  return element instanceof HTMLVideoElement ? element.videoHeight || 1 : element.naturalHeight || 1;
+}
+
+function waitForMediaReady(element) {
+  if (mediaReady(element)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      element.removeEventListener("loadeddata", onReady);
+      element.removeEventListener("load", onReady);
+      element.removeEventListener("error", onError);
+    };
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error(`Không tải được media: ${mediaSource(element)}`));
+    };
+    element.addEventListener("loadeddata", onReady, { once: true });
+    element.addEventListener("load", onReady, { once: true });
+    element.addEventListener("error", onError, { once: true });
+  });
 }
 
 function isVideoAssetSource(source) {
@@ -409,13 +448,15 @@ function updateMediaFocus(poseName) {
 }
 
 async function alphaBoundsForImage(image) {
-  const source = image.currentSrc || image.src;
-  if (!source || !image.naturalWidth || !image.naturalHeight) return null;
+  const source = mediaSource(image);
+  const width = mediaIntrinsicWidth(image);
+  const height = mediaIntrinsicHeight(image);
+  if (!source || !width || !height) return null;
   if (presenterAlphaBounds.has(source)) return presenterAlphaBounds.get(source);
 
   const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   context.drawImage(image, 0, 0);
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -449,10 +490,10 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
     clearImportedPresenterLayout();
     return;
   }
-  const source = elements.teacher.currentSrc || elements.teacher.src;
-  if (!source || !elements.teacher.complete || !elements.teacher.naturalWidth) return;
+  const source = mediaSource(elements.teacher);
+  if (!source || !mediaReady(elements.teacher)) return;
   const bounds = await alphaBoundsForImage(elements.teacher);
-  if (!bounds || generation !== presenterLayoutGeneration || source !== (elements.teacher.currentSrc || elements.teacher.src)) return;
+  if (!bounds || generation !== presenterLayoutGeneration || source !== mediaSource(elements.teacher)) return;
 
   const stageRect = elements.stage.getBoundingClientRect();
   const subtitleRects = Array.from(elements.karaoke.children, (node) => node.getBoundingClientRect());
@@ -472,8 +513,8 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
   const renderedVisibleHeight = visibleHeight * imageScale;
   const renderedVisibleTop = Math.max(visibleTop, visibleBottom - renderedVisibleHeight);
 
-  elements.teacher.style.width = `${elements.teacher.naturalWidth * imageScale}px`;
-  elements.teacher.style.height = `${elements.teacher.naturalHeight * imageScale}px`;
+  elements.teacher.style.width = `${mediaIntrinsicWidth(elements.teacher) * imageScale}px`;
+  elements.teacher.style.height = `${mediaIntrinsicHeight(elements.teacher) * imageScale}px`;
   elements.teacher.style.left = `${(stageRect.width - renderedVisibleWidth) / 2 - bounds.left * imageScale}px`;
   elements.teacher.style.top = `${renderedVisibleTop - bounds.top * imageScale}px`;
 }
@@ -495,14 +536,25 @@ function setPose(event, time, allowSfx = false) {
   }
   // Use exactly one full-body sprite per pose to keep the presenter stationary.
   const nextSrc = poseImage(currentPose, true);
-  if (elements.teacher.src !== nextSrc) {
-    elements.teacher.classList.add("pose-swap");
-    elements.teacher.src = nextSrc;
-    lastPresenterSource = nextSrc;
-    cancelAnimationFrame(poseSwapRaf);
-    poseSwapRaf = requestAnimationFrame(() => {
-      poseSwapRaf = requestAnimationFrame(() => elements.teacher.classList.remove("pose-swap"));
-    });
+  const currentSrc = mediaSource(elements.teacher);
+  const shouldResetVideo = isVideoAssetSource(nextSrc) && event.index !== lastPoseIndex;
+  if (currentSrc !== nextSrc || shouldResetVideo) {
+    if (currentSrc !== nextSrc) {
+      elements.teacher.classList.add("pose-swap");
+      elements.teacher.src = nextSrc;
+      lastPresenterSource = nextSrc;
+      cancelAnimationFrame(poseSwapRaf);
+      poseSwapRaf = requestAnimationFrame(() => {
+        poseSwapRaf = requestAnimationFrame(() => elements.teacher.classList.remove("pose-swap"));
+      });
+    }
+    if (isVideoAssetSource(nextSrc)) {
+      elements.teacher.muted = true;
+      elements.teacher.loop = true;
+      elements.teacher.playsInline = true;
+      elements.teacher.currentTime = 0;
+      elements.teacher.play().catch(() => {});
+    }
   }
   updateMediaFocus(currentPose);
 }
@@ -581,7 +633,7 @@ async function renderOfflineFrame(time) {
   await Promise.all([
     elements.leftImage.decode().catch(() => {}),
     elements.rightImage.decode().catch(() => {}),
-    elements.teacher.decode().catch(() => {}),
+    waitForMediaReady(elements.teacher).catch(() => {}),
     elements.stageBackgroundImage && !elements.stageBackgroundImage.hidden
       ? elements.stageBackgroundImage.decode().catch(() => {})
       : Promise.resolve(),
@@ -941,14 +993,20 @@ async function init() {
 
   currentPose = topic.poseTimeline[0].pose;
   elements.teacher.src = poseImage(currentPose, false);
+  elements.teacher.muted = true;
+  elements.teacher.loop = true;
+  elements.teacher.playsInline = true;
+  elements.teacher.preload = "auto";
+  elements.teacher.load();
   lastPresenterSource = elements.teacher.src;
-  elements.teacher.addEventListener("load", scheduleImportedPresenterLayout);
+  elements.teacher.addEventListener("loadeddata", scheduleImportedPresenterLayout);
+  elements.teacher.addEventListener("seeked", scheduleImportedPresenterLayout);
   bindControls();
 
   await Promise.all([
     elements.leftImage.decode().catch(() => {}),
     elements.rightImage.decode().catch(() => {}),
-    elements.teacher.decode().catch(() => {}),
+    waitForMediaReady(elements.teacher).catch(() => {}),
     new Promise((resolve) => {
       if (elements.voiceover.readyState >= 1) resolve();
       else elements.voiceover.addEventListener("loadedmetadata", resolve, { once: true });
