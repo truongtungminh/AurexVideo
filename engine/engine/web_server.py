@@ -7817,6 +7817,7 @@ def render_page_shell(title: str, body: str, extra_style: str = "", extra_script
 </div>
 <style>
 .settings-modal-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999}}
+.settings-modal-backdrop[hidden]{{display:none !important;}}
 .settings-modal{{background:#fff;border-radius:14px;width:min(720px,92vw);max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)}}
 .settings-modal-head{{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eee}}
 .settings-modal-close{{border:0;background:transparent;font-size:22px;line-height:1;cursor:pointer}}
@@ -7827,13 +7828,13 @@ def render_page_shell(title: str, body: str, extra_style: str = "", extra_script
   var backdrop = document.getElementById('settingsModalBackdrop');
   var frame = document.getElementById('settingsModalFrame');
   var close = document.getElementById('settingsModalClose');
-  if(!btn || !backdrop || !frame) return;
-  btn.addEventListener('click', function(e){{
+  if(!backdrop || !frame || !close) return;
+  function hide(){{ backdrop.hidden = true; }}
+  if (btn) btn.addEventListener('click', function(e){{
     e.preventDefault();
     frame.src = '/settings';
     backdrop.hidden = false;
   }});
-  function hide(){{ backdrop.hidden = true; }}
   close.addEventListener('click', hide);
   backdrop.addEventListener('click', function(e){{ if(e.target === backdrop) hide(); }});
   document.addEventListener('keydown', function(e){{ if(e.key === 'Escape' && !backdrop.hidden) hide(); }});
