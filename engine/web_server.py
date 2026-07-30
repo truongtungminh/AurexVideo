@@ -3290,14 +3290,14 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <section class="render-jobs-section">
           <div class="render-jobs-head">
             <div><p class="eyebrow">Đang render</p><h2>Job live</h2></div>
-            <strong id="activeJobCount">0</strong>
+            <strong id="activeJobCount" style="font-size:8px;line-height:1;font-weight:500;color:var(--muted);">0</strong>
           </div>
           <div id="activeJobList" class="job-list"><p class="empty">Chưa có job đang chạy.</p></div>
         </section>
         <section class="render-jobs-section">
           <div class="render-jobs-head">
             <div><p class="eyebrow">Lịch sử phiên</p><h2>Tác vụ gần đây</h2></div>
-            <strong id="historyJobCount">0</strong>
+            <strong id="historyJobCount" style="font-size:8px;line-height:1;font-weight:500;color:var(--muted);">0</strong>
           </div>
           <div id="jobHistoryList" class="job-list"><p class="empty">Chưa có tác vụ trong phiên này.</p></div>
         </section>
