@@ -4,6 +4,7 @@ const state = {
   selected: localStorage.getItem("tho-selected-project") || "",
   engine: "maziao",
   activeJob: null,
+  activeJobs: [],
   poller: 0,
   characters: [],
   characterDraft: null,
@@ -17,6 +18,7 @@ const elements = Object.fromEntries([
   "edgeVoice", "renderSpeed", "renderSize", "startRender", "stopRender", "renderLive",
   "renderLiveTitle", "renderPercent", "renderProgress", "renderLogs", "renderOutput",
   "socialState", "uploadSettingsLink", "openUploadCenter", "renderUpload",
+  "activeJobList", "activeJobCount", "jobHistoryList", "historyJobCount",
   "characterDialog", "characterForm", "createCharacterButton", "characterSelect", "characterCover", "characterMeta",
   "characterPrompt", "copyCharacterPrompt", "characterSheetFile", "characterSplitStatus", "poseDraftGrid",
   "characterName", "characterId", "saveCharacterButton",
@@ -85,7 +87,8 @@ function ensureSelection() {
   elements.selectedProject.textContent = state.selected || "Chưa có dự án";
   elements.openUploadCenter.href = state.selected ? `/upload?project=${encodeURIComponent(state.selected)}` : "/upload";
   elements.uploadSettingsLink.href = elements.openUploadCenter.href;
-  elements.startRender.disabled = !state.selected || Boolean(state.activeJob);
+  const selectedBusy = [...state.jobs.values()].some((job) => job.project === state.selected && ["queued", "running", "cancelling"].includes(job.status));
+  elements.startRender.disabled = !state.selected || selectedBusy;
 }
 
 function renderProjects() {
@@ -95,13 +98,79 @@ function renderProjects() {
   elements.projectGrid.innerHTML = state.projects.length ? state.projects.map(cardHtml).join("") : `<div class="empty-card">Chưa có dự án. Bấm “Dự án mới” để bắt đầu.</div>`;
 }
 
+function jobUpdatedAt(job) {
+  return Number(job.updated_at || job.updatedAt || job.created_at || job.createdAt || 0) || 0;
+}
+
+function jobStatusLabel(status) {
+  switch (status) {
+    case "queued": return "Đang chờ";
+    case "running": return "Đang chạy";
+    case "cancelling": return "Đang dừng";
+    case "done": return "Hoàn tất";
+    case "failed": return "Thất bại";
+    case "cancelled": return "Đã dừng";
+    default: return status || "unknown";
+  }
+}
+
+function jobStatusClass(status) {
+  switch (status) {
+    case "queued": return "warn";
+    case "running": return "active";
+    case "cancelling": return "warn";
+    case "done": return "good";
+    case "failed": return "error";
+    case "cancelled": return "muted";
+    default: return "muted";
+  }
+}
+
+function jobSourceLabel(job) {
+  return job.engine || job.options?.source || job.source || "project";
+}
+
+function jobActionHtml(job) {
+  if (["queued", "running", "cancelling"].includes(job.status)) {
+    return `<button class="button tiny danger" data-job-action="cancel" data-job-id="${escapeHtml(job.id)}">Dừng</button>`;
+  }
+  if (job.outputUrl) {
+    return `<a class="button tiny secondary" href="${escapeHtml(job.outputUrl)}" target="_blank">Mở</a>`;
+  }
+  return `<span>${Number(job.progress) || 0}%</span>`;
+}
+
+function renderJobRow(job, active = false) {
+  const progress = Math.max(0, Math.min(100, Number(job.progress) || 0));
+  return `<div class="job-row ${active ? "job-row-live" : ""}" data-job-id="${escapeHtml(job.id)}">
+    <div>
+      <strong>${escapeHtml(job.project)} · ${escapeHtml(jobSourceLabel(job))}</strong>
+      <small>
+        <span class="job-status-badge job-status-${jobStatusClass(job.status)}">${escapeHtml(jobStatusLabel(job.status))}</span>
+        <span>${escapeHtml(relativeTime(new Date(jobUpdatedAt(job) || Date.now()).toISOString()))}</span>
+      </small>
+    </div>
+    <div class="mini-progress"><span style="width:${progress}%"></span></div>
+    <div class="job-actions">${jobActionHtml(job)}</div>
+  </div>`;
+}
+
 function renderJobs() {
-  const jobs = [...state.jobs.values()];
-  elements.jobList.innerHTML = jobs.length ? jobs.slice(0, 8).map((job) => `<div class="job-row">
-    <div><strong>${escapeHtml(job.project)} · ${escapeHtml(job.options?.source || "project")}</strong><small>${escapeHtml(job.status)}</small></div>
-    <div class="mini-progress"><span style="width:${Number(job.progress) || 0}%"></span></div>
-    ${job.outputUrl ? `<a class="button tiny secondary" href="${escapeHtml(job.outputUrl)}" target="_blank">Mở</a>` : `<span>${Number(job.progress) || 0}%</span>`}
-  </div>`).join("") : `<p class="empty">Chưa có tác vụ trong phiên này.</p>`;
+  const jobs = [...state.jobs.values()].sort((a, b) => jobUpdatedAt(b) - jobUpdatedAt(a));
+  const activeJobs = jobs.filter((job) => ["queued", "running", "cancelling"].includes(job.status));
+  const historyJobs = jobs.filter((job) => !["queued", "running", "cancelling"].includes(job.status));
+  elements.activeJobCount.innerHTML = `<strong>${activeJobs.length}</strong>`;
+  elements.historyJobCount.innerHTML = `<strong>${historyJobs.length}</strong>`;
+  elements.activeJobList.innerHTML = activeJobs.length ? activeJobs.map((job) => renderJobRow(job, true)).join("") : `<p class="empty">Chưa có job đang chạy.</p>`;
+  elements.jobHistoryList.innerHTML = historyJobs.length ? historyJobs.map((job) => renderJobRow(job)).join("") : `<p class="empty">Chưa có tác vụ trong phiên này.</p>`;
+}
+
+function syncActiveJobs(jobs = [...state.jobs.values()]) {
+  const active = jobs.filter((job) => ["queued", "running", "cancelling"].includes(job.status));
+  state.activeJobs = active.map((job) => job.id);
+  const preferred = active.find((job) => job.project === state.selected) || active[0] || jobs[0] || null;
+  state.activeJob = preferred?.id || null;
+  return preferred;
 }
 
 async function loadElevenConfig() {
@@ -133,7 +202,7 @@ async function loadPage() {
     renderDependencies(health.dependencies);
     state.projects = projects.projects;
     state.jobs = new Map(jobs.jobs.map((job) => [job.id, job]));
-    state.activeJob = jobs.jobs.find((job) => ["queued", "running", "cancelling"].includes(job.status))?.id || null;
+    syncActiveJobs(jobs.jobs);
     renderProjects();
     renderJobs();
     if (state.activeJob) showActiveJob(state.jobs.get(state.activeJob));
@@ -203,8 +272,8 @@ async function saveCharacter(event) {
 
 function scheduleJobPoll() {
   clearTimeout(state.poller);
-  if (!state.activeJob) return;
-  state.poller = setTimeout(pollActiveJob, 1000);
+  if (!state.activeJobs.length) return;
+  state.poller = setTimeout(pollJobs, 1000);
 }
 
 function showActiveJob(job) {
@@ -224,21 +293,16 @@ function showActiveJob(job) {
   elements.stopRender.hidden = !active;
 }
 
-async function pollActiveJob() {
-  if (!state.activeJob) return;
+async function pollJobs() {
   try {
-    const job = await api(`/api/jobs/${state.activeJob}`);
-    state.jobs.set(job.id, job);
-    showActiveJob(job);
+    const payload = await api("/api/jobs");
+    const jobs = payload.jobs || [];
+    state.jobs = new Map(jobs.map((job) => [job.id, job]));
+    const liveJob = syncActiveJobs(jobs);
+    if (liveJob) showActiveJob(liveJob);
     renderJobs();
-    if (["done", "failed", "cancelled"].includes(job.status)) {
-      state.activeJob = null;
-      elements.startRender.hidden = false;
-      elements.startRender.disabled = !state.selected;
-      elements.stopRender.hidden = true;
-      await loadProjectsOnly();
-      return;
-    }
+    elements.startRender.disabled = !state.selected || [...state.jobs.values()].some((job) => job.project === state.selected && ["queued", "running", "cancelling"].includes(job.status));
+    elements.stopRender.hidden = !state.activeJobs.length;
     scheduleJobPoll();
   } catch (error) { showToast(error.message, true); }
 }
@@ -304,6 +368,9 @@ async function startRender() {
     }
     payload.source = source;
     const result = await api(`/api/projects/${encodeURIComponent(state.selected)}/render`, { method: "POST", body: JSON.stringify(payload) });
+    await loadProjectsOnly();
+    state.jobs.set(result.job.id, result.job);
+    syncActiveJobs([...state.jobs.values()]);
     state.activeJob = result.job.id;
     state.jobs.set(result.job.id, result.job);
     showActiveJob(result.job);
@@ -315,13 +382,27 @@ async function startRender() {
   }
 }
 
+async function cancelJob(jobId, button = null) {
+  if (!jobId) return null;
+  if (button) button.disabled = true;
+  try {
+    const job = await api(`/api/jobs/${jobId}/cancel`, { method: "POST", body: "{}" });
+    state.jobs.set(job.id, job);
+    syncActiveJobs([...state.jobs.values()]);
+    showActiveJob(state.jobs.get(state.activeJob) || job);
+    renderJobs();
+    scheduleJobPoll();
+    return job;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function stopRender() {
   if (!state.activeJob) return;
   elements.stopRender.disabled = true;
   try {
-    const job = await api(`/api/jobs/${state.activeJob}/cancel`, { method: "POST", body: "{}" });
-    showActiveJob(job);
-    scheduleJobPoll();
+    await cancelJob(state.activeJob);
   } catch (error) { showToast(error.message, true); }
   finally { elements.stopRender.disabled = false; }
 }
@@ -367,6 +448,11 @@ async function projectAction(event) {
   } catch (error) { showToast(error.message, true); }
 }
 
+async function handleJobListAction(event) {
+  const button = event.target.closest("button[data-job-action='cancel']");
+  if (!button) return;
+  cancelJob(button.dataset.jobId, button).catch((error) => showToast(error.message, true));
+}
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
 document.querySelectorAll("[data-engine]").forEach((button) => button.addEventListener("click", () => {
   state.engine = button.dataset.engine;
@@ -417,6 +503,8 @@ elements.refreshButton.addEventListener("click", loadPage);
 elements.projectForm.addEventListener("submit", submitProject);
 elements.duplicateForm.addEventListener("submit", submitDuplicate);
 elements.projectGrid.addEventListener("click", projectAction);
+elements.activeJobList.addEventListener("click", handleJobListAction);
+elements.jobHistoryList.addEventListener("click", handleJobListAction);
 elements.saveElevenConfig.addEventListener("click", () => saveElevenConfig().catch((error) => showToast(error.message, true)));
 elements.startRender.addEventListener("click", startRender);
 elements.stopRender.addEventListener("click", stopRender);

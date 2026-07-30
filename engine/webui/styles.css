@@ -103,7 +103,15 @@ a { color: inherit; text-decoration: none; }
 .job-list { display: grid; gap: 10px; }
 .job-row { display: grid; grid-template-columns: 1fr 120px auto; align-items: center; gap: 16px; padding: 13px 15px; border-radius: 14px; background: var(--soft); }
 .job-row strong { display: block; font-size: 13px; }
-.job-row small { color: var(--muted); }
+.job-row small { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); }
+.job-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.job-row-live { box-shadow: 0 0 0 1px rgba(242,178,97,.18), var(--shadow); }
+.job-status-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; line-height: 1; }
+.job-status-active { background: rgba(242,178,97,.18); color: var(--accent-dark); }
+.job-status-warn { background: rgba(216,132,53,.16); color: #a25b14; }
+.job-status-good { background: rgba(80,155,92,.16); color: #2f7a3c; }
+.job-status-error { background: rgba(198,60,60,.16); color: #a23636; }
+.job-status-muted { background: rgba(120,120,120,.12); color: #666; }
 .mini-progress { height: 7px; overflow: hidden; border-radius: 999px; background: #ddd7c9; }
 .mini-progress span { display: block; height: 100%; background: var(--accent); }
 .empty { margin: 0; color: var(--muted); }
@@ -114,7 +122,7 @@ a { color: inherit; text-decoration: none; }
 .render-machine-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
 .render-machine-head h1 { margin: 0; font-size: 32px; letter-spacing: -0.05em; }
 .render-count { color: var(--muted); font-size: 12px; }
-.render-count strong { color: var(--accent-dark); font-size: 22px; }
+.render-count strong { color: var(--accent-dark); font-size: 16px; line-height: 1; }
 .selected-project-box { display: grid; gap: 5px; padding: 14px 16px; border: 1px solid #efccb4; border-radius: 15px; background: #fff7ef; }
 .selected-project-box span { color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .selected-project-box strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }

@@ -511,8 +511,8 @@ def configure_source_root(path: str | Path | None) -> None:
 def project_lookup_root() -> Path:
     if SOURCE_ROOT_IS_PROJECT:
         return PROJECT_ROOT.parent
-    if PROJECT_ROOT.name == "engine" and (USER_DATA_ROOT / "projects").is_dir():
-        return USER_DATA_ROOT / "projects"
+    if PROJECT_ROOT.name == "engine" and (USER_DATA_ROOT / "project").is_dir():
+        return USER_DATA_ROOT / "project"
     return PROJECT_ROOT
 
 
@@ -566,11 +566,12 @@ def source_root_option_payload() -> list[dict]:
 
 
 def iter_project_dirs() -> list[Path]:
-    if not PROJECT_ROOT.exists():
+    root = project_lookup_root()
+    if not root.exists():
         return []
     if SOURCE_ROOT_IS_PROJECT:
         return [PROJECT_ROOT]
-    return [path for path in PROJECT_ROOT.iterdir() if path.is_dir()]
+    return [path for path in root.iterdir() if path.is_dir()]
 
 
 def validate_project_name(project: str) -> str:
@@ -645,7 +646,7 @@ def choose_source_root_dialog() -> Path:
 
 
 def list_projects() -> list[dict]:
-    if not PROJECT_ROOT.exists():
+    if not project_lookup_root().exists():
         return []
 
     def project_sort_key(path: Path) -> tuple[float, str]:
@@ -694,7 +695,7 @@ def require_project(project: str) -> Path:
             raise FileNotFoundError(f"Project not found: {project}")
         project_dir = PROJECT_ROOT.resolve()
     else:
-        project_dir = (PROJECT_ROOT / project).resolve()
+        project_dir = (project_lookup_root() / project).resolve()
     try:
         project_dir.relative_to(project_lookup_root().resolve())
     except ValueError as exc:
@@ -1332,6 +1333,15 @@ def set_job_state(job_id: str, **updates: object) -> None:
 
 def public_job(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in PRIVATE_JOB_FIELDS}
+
+
+def list_jobs() -> list[dict]:
+    with JOBS_LOCK:
+        jobs = [public_job(job) for job in JOBS.values()]
+    return sorted(
+        jobs,
+        key=lambda job: (-float(job.get("updated_at") or 0.0), str(job.get("id") or "")),
+    )
 
 
 def job_cancel_requested(job_id: str) -> bool:
@@ -3275,6 +3285,23 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <div class="state-progress"><span id="stateProgressBar"></span></div>
         <pre id="stateList" hidden></pre>
       </div>
+
+      <section class="render-jobs-panel" aria-label="Job render">
+        <section class="render-jobs-section">
+          <div class="render-jobs-head">
+            <div><p class="eyebrow">Đang render</p><h2>Job live</h2></div>
+            <strong id="activeJobCount">0</strong>
+          </div>
+          <div id="activeJobList" class="job-list"><p class="empty">Chưa có job đang chạy.</p></div>
+        </section>
+        <section class="render-jobs-section">
+          <div class="render-jobs-head">
+            <div><p class="eyebrow">Lịch sử phiên</p><h2>Tác vụ gần đây</h2></div>
+            <strong id="historyJobCount">0</strong>
+          </div>
+          <div id="jobHistoryList" class="job-list"><p class="empty">Chưa có tác vụ trong phiên này.</p></div>
+        </section>
+      </section>
 
       <section class="advanced-settings" id="advancedSettings">
         <div class="advanced-heading">
@@ -8295,6 +8322,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
                 return
             self.send_json(200, result)
+            return
+
+        if path == "/api/jobs":
+            self.send_json(200, {"jobs": list_jobs()})
             return
 
         if path == "/render":
