@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import math
 from pathlib import Path
 import subprocess
@@ -34,9 +35,9 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 
 class RenderAssetHandler(QuietHandler):
-    def __init__(self, *args: object, project_root: Path, **kwargs: object) -> None:
+    def __init__(self, *args: object, project_root: Path, characters_root: Path, **kwargs: object) -> None:
         self.project_root = project_root.resolve()
-        self.characters_root = CHARACTERS_ROOT.resolve()
+        self.characters_root = characters_root.resolve()
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -67,12 +68,22 @@ def mounted_topic_url(topic_path: Path) -> str:
     return f"{PROJECT_MOUNT_PREFIX}{quote(topic_path.resolve().name)}"
 
 
+def infer_data_root(topic_path: Path) -> Path:
+    configured = str(os.environ.get("AUREX_DATA_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return topic_path.resolve().parent.parent.parent
+
+
 @contextmanager
-def local_server(project_root: Path | None = None):
+def local_server(project_root: Path | None = None, data_root: Path | None = None):
+    resolved_project_root = (project_root or ROOT).resolve()
+    resolved_data_root = (data_root or DATA_ROOT).resolve()
     handler = partial(
         RenderAssetHandler,
         directory=str(ROOT),
-        project_root=(project_root or ROOT).resolve(),
+        project_root=resolved_project_root,
+        characters_root=(resolved_data_root / "assets" / "characters"),
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -85,7 +96,7 @@ def local_server(project_root: Path | None = None):
         thread.join(timeout=2)
 
 
-def resolve_project_path(topic_path: Path, value: str) -> Path:
+def resolve_project_path(topic_path: Path, value: str, data_root: Path | None = None) -> Path:
     candidate = (topic_path.parent / value).resolve()
     if candidate.exists():
         return candidate
@@ -93,15 +104,16 @@ def resolve_project_path(topic_path: Path, value: str) -> Path:
     parts = Path(value).parts
     if "assets" in parts:
         asset_path = Path(*parts[parts.index("assets") + 1:])
-        for root in (DATA_ROOT / "assets", ROOT / "assets"):
+        resolved_data_root = (data_root or infer_data_root(topic_path)).resolve()
+        for root in (resolved_data_root / "assets", ROOT / "assets"):
             mounted = RenderAssetHandler.mounted_path(root.resolve(), asset_path.as_posix())
             if mounted is not None and mounted.exists():
                 return mounted
     return candidate
 
 
-def build_mixed_audio(topic_path: Path, topic: dict, output: Path) -> None:
-    voiceover = resolve_project_path(topic_path, topic["voiceover"])
+def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Path | None = None) -> None:
+    voiceover = resolve_project_path(topic_path, topic["voiceover"], data_root)
     voice_duration = max(0.1, float(topic.get("duration") or 0) or media_duration(voiceover))
     command = [str(ffmpeg_executable()), "-y", "-i", str(voiceover)]
     filters = []
@@ -117,7 +129,7 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path) -> None:
         sfx_value = topic.get("sfx", {}).get(sfx_name)
         if not sfx_value:
             continue
-        sfx_path = resolve_project_path(topic_path, sfx_value)
+        sfx_path = resolve_project_path(topic_path, sfx_value, data_root)
         command.extend(["-i", str(sfx_path)])
         delay_ms = max(0, round(float(event["time"]) * 1000))
         label = f"sfx{input_index}"
@@ -129,7 +141,7 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path) -> None:
 
     music_path_value = str(topic.get("backgroundMusic") or "").strip()
     if music_path_value:
-        music_path = resolve_project_path(topic_path, music_path_value)
+        music_path = resolve_project_path(topic_path, music_path_value, data_root)
         if music_path.exists():
             try:
                 music_volume = max(0.05, min(0.5, float(topic.get("backgroundMusicVolume", 0.18))))
@@ -183,10 +195,10 @@ async def render_frames(
     height: int,
     duration: float,
     fps: int = 24,
+    data_root: Path | None = None,
 ) -> None:
     from playwright.async_api import async_playwright
-
-    with local_server(topic_path.parent) as port:
+    with local_server(topic_path.parent, data_root=data_root) as port:
         url = (
             f"http://127.0.0.1:{port}/index.html"
             f"?topic={mounted_topic_url(topic_path)}&render=1&offline=1"
@@ -260,10 +272,11 @@ async def render(topic_path: Path, output: Path, width: int, height: int, fps: i
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="aurexvideo-") as temp:
         work_dir = Path(temp)
+        data_root = infer_data_root(topic_path)
         mixed_audio = work_dir / "mixed-audio.wav"
-        build_mixed_audio(topic_path, topic, mixed_audio)
+        build_mixed_audio(topic_path, topic, mixed_audio, data_root)
         duration = media_duration(mixed_audio)
-        await render_frames(topic_path, mixed_audio, output, width, height, duration, fps=fps)
+        await render_frames(topic_path, mixed_audio, output, width, height, duration, fps=fps, data_root=data_root)
 
 
 def main() -> None:

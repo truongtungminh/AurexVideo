@@ -51,6 +51,7 @@ let presenterLayoutGeneration = 0;
 let lastPresenterSource = "";
 let lastKaraokeGroupKey = "";
 const presenterAlphaBounds = new Map();
+const presenterFrameCache = new Map();
 const IMPORTED_PRESENTER_GAP_PX = 24;
 const IMPORTED_PRESENTER_BOTTOM_PX = 28;
 const IMPORTED_PRESENTER_MAX_WIDTH = 0.58;
@@ -330,7 +331,47 @@ function activeWordAt(time) {
 
 function poseImage(poseName, speaking) {
   const pose = topic.poseAssets[poseName] || topic.poseAssets.question || Object.values(topic.poseAssets)[0];
-  return resolveTopicAsset(speaking ? pose.speaking : pose.closed);
+  const source = resolveTopicAsset(speaking ? pose.speaking : pose.closed);
+  return presenterFrameCache.get(source) || source;
+}
+
+function isVideoAssetSource(source) {
+  return /\.(mp4|webm|m4v|mov)(?:[?#]|$)/i.test(String(source || ""));
+}
+
+async function loadPresenterFrame(source) {
+  if (presenterFrameCache.has(source)) return presenterFrameCache.get(source);
+  if (!isVideoAssetSource(source)) return source;
+  const video = document.createElement("video");
+  video.crossOrigin = "anonymous";
+  video.preload = "auto";
+  video.playsInline = true;
+  video.muted = true;
+  const loaded = new Promise((resolve, reject) => {
+    video.onloadeddata = () => resolve();
+    video.onerror = () => reject(new Error(`Không tải được pose video: ${source}`));
+  });
+  video.src = source;
+  await loaded;
+  const seekTo = Math.min(0.08, Math.max(0.02, Number(video.duration) > 0 ? Number(video.duration) / 12 : 0.04));
+  await new Promise((resolve, reject) => {
+    video.onseeked = () => resolve();
+    video.onerror = () => reject(new Error(`Không đọc được frame pose video: ${source}`));
+    try {
+      video.currentTime = seekTo;
+    } catch {
+      resolve();
+    }
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, video.videoWidth || 1);
+  canvas.height = Math.max(1, video.videoHeight || 1);
+  const context = canvas.getContext("2d");
+  if (!context) return source;
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const frame = canvas.toDataURL("image/png");
+  presenterFrameCache.set(source, frame);
+  return frame;
 }
 
 function playPoseSfx(event, time) {
@@ -521,12 +562,18 @@ function offlineImagePaths() {
 }
 
 async function preloadOfflineImages() {
-  await Promise.all(offlineImagePaths().map((source) => new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = resolve;
-    image.onerror = () => reject(new Error(`Không tải được ảnh render: ${source}`));
-    image.src = source;
-  })));
+  await Promise.all(offlineImagePaths().map(async (source) => {
+    if (isVideoAssetSource(source)) {
+      await loadPresenterFrame(source);
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = resolve;
+      image.onerror = () => reject(new Error(`Không tải được ảnh render: ${source}`));
+      image.src = source;
+    });
+  }));
 }
 
 async function renderOfflineFrame(time) {
@@ -876,6 +923,7 @@ async function init() {
   const response = await fetch(topicUrl, { cache: "no-store" });
   if (!response.ok) throw new Error(`Không tải được topic: ${response.status}`);
   topic = await response.json();
+  await preloadOfflineImages();
   applyTopicToView(topic, { preserveAudio: false });
   bindStageImageFrame(elements.leftImage, "left");
   bindStageImageFrame(elements.rightImage, "right");

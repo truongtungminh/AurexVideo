@@ -95,6 +95,7 @@ fix triệt để lỗi "Upload PNG button không mở được picker" ở bả
 - ✅ Version đồng bộ: `web_server.py APP_VERSION`, `engine/VERSION`, `update-manifest.json` đều `0.2.3`.
 
 - ✅ Browser render flow đang dùng `/api/render` + `/api/jobs/<id>`; đã vá `syncEdgeVoiceCustomField` bị thiếu, đồng bộ tab/pane Edge TTS (`edgetts`), thêm `/api/jobs` để dashboard theo dõi nhiều job render song song thay vì chỉ 1 job live, và chuẩn hoá root project về `studio/project/` để dashboard không còn tự rơi sang `projects/`.
+- ✅ Render demo đã hỗ trợ pose asset dạng `.mp4` của custom character bằng cách cache frame poster đầu tiên trước khi capture, nên project như `pnj-va-sjc` render được lại bình thường.
 - ✅ Benchmark thực tế `testspeed` trên 4173: render full `Edge TTS` với defaults mới (**Audio Speed = 1.0**, **Logo + brand off**, FPS mặc định 30) mất **107.3s**.
 - ✅ Render default FPS đã quay về **30** để giảm rườm rà UI; `AUREXVIDEO_RENDER_FPS` vẫn có thể override khi benchmark thủ công.
 - ✅ Tên project khi tạo/đổi tên sẽ tự động chuyển sang slug không dấu, ví dụ `gửi tiết kiệm` → `gui-tiet-kiem`.
