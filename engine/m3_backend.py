@@ -1101,7 +1101,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     if not cleaned_timeline or cleaned_timeline[0]["time"] > 0:
         cleaned_timeline.insert(0, {"time": 0.0, "pose": fallback_pose})
     topic["poseTimeline"] = cleaned_timeline
-    topic["sfxVolume"] = round(max(0.0, min(1.0, float(payload.get("sfxVolume", current.get("sfxVolume", 0.7))))), 2)
+    topic["sfxVolume"] = round(max(0.0, min(1.0, float(payload.get("sfxVolume", current.get("sfxVolume", 0.5))))), 2)
 
     default_pose_sfx = {
         "neutral-left": "pose-hard-pop-click",
@@ -1451,7 +1451,7 @@ def create_project(payload: dict) -> dict:
         "poseLabels": pose_labels,
         "sfx": sfx_map,
         "poseSfx": default_pose_sfx,
-        "sfxVolume": 0.85,
+        "sfxVolume": 0.5,
         "sfxCooldownSeconds": 0.6,
         "leftImageZoom": 1.0,
         "leftImageX": 0.0,

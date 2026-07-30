@@ -964,7 +964,7 @@ function playSegmentPoseSfx(segmentIndex) {
   const path = state.topic.sfx?.[key];
   if (!path) return;
   stepPreviewSfxPlayer = new Audio(assetUrl(path));
-  stepPreviewSfxPlayer.volume = Number(elements.sfxVolumeInput?.value ?? state.topic.sfxVolume ?? 0.7);
+  stepPreviewSfxPlayer.volume = Number(elements.sfxVolumeInput?.value ?? state.topic.sfxVolume ?? 0.5);
   stepPreviewSfxPlayer.play().catch(() => {});
 }
 
@@ -1500,7 +1500,7 @@ function previewSfx(key) {
   const path = state.topic.sfx?.[key];
   if (!path) { showToast("Câu này đang chọn Không âm.", true); return; }
   const player = new Audio(assetUrl(path));
-  player.volume = Number(elements.sfxVolumeInput.value || 0.7);
+  player.volume = Number(elements.sfxVolumeInput.value || 0.5);
   player.play().catch((error) => showToast(`Không phát được âm: ${error.message}`, true));
 }
 
@@ -1638,8 +1638,8 @@ async function loadProject() {
     elements.scriptInput.value = state.topic.segments.map((segment) => segment.text).join("\n");
     renderCharacterPicker();
     renderComparisonList();
-    elements.sfxVolumeInput.value = state.topic.sfxVolume ?? 0.7;
-    elements.sfxVolumeText.textContent = `${Math.round((state.topic.sfxVolume ?? 0.7) * 100)}%`;
+    elements.sfxVolumeInput.value = state.topic.sfxVolume ?? 0.5;
+    elements.sfxVolumeText.textContent = `${Math.round((state.topic.sfxVolume ?? 0.5) * 100)}%`;
     hydratePoses();
     renderPoseSfxMap();
     renderPoseList();
