@@ -18,7 +18,6 @@ const elements = Object.fromEntries([
   "edgeVoice", "renderSpeed", "renderSize", "startRender", "stopRender", "renderLive",
   "renderLiveTitle", "renderPercent", "renderProgress", "renderLogs", "renderOutput",
   "socialState", "uploadSettingsLink", "openUploadCenter", "renderUpload",
-  "activeJobList", "activeJobCount", "jobHistoryList", "historyJobCount",
   "characterDialog", "characterForm", "createCharacterButton", "characterSelect", "characterCover", "characterMeta",
   "characterPrompt", "copyCharacterPrompt", "characterSheetFile", "characterSplitStatus", "poseDraftGrid",
   "characterName", "characterId", "saveCharacterButton",
@@ -156,6 +155,7 @@ function renderJobRow(job, active = false) {
 }
 
 function renderJobs() {
+  if (!elements.activeJobList || !elements.activeJobCount || !elements.jobHistoryList || !elements.historyJobCount) return;
   const jobs = [...state.jobs.values()].sort((a, b) => jobUpdatedAt(b) - jobUpdatedAt(a));
   const activeJobs = jobs.filter((job) => ["queued", "running", "cancelling"].includes(job.status));
   const historyJobs = jobs.filter((job) => !["queued", "running", "cancelling"].includes(job.status));
@@ -503,8 +503,8 @@ elements.refreshButton.addEventListener("click", loadPage);
 elements.projectForm.addEventListener("submit", submitProject);
 elements.duplicateForm.addEventListener("submit", submitDuplicate);
 elements.projectGrid.addEventListener("click", projectAction);
-elements.activeJobList.addEventListener("click", handleJobListAction);
-elements.jobHistoryList.addEventListener("click", handleJobListAction);
+if (elements.activeJobList) elements.activeJobList.addEventListener("click", handleJobListAction);
+if (elements.jobHistoryList) elements.jobHistoryList.addEventListener("click", handleJobListAction);
 elements.saveElevenConfig.addEventListener("click", () => saveElevenConfig().catch((error) => showToast(error.message, true)));
 elements.startRender.addEventListener("click", startRender);
 elements.stopRender.addEventListener("click", stopRender);

@@ -102,6 +102,7 @@ fix triệt để lỗi "Upload PNG button không mở được picker" ở bả
 - ✅ Benchmark thực tế `testspeed` trên 4173: render full `Edge TTS` với defaults mới (**Audio Speed = 1.0**, **Logo + brand off**, FPS mặc định 30) mất **107.3s**.
 - ✅ Render default FPS đã quay về **30** để giảm rườm rà UI; `AUREXVIDEO_RENDER_FPS` vẫn có thể override khi benchmark thủ công.
 - ✅ Tên project khi tạo/đổi tên sẽ tự động chuyển sang slug không dấu, ví dụ `gửi tiết kiệm` → `gui-tiet-kiem`.
+- ✅ Dashboard gọn hơn: bỏ khối **Đang render / Job live / Lịch sử phiên / Tác vụ gần đây** khỏi panel chính.
 - ⚠️ TTS vẫn là stage phụ thuộc bên thứ 3; tối ưu chính tập trung vào render video/frame export, không chạm vào chất lượng TTS.
 
 ## Custom character CSS (per-character override)

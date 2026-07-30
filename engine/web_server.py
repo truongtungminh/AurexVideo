@@ -3324,23 +3324,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <pre id="stateList" hidden></pre>
       </div>
 
-      <section class="render-jobs-panel" aria-label="Job render">
-        <section class="render-jobs-section">
-          <div class="render-jobs-head">
-            <div><p class="eyebrow">Đang render</p><h2>Job live</h2></div>
-            <strong id="activeJobCount" style="font-size:8px;line-height:1;font-weight:500;color:var(--muted);">0</strong>
-          </div>
-          <div id="activeJobList" class="job-list"><p class="empty">Chưa có job đang chạy.</p></div>
-        </section>
-        <section class="render-jobs-section">
-          <div class="render-jobs-head">
-            <div><p class="eyebrow">Lịch sử phiên</p><h2>Tác vụ gần đây</h2></div>
-            <strong id="historyJobCount" style="font-size:8px;line-height:1;font-weight:500;color:var(--muted);">0</strong>
-          </div>
-          <div id="jobHistoryList" class="job-list"><p class="empty">Chưa có tác vụ trong phiên này.</p></div>
-        </section>
-      </section>
-
       <section class="advanced-settings" id="advancedSettings">
         <div class="advanced-heading">
           {ui_icon("settings", "advanced-heading-icon")}
