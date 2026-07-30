@@ -22,8 +22,8 @@ CHARACTERS_ROOT = USER_ASSETS_ROOT / "characters"
 def bundled_python() -> Path:
     configured = str(os.environ.get("AUREX_PYTHON") or "").strip()
     if configured:
-        # Do not resolve venv launchers: on macOS they are symlinks to the base
-        # framework binary, and resolving drops site-packages such as Playwright.
+        # Preserve the venv launcher path; resolving its symlink loses the
+        # runtime's site-packages in child render processes.
         return Path(configured).expanduser().absolute()
     candidate = RESOURCE_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
     return candidate if candidate.exists() else Path(sys.executable).absolute()

@@ -3,7 +3,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TAURI_DIR="$SCRIPT_DIR/../tauri-src"
 APP_NAME="AurexVideo"
-VERSION="0.2.3"
+VERSION="0.2.4"
 STAGE="/tmp/aurex-tauri-stage"
 DMG_DEST="$HOME/Desktop/AurexVideo-$VERSION-tauri.dmg"
 

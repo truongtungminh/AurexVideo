@@ -252,8 +252,12 @@ function characterTopicData(character) {
   const poses = Array.isArray(character?.poses) ? character.poses.filter((pose) => pose?.id && pose?.file) : [];
   return {
     poseAssets: Object.fromEntries(poses.map((pose) => [pose.id, {
-      closed: `../../assets/characters/${character.id}/${pose.file}`,
-      speaking: `../../assets/characters/${character.id}/${pose.file}`,
+      closed: `../../assets/characters/${character.id}/${pose.closedFile || pose.file}`,
+      speaking: `../../assets/characters/${character.id}/${pose.speakingFile || pose.file}`,
+      syncMode: ["scene", "timeline", "freeze"].includes(pose.syncMode) ? pose.syncMode : "scene",
+      loop: pose.loop !== false,
+      loopStart: Math.max(0, Number(pose.loopStart) || 0),
+      loopEnd: Math.max(0, Number(pose.loopEnd) || 0),
     }])),
     poseLabels: Object.fromEntries(poses.map((pose) => [pose.id, localizedPoseLabel(pose.id, (isEnglishUi() && pose.labelEn) || pose.label || pose.id)])),
   };

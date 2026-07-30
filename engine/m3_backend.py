@@ -336,12 +336,25 @@ def character_pose_config(character_id: str, language: str = "vi") -> tuple[dict
             raise ValueError(f"Pose {index} của nhân vật '{character_id}' không hợp lệ.")
         pose_id = normalize_custom_pose_id(item.get("id"), f"pose-{index}")
         filename = Path(str(item.get("file") or "")).name
+        closed_filename = Path(str(item.get("closedFile") or filename)).name
+        speaking_filename = Path(str(item.get("speakingFile") or filename)).name
         if not filename or not (directory / filename).is_file():
             raise FileNotFoundError(f"Không tìm thấy ảnh pose '{pose_id}' của nhân vật '{character_id}'.")
+        if not (directory / closed_filename).is_file() or not (directory / speaking_filename).is_file():
+            raise FileNotFoundError(f"Không tìm thấy media đóng/mở miệng của pose '{pose_id}'.")
         if pose_id in pose_assets:
             raise ValueError(f"Nhân vật '{character_id}' có mã pose bị trùng: {pose_id}.")
-        path = f"../../assets/characters/{character_id}/{filename}"
-        pose_assets[pose_id] = {"closed": path, "speaking": path}
+        sync_mode = str(item.get("syncMode") or "scene").strip().lower()
+        if sync_mode not in {"scene", "timeline", "freeze"}:
+            sync_mode = "scene"
+        pose_assets[pose_id] = {
+            "closed": f"../../assets/characters/{character_id}/{closed_filename}",
+            "speaking": f"../../assets/characters/{character_id}/{speaking_filename}",
+            "syncMode": sync_mode,
+            "loop": item.get("loop") is not False,
+            "loopStart": max(0.0, float(item.get("loopStart") or 0)),
+            "loopEnd": max(0.0, float(item.get("loopEnd") or 0)),
+        }
         source_label = item.get("labelEn") if ui_language == "en" else item.get("label")
         pose_labels[pose_id] = pose_label_for_language(pose_id, source_label, ui_language)[:80]
     if not pose_assets:
@@ -615,8 +628,12 @@ def update_character(current_id: str, payload: dict) -> dict:
 
     pose_assets = {
         pose["id"]: {
-            "closed": f"../../assets/characters/{next_id}/{pose['file']}",
-            "speaking": f"../../assets/characters/{next_id}/{pose['file']}",
+            "closed": f"../../assets/characters/{next_id}/{pose.get('closedFile') or pose['file']}",
+            "speaking": f"../../assets/characters/{next_id}/{pose.get('speakingFile') or pose['file']}",
+            "syncMode": pose.get("syncMode") or "scene",
+            "loop": pose.get("loop") is not False,
+            "loopStart": max(0.0, float(pose.get("loopStart") or 0)),
+            "loopEnd": max(0.0, float(pose.get("loopEnd") or 0)),
         }
         for pose in updated_poses
     }
@@ -1280,8 +1297,12 @@ def create_project(payload: dict) -> dict:
         character_poses = character["poses"]
         pose_assets = {
             item["id"]: {
-                "closed": f"../../assets/characters/{character_id}/{item['file']}",
-                "speaking": f"../../assets/characters/{character_id}/{item['file']}",
+                "closed": f"../../assets/characters/{character_id}/{item.get('closedFile') or item['file']}",
+                "speaking": f"../../assets/characters/{character_id}/{item.get('speakingFile') or item['file']}",
+                "syncMode": item.get("syncMode") or "scene",
+                "loop": item.get("loop") is not False,
+                "loopStart": max(0.0, float(item.get("loopStart") or 0)),
+                "loopEnd": max(0.0, float(item.get("loopEnd") or 0)),
             }
             for item in character_poses
         }

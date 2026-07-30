@@ -12,7 +12,6 @@ import json
 import os
 import re
 import shutil
-import unicodedata
 import shlex
 import signal
 import subprocess
@@ -578,14 +577,7 @@ def validate_project_name(project: str) -> str:
     project = unquote(str(project or "")).strip()
     if not project or project in {".", ".."} or "/" in project or "\\" in project or "\x00" in project:
         raise ValueError("Invalid project name.")
-    slug = unicodedata.normalize("NFKD", project).lower()
-    slug = slug.replace("đ", "d")
-    slug = "".join(ch for ch in slug if not unicodedata.combining(ch))
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    if not slug:
-        raise ValueError("Invalid project name.")
-    return slug
+    return project
 
 
 def project_url(project: str) -> str:
@@ -645,35 +637,6 @@ def choose_source_root_dialog() -> Path:
     return Path(selected)
 
 
-def project_render_status(project_name: str, has_script: bool, has_output: bool, video_url: str | None) -> tuple[str, str, str]:
-    language = current_ui_language()
-    with JOBS_LOCK:
-        jobs = [job for job in JOBS.values() if job.get("project") == project_name]
-    active = next((job for job in sorted(jobs, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)
-                   if job.get("status") in ACTIVE_JOB_STATUSES), None)
-    if active:
-        return (
-            ("Đang render" if language == "vi" else "Rendering"),
-            "warn",
-            "rendering",
-        )
-    if video_url or has_output or any(job.get("status") == "done" for job in jobs):
-        return (
-            ("Đã render" if language == "vi" else "Rendered"),
-            "ok",
-            "rendered",
-        )
-    if any(job.get("status") == "failed" for job in jobs):
-        return (
-            ("Render lỗi" if language == "vi" else "Render failed"),
-            "bad",
-            "failed",
-        )
-    if has_script:
-        return (("Sẵn sàng" if language == "vi" else "Ready"), "ok", "ready")
-    return (("Thiếu script" if language == "vi" else "Missing script"), "bad", "missing-script")
-
-
 def list_projects() -> list[dict]:
     if not project_lookup_root().exists():
         return []
@@ -697,12 +660,6 @@ def list_projects() -> list[dict]:
         final_video = project_dir / "output" / "final_video.mp4"
         has_output = output_dir.is_dir() and any(output_dir.iterdir())
         output_url = final_video_url(project_dir.name)
-        render_status, render_status_class, render_state = project_render_status(
-            project_dir.name,
-            script_path.exists(),
-            has_output,
-            output_url if final_video.exists() else None,
-        )
         projects.append(
             {
                 "name": project_dir.name,
@@ -717,9 +674,6 @@ def list_projects() -> list[dict]:
                 "has_output": has_output,
                 "output_url": output_url,
                 "video_url": output_url if final_video.exists() else None,
-                "render_status": render_status,
-                "render_status_class": render_status_class,
-                "render_state": render_state,
             }
         )
     return projects
@@ -768,16 +722,6 @@ def coerce_volume(value: object) -> float:
     if not 1.0 <= volume <= 3.0:
         raise ValueError("Volume must be between 1.0 and 3.0.")
     return volume
-
-
-def coerce_render_fps(value: object) -> int:
-    try:
-        fps = int(float(str(value).strip() or "0"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Render FPS must be a number.") from exc
-    if fps < 1:
-        raise ValueError("Render FPS must be positive.")
-    return fps
 
 
 def coerce_render_size(value: object) -> str:
@@ -1373,15 +1317,6 @@ def public_job(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in PRIVATE_JOB_FIELDS}
 
 
-def list_jobs() -> list[dict]:
-    with JOBS_LOCK:
-        jobs = [public_job(job) for job in JOBS.values()]
-    return sorted(
-        jobs,
-        key=lambda job: (-float(job.get("updated_at") or 0.0), str(job.get("id") or "")),
-    )
-
-
 def job_cancel_requested(job_id: str) -> bool:
     with JOBS_LOCK:
         job = JOBS.get(job_id)
@@ -1660,12 +1595,10 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     speed = coerce_speed(payload.get("speed", 1.1))
     volume = coerce_volume(payload.get("volume", 1.0))
     render_size = coerce_render_size(payload.get("size", "720x1280"))
-    render_fps = coerce_render_fps(payload.get("fps", 30))
     engine = str(payload.get("engine") or "").strip().lower()
     cmd = [
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
-        "--fps", str(render_fps),
     ]
 
     if engine in {"elevenlabs"}:
@@ -3187,12 +3120,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             if has_video
             else f'<span class="icon-btn disabled">{ui_icon("play")}<span>Mở</span></span>'
         )
-        status = project["render_status"]
-        status_class = project["render_status_class"]
+        status = "Sẵn sàng" if project["has_script"] else "Thiếu script"
+        status_class = "ok" if project["has_script"] else "bad"
         selected_class = " selected" if project["name"] == selected_project else ""
         rows.append(
             f"""
-            <li class="project-row{selected_class}" data-project="{name}" data-render-state="{project['render_state']}">
+            <li class="project-row{selected_class}" data-project="{name}">
               <div class="project-main">
                 <span class="project-name">{name}</span>
                 <div class="project-meta-row">
@@ -3324,23 +3257,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <pre id="stateList" hidden></pre>
       </div>
 
-      <section class="render-jobs-panel" aria-label="Job render">
-        <section class="render-jobs-section">
-          <div class="render-jobs-head">
-            <div><p class="eyebrow">Đang render</p><h2>Job live</h2></div>
-            <strong id="activeJobCount" style="font-size:8px;line-height:1;font-weight:500;color:var(--muted);">0</strong>
-          </div>
-          <div id="activeJobList" class="job-list"><p class="empty">Chưa có job đang chạy.</p></div>
-        </section>
-        <section class="render-jobs-section">
-          <div class="render-jobs-head">
-            <div><p class="eyebrow">Lịch sử phiên</p><h2>Tác vụ gần đây</h2></div>
-            <strong id="historyJobCount" style="font-size:8px;line-height:1;font-weight:500;color:var(--muted);">0</strong>
-          </div>
-          <div id="jobHistoryList" class="job-list"><p class="empty">Chưa có tác vụ trong phiên này.</p></div>
-        </section>
-      </section>
-
       <section class="advanced-settings" id="advancedSettings">
         <div class="advanced-heading">
           {ui_icon("settings", "advanced-heading-icon")}
@@ -3393,12 +3309,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
                 {ui_icon("gauge", "field-icon advanced-field-icon")}
                 <span>Tốc độ audio</span>
               </span>
-              <input id="renderSpeed" type="number" min="0.5" max="2" step="0.05" value="1.0" />
+              <input id="renderSpeed" type="number" min="0.5" max="2" step="0.05" value="1.1" />
             </label>
             <div class="render-options-stack">
               <div class="render-option-row">
                 <label class="check render-option-check">
-                  <input id="renderBranding" type="checkbox" {branding_lock_attributes} />
+                  <input id="renderBranding" type="checkbox" checked {branding_lock_attributes} />
                   Logo + brand
                 </label>
                 <button class="render-option-choose" id="openBrandConfig" type="button" {branding_lock_attributes}>Chọn</button>
@@ -5658,7 +5574,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       background: rgba(34, 197, 94, 0.12);
       box-shadow: none;
     }
-    .status-pill.warn { color: #352400; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(245, 158, 11, 0.34); }
     .status-pill.bad { color: #fff0f0; background: rgba(255, 82, 82, 0.22); border: 1px solid rgba(255, 82, 82, 0.35); }
     .muted, .empty { color: var(--muted); }
     .row-video-slot { display: inline-flex; align-items: center; flex: 0 0 auto; }
@@ -6203,7 +6118,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260730-project-status"></script>
+  <script src="/web/render_page.js?v=20260725-audio-volume"></script>
 """,
     )
 
@@ -7652,7 +7567,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260730-project-status"></script>
+  <script src="/web/render_page.js?v=20260725-audio-volume"></script>
 """,
     )
 
@@ -8361,10 +8276,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
                 return
             self.send_json(200, result)
-            return
-
-        if path == "/api/jobs":
-            self.send_json(200, {"jobs": list_jobs()})
             return
 
         if path == "/render":

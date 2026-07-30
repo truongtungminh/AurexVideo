@@ -6,7 +6,64 @@ import re
 import time
 from pathlib import Path
 
-import requests
+try:
+    import requests
+except ImportError:
+    # The lightweight desktop runtime intentionally ships only the renderer
+    # dependencies. Keep Maziao usable without making app startup depend on the
+    # third-party requests package.
+    from urllib import error as urllib_error
+    from urllib import request as urllib_request
+
+    class _CompatHTTPError(RuntimeError):
+        pass
+
+    class _CompatResponse:
+        def __init__(self, status: int, content: bytes):
+            self.status_code = status
+            self.content = content
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise _CompatHTTPError(f"HTTP {self.status_code}")
+
+        def json(self) -> dict:
+            return json.loads(self.content.decode("utf-8"))
+
+    def _compat_request(
+        method: str,
+        url: str,
+        *,
+        headers: dict | None = None,
+        json_payload: dict | None = None,
+        timeout: float = 30,
+    ) -> _CompatResponse:
+        body = json.dumps(json_payload).encode("utf-8") if json_payload is not None else None
+        req = urllib_request.Request(url, data=body, headers=headers or {}, method=method)
+        try:
+            with urllib_request.urlopen(req, timeout=timeout) as response:
+                return _CompatResponse(int(response.status), response.read())
+        except urllib_error.HTTPError as exc:
+            return _CompatResponse(int(exc.code), exc.read())
+
+    class _RequestsCompat:
+        HTTPError = _CompatHTTPError
+
+        @staticmethod
+        def get(url: str, *, headers: dict | None = None, timeout: float = 30) -> _CompatResponse:
+            return _compat_request("GET", url, headers=headers, timeout=timeout)
+
+        @staticmethod
+        def post(
+            url: str,
+            *,
+            json: dict | None = None,
+            headers: dict | None = None,
+            timeout: float = 30,
+        ) -> _CompatResponse:
+            return _compat_request("POST", url, headers=headers, json_payload=json, timeout=timeout)
+
+    requests = _RequestsCompat()
 
 from .common import generate_project_tts, normalize_speed, speed_adjust_audio, speed_cache_value
 

@@ -1,0 +1,391 @@
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("assets/fonts/InterVariable.woff2") format("woff2-variations");
+}
+
+:root {
+  --safe-zone-x: 5%;
+  color-scheme: light;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  background: #e9e9e9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #e9e9e9;
+}
+
+.app-shell {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 100vh;
+  padding: 12px;
+}
+
+.stage {
+  position: relative;
+  width: min(calc((100vh - 78px) * 9 / 16), 100vw);
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f3ead8 0%, #f7f0e4 14%, #f5eee3 100%);
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.48);
+  isolation: isolate;
+  container-type: inline-size;
+}
+
+.stage-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stage-background img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+  transform-origin: 0 0;
+}
+
+.stage.preview-blank .topic-label-stack,
+.stage.preview-blank .topic-label,
+.stage.preview-blank .topic-sub-label,
+.stage.preview-blank .media-slot,
+.stage.preview-blank .karaoke,
+.stage.preview-blank .teacher-wrap {
+  visibility: hidden;
+}
+
+.topic-label-stack,
+.topic-label,
+.topic-sub-label,
+.karaoke {
+  position: absolute;
+  z-index: 5;
+  text-align: center;
+}
+
+.topic-label-stack {
+  top: 16.6%;
+  z-index: 6;
+  width: 44.4%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35cqw;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+.topic-label {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: 100%;
+  color: #090909;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  font-size: 6.7cqw;
+  font-weight: 950;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  overflow: visible;
+  /* Chỉ xuống dòng tại ký tự \n do formatTopicLabel tạo ra. Nhãn 1-3 từ
+     luôn ở một dòng và fitLabelPair sẽ tự co chữ để vừa khung. */
+  white-space: pre;
+  text-shadow: none;
+  transform: none;
+}
+
+.topic-sub-label {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: 100%;
+  color: #808080;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-size: 3.1cqw;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: none;
+}
+
+.topic-sub-label[hidden] {
+  display: none !important;
+}
+
+.topic-label-left {
+  left: var(--safe-zone-x);
+}
+
+.topic-label-right {
+  left: 50.6%;
+}
+
+.media-slot {
+  position: absolute;
+  top: 17.1%;
+  z-index: 2;
+  width: 44.4%;
+  height: 25.6%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  /* Để phần trống quanh ảnh lộ đúng nền của video thay vì thành mảng trắng. */
+  background: transparent;
+  box-shadow: none;
+  transition: filter 220ms ease, opacity 220ms ease;
+}
+
+.media-slot-left {
+  left: var(--safe-zone-x);
+}
+
+.media-slot-right {
+  left: 50.6%;
+}
+
+.media-slot.dimmed {
+  filter: brightness(0.42) saturate(0.85);
+}
+
+.media-slot img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  transform-origin: 0 0;
+  will-change: transform;
+  filter: none;
+}
+
+.karaoke {
+  left: var(--safe-zone-x);
+  top: 46.2%;
+  width: calc(100% - var(--safe-zone-x) * 2);
+  min-height: 7%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.08em 0.24em;
+  color: var(--karaoke-color, #271f11);
+  font-family: var(--font, "Inter", sans-serif);
+  font-size: calc(4.62cqw * var(--karaoke-size, 1));
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  opacity: 0;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+}
+
+.karaoke.visible {
+  opacity: 1;
+}
+
+.karaoke.cjk {
+  gap: 0;
+  letter-spacing: 0.02em;
+}
+
+.karaoke.vietnamese {
+  font-weight: 850;
+}
+
+.karaoke .active {
+  color: var(--karaoke-active-color, #de370d);
+}
+
+.teacher-wrap {
+  position: absolute;
+  left: 18%;
+  top: 47.5%;
+  z-index: 3;
+  width: 64%;
+  height: 51%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+/* Imported PNGs are laid out from their visible alpha bounds in app.js.
+   The full-stage wrapper lets characters with different transparent padding
+   share the same visible top and subtitle gap. */
+.teacher-wrap.custom-character {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.teacher-wrap.custom-character .teacher {
+  position: absolute;
+  width: auto;
+  height: auto;
+  max-width: none;
+  object-fit: fill;
+}
+
+.teacher {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  filter: drop-shadow(0 8px 7px rgba(45, 24, 9, 0.14));
+  transition: opacity 140ms ease;
+}
+
+.teacher.pose-swap {
+  opacity: 0.18;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  color: #111;
+  background: rgba(255, 255, 255, 0.96);
+  font-weight: 800;
+}
+
+.loading.hidden {
+  display: none;
+}
+
+.sync-marker {
+  display: none;
+}
+
+.sync-marker.visible {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  display: block;
+  background: #ff00ff;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(120px, 320px);
+  align-items: center;
+  gap: 10px;
+  color: #222;
+  font-size: 13px;
+}
+
+.controls button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  color: #fff;
+  background: #111;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.controls input {
+  accent-color: #e2a72b;
+}
+
+body.render-mode {
+  background: #000;
+}
+
+body.render-mode .app-shell {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  padding: 0;
+}
+
+body.render-mode .stage {
+  width: 100vw;
+  height: 100vh;
+  box-shadow: none;
+}
+
+body.render-mode .controls {
+  display: none;
+}
+
+body.offline-render .media-slot,
+body.offline-render .teacher {
+  transition: none;
+}
+
+body.offline-render .teacher.pose-swap {
+  opacity: 1;
+}
+
+/* Editor live preview: match soft page tone; keep pure black only for real renders. */
+body.render-mode.preview-frame {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(232, 160, 96, 0.14), transparent 42%),
+    linear-gradient(135deg, #f8f5ef, #e9e4da);
+}
+
+body.render-mode.preview-frame .stage {
+  background: linear-gradient(180deg, #f7f0e4 0%, #f8f4ea 18%, #f3ead8 100%);
+}
+
+html[data-theme="dark"] body.render-mode.preview-frame {
+  background: #181818;
+}
+
+html[data-theme="dark"] body.render-mode.preview-frame .stage {
+  background: linear-gradient(180deg, #2a2118 0%, #1f1812 40%, #181818 100%);
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 0;
+  }
+
+  .stage {
+    width: min(100vw, calc((100vh - 58px) * 9 / 16));
+  }
+
+  .controls {
+    grid-template-columns: auto auto 1fr;
+    width: min(100vw - 16px, 520px);
+  }
+
+  .controls input {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}

@@ -330,6 +330,119 @@ def align_topic(
     return topic
 
 
+def existing_alignment_is_compatible(path: Path, lines: list[str], duration: float) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    existing_lines = [
+        str(segment.get("text") or "").strip()
+        for segment in existing.get("segments", [])
+        if str(segment.get("text") or "").strip()
+    ]
+    try:
+        existing_duration = float(existing.get("duration") or 0)
+    except (TypeError, ValueError):
+        return False
+    return existing_lines == lines and abs(existing_duration - duration) <= 0.12
+
+
+def align_topic_without_whisper(
+    topic: dict,
+    duration: float,
+    *,
+    audio: Path,
+    silence_noise: str,
+    silence_min_duration: float,
+) -> dict:
+    """Deterministic packaged-runtime fallback using script weights + silence."""
+    source_segments = topic.get("segments", [])
+    rows = [
+        segment for segment in source_segments
+        if str(segment.get("text") or "").strip()
+    ]
+    if not rows:
+        raise ValueError("Topic không có script để căn.")
+
+    weights = [
+        max(1, len(normalize_text(str(segment.get("text") or "")).replace(" ", "")))
+        for segment in rows
+    ]
+    total_weight = sum(weights) or len(rows)
+    raw_starts = [0.0]
+    cursor = 0
+    for weight in weights[:-1]:
+        cursor += weight
+        raw_starts.append(duration * cursor / total_weight)
+
+    silences = detect_silences(audio, silence_noise, silence_min_duration)
+    interior_silences = [
+        silence for silence in silences
+        if silence[0] > 0.05 and silence[1] < duration - 0.05
+    ]
+    if len(interior_silences) == len(rows) - 1:
+        # Full-script TTS inserts one pause between each source line. In that
+        # common case silence ends are more accurate than proportional guesses.
+        starts = [0.0, *(float(end) for _start, end, _duration in interior_silences)]
+        print("Số khoảng lặng khớp số câu; dùng trực tiếp thời điểm giọng bắt đầu lại.")
+    else:
+        starts = [
+            raw_starts[0],
+            *snap_split_points_to_speech_starts(raw_starts[1:], silences, 0.75),
+        ]
+    # Preserve order even if two expected boundaries snap to one silence.
+    for index in range(1, len(starts)):
+        starts[index] = max(starts[index], starts[index - 1] + 0.12)
+    ends = [max(starts[index] + 0.12, starts[index + 1]) for index in range(len(starts) - 1)]
+    ends.append(duration)
+
+    aligned = []
+    pose_rows = []
+    for index, source in enumerate(rows):
+        text = str(source.get("text") or "").strip()
+        tokens = alignment_tokens(text, cjk=uses_cjk_alignment(detect_script_language([text]), [text]))
+        line_start = min(duration, starts[index])
+        line_end = min(duration, max(line_start + 0.12, ends[index]))
+        step = max(0.03, (line_end - line_start) / max(1, len(tokens)))
+        words = [
+            {
+                "word": token,
+                "start": round(min(line_end, line_start + step * token_index), 3),
+                "end": round(min(line_end, line_start + step * (token_index + 1)), 3),
+            }
+            for token_index, token in enumerate(tokens)
+        ]
+        aligned.append({
+            "start": round(line_start, 3),
+            "end": round(line_end, 3),
+            "text": text,
+            "words": words,
+        })
+        pose_rows.append(pose_at(topic, float(source.get("start", 0))))
+
+    timeline = []
+    previous_pose = ""
+    for index, event in enumerate(pose_rows):
+        pose = str(event.get("pose") or next(iter(topic.get("poseAssets", {}) or {"question": {}})))
+        if index == 0 or pose != previous_pose:
+            next_event = {"time": aligned[index]["start"], "pose": pose}
+            sfx = event.get("sfx") or topic.get("poseSfx", {}).get(pose)
+            if sfx and sfx in topic.get("sfx", {}):
+                next_event["sfx"] = sfx
+            timeline.append(next_event)
+        previous_pose = pose
+
+    topic["duration"] = round(duration, 3)
+    topic["segments"] = aligned
+    fallback = next(iter(topic.get("poseAssets", {}) or {"question": {}}))
+    topic["poseTimeline"] = timeline or [{"time": 0.0, "pose": fallback}]
+    topic["alignmentMethod"] = "script-silence-fallback"
+    print(f"Fallback căn {len(aligned)} dòng bằng độ dài câu và {len(silences)} khoảng lặng.")
+    return topic
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("topic", type=Path)
@@ -344,20 +457,37 @@ def main() -> None:
     lines = [str(segment.get("text") or "").strip() for segment in topic.get("segments", [])]
     language = detect_script_language([line for line in lines if line])
     print(f"Ngôn ngữ căn subtitle: {language or 'auto'}")
-    words = transcribe(args.audio.resolve(), args.model, language=language)
-    duration = float(topic.get("duration") or words[-1]["end"])
-    result = align_topic(
-        topic,
-        words,
-        duration,
-        audio=args.audio.resolve(),
-        silence_noise=args.silence_noise,
-        silence_min_duration=args.silence_min_duration,
-        silence_max_distance=args.silence_max_distance,
-        language=language,
-    )
+    duration = float(topic.get("duration") or 0)
+    if existing_alignment_is_compatible(args.output, lines, duration):
+        print(f"Alignment cache hit: dùng lại {args.output}")
+        return
+    try:
+        words = transcribe(args.audio.resolve(), args.model, language=language)
+    except ModuleNotFoundError as exc:
+        if exc.name != "faster_whisper":
+            raise
+        print("Whisper không có trong runtime; chuyển sang căn theo script + khoảng lặng.")
+        result = align_topic_without_whisper(
+            topic,
+            duration,
+            audio=args.audio.resolve(),
+            silence_noise=args.silence_noise,
+            silence_min_duration=args.silence_min_duration,
+        )
+    else:
+        duration = duration or float(words[-1]["end"])
+        result = align_topic(
+            topic,
+            words,
+            duration,
+            audio=args.audio.resolve(),
+            silence_noise=args.silence_noise,
+            silence_min_duration=args.silence_min_duration,
+            silence_max_distance=args.silence_max_distance,
+            language=language,
+        )
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Đã căn {len(result['segments'])} dòng subtitle bằng Whisper.")
+    print(f"Đã căn {len(result['segments'])} dòng subtitle.")
 
 
 if __name__ == "__main__":

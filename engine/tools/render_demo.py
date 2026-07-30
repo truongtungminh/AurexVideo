@@ -15,6 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from threading import Thread
 from urllib.parse import quote, unquote, urlsplit
 
@@ -196,8 +197,11 @@ async def render_frames(
     duration: float,
     fps: int = 24,
     data_root: Path | None = None,
+    capture_format: str = "jpeg",
+    capture_quality: int = 100,
 ) -> None:
     from playwright.async_api import async_playwright
+
     with local_server(topic_path.parent, data_root=data_root) as port:
         url = (
             f"http://127.0.0.1:{port}/index.html"
@@ -205,13 +209,15 @@ async def render_frames(
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         frame_total = max(1, math.ceil(duration * fps))
+        pipe_codec = "png" if capture_format == "png" else "mjpeg"
         command = [
             str(ffmpeg_executable()), "-y", "-loglevel", "error",
-            "-f", "image2pipe", "-framerate", str(fps), "-vcodec", "png", "-i", "pipe:0",
+            "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
             "-i", str(audio),
             "-frames:v", str(frame_total),
-            "-vf", f"scale={width}:{height}:flags=lanczos,format=yuv420p",
+            "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-color_range", "tv",
             "-c:a", "aac", "-b:a", "192k",
             "-shortest", "-movflags", "+faststart", str(output),
         ]
@@ -221,6 +227,12 @@ async def render_frames(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
+        evaluate_seconds = 0.0
+        capture_seconds = 0.0
+        pipe_seconds = 0.0
+        capture_bytes = 0
+        media_sync_stats: dict = {}
+        render_started = time.perf_counter()
         try:
             async with async_playwright() as playwright:
                 browser = await playwright.chromium.launch(
@@ -235,12 +247,23 @@ async def render_frames(
                     raise RuntimeError("Không mở được luồng frame cho FFmpeg.")
                 for frame_index in range(frame_total):
                     frame_time = frame_index / fps
+                    stage_started = time.perf_counter()
                     await page.evaluate("(time) => window.renderOfflineFrame(time)", frame_time)
-                    frame = await page.screenshot(type="png", animations="disabled")
+                    evaluate_seconds += time.perf_counter() - stage_started
+                    stage_started = time.perf_counter()
+                    screenshot_options = {"type": capture_format, "animations": "disabled"}
+                    if capture_format == "jpeg":
+                        screenshot_options["quality"] = capture_quality
+                    frame = await page.screenshot(**screenshot_options)
+                    capture_seconds += time.perf_counter() - stage_started
+                    capture_bytes += len(frame)
+                    stage_started = time.perf_counter()
                     encoder.stdin.write(frame)
+                    pipe_seconds += time.perf_counter() - stage_started
                     if frame_index % fps == 0 or frame_index + 1 == frame_total:
                         current = min(duration, frame_index / fps)
                         print(f"Rendering frames: {current:.1f}/{duration:.1f}s", flush=True)
+                media_sync_stats = await page.evaluate("window.__AUREX_MEDIA_SYNC_STATS__ || {}")
                 await browser.close()
         except Exception:
             if encoder.stdin is not None:
@@ -264,19 +287,56 @@ async def render_frames(
                 pass
         stderr = encoder.stderr.read().decode("utf-8", errors="replace") if encoder.stderr else ""
         returncode = encoder.wait()
+        total_seconds = time.perf_counter() - render_started
+        print(
+            "Render profile: "
+            f"frames={frame_total} format={capture_format} total={total_seconds:.3f}s "
+            f"evaluate={evaluate_seconds:.3f}s capture={capture_seconds:.3f}s "
+            f"pipe_wait={pipe_seconds:.3f}s setup_and_encoder_drain="
+            f"{max(0.0, total_seconds - evaluate_seconds - capture_seconds - pipe_seconds):.3f}s "
+            f"captured={capture_bytes / 1024 / 1024:.1f}MiB",
+            flush=True,
+        )
+        if media_sync_stats:
+            print(
+                "Character sync profile: "
+                f"seeks={int(media_sync_stats.get('seeks', 0))} "
+                f"skipped_seeks={int(media_sync_stats.get('skippedSeeks', 0))} "
+                f"pose_changes={int(media_sync_stats.get('poseChanges', 0))} "
+                f"seek_wait={float(media_sync_stats.get('seekWaitMs', 0)) / 1000:.3f}s "
+                f"max_drift={float(media_sync_stats.get('maxDriftMs', 0)):.1f}ms",
+                flush=True,
+            )
         if returncode != 0:
             raise RuntimeError(f"FFmpeg không mã hóa được video frame-by-frame: {stderr.strip()}")
 
 
-async def render(topic_path: Path, output: Path, width: int, height: int, fps: int = 15) -> None:
+async def render(
+    topic_path: Path,
+    output: Path,
+    width: int,
+    height: int,
+    fps: int = 15,
+    benchmark_seconds: float | None = None,
+    capture_format: str = "jpeg",
+    capture_quality: int = 100,
+) -> None:
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="aurexvideo-") as temp:
         work_dir = Path(temp)
         data_root = infer_data_root(topic_path)
         mixed_audio = work_dir / "mixed-audio.wav"
+        audio_mix_started = time.perf_counter()
         build_mixed_audio(topic_path, topic, mixed_audio, data_root)
+        print(f"Audio mix profile: {time.perf_counter() - audio_mix_started:.3f}s", flush=True)
         duration = media_duration(mixed_audio)
-        await render_frames(topic_path, mixed_audio, output, width, height, duration, fps=fps, data_root=data_root)
+        if benchmark_seconds is not None:
+            duration = min(duration, max(0.1, benchmark_seconds))
+        await render_frames(
+            topic_path, mixed_audio, output, width, height, duration,
+            fps=fps, data_root=data_root, capture_format=capture_format,
+            capture_quality=capture_quality,
+        )
 
 
 def main() -> None:
@@ -295,8 +355,15 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=1080)
     parser.add_argument("--height", type=int, default=1920)
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--benchmark-seconds", type=float)
+    parser.add_argument("--capture-format", choices=["png", "jpeg"], default="jpeg")
+    parser.add_argument("--capture-quality", type=int, choices=range(0, 101), default=100)
     args = parser.parse_args()
-    asyncio.run(render(args.topic.resolve(), args.output.resolve(), args.width, args.height, args.fps))
+    asyncio.run(render(
+        args.topic.resolve(), args.output.resolve(), args.width, args.height, args.fps,
+        benchmark_seconds=args.benchmark_seconds, capture_format=args.capture_format,
+        capture_quality=args.capture_quality,
+    ))
     print(args.output.resolve())
 
 

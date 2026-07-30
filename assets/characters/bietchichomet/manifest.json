@@ -1,0 +1,38 @@
+{
+  "id": "bietchichomet",
+  "name": "bietchichomet",
+  "createdAt": "2026-07-28T20:59:15+07:00",
+  "poses": [
+    {
+      "id": "pose-1",
+      "label": "Pose 1",
+      "labelEn": "Pose 1",
+      "file": "pose-1.mp4",
+      "syncMode": "scene",
+      "loop": true,
+      "loopStart": 0,
+      "loopEnd": 10
+    },
+    {
+      "id": "pose-2",
+      "label": "Pose 2",
+      "labelEn": "Pose 2",
+      "file": "pose-2.mp4",
+      "syncMode": "scene",
+      "loop": true,
+      "loopStart": 0,
+      "loopEnd": 10
+    },
+    {
+      "id": "pose-3",
+      "label": "Pose 3",
+      "labelEn": "Pose 3",
+      "file": "pose-3.mp4",
+      "syncMode": "scene",
+      "loop": true,
+      "loopStart": 0,
+      "loopEnd": 10
+    }
+  ],
+  "updatedAt": "2026-07-28T22:03:03+07:00"
+}

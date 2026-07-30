@@ -15,14 +15,14 @@ cd engine
 
 ## Version
 
-- Code/app: `0.2.3`
+- Code/app: `0.2.4`
 - Render pipeline accepts `--engine maziao` end to end. Direct Maziao voice IDs from the favourites dropdown are preserved exactly, including mixed-case IDs without hyphens, so rendering uses the selected voice instead of falling back to OncoinX.
 - The standalone voiceover worker bootstraps the engine root before importing `tts.maziao`, preventing `No module named 'tts'` in the packaged runtime.
 - Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites`, với dropdown 56px và nút play/pause tròn rõ nét ngay bên phải phát trực tiếp `previewUrl`. OncoinX và Mạnh Dũng có link preview fallback khi API không trả link. Checkbox tạo lại cache được đặt sát hàng chọn voice. Không còn hàng preview riêng, text mẫu, custom Voice ID hay ElevenLabs trong render page.
 
 ## Cách phát hành / cài máy khác
 
-DMG: `~/Desktop/AurexVideo-0.2.3-tauri.dmg`
+DMG: `~/Desktop/AurexVideo-0.2.4-tauri.dmg`
 
 Cài máy khác:
 1. Mở DMG, kéo `AurexVideo.app` vào `Applications`.
@@ -50,11 +50,11 @@ Cài máy khác:
 App vỏ là **Tauri v2** (Rust + system WebView), không nhét engine vào `.app`.
 Khi cài mới, Rust bootstrap tự tải các thành phần runtime **từ chính chủ** (không qua một file tarball lớn):
 
-- **Python** (~42MB) ← GitHub Release `aurexvideo-python-0.2.3.tar.gz`
+- **Python** (~42MB) ← GitHub Release `aurexvideo-python-0.2.4.tar.gz`
 - **faster-whisper-base** (145MB) ← HuggingFace `Systran/faster-whisper-base`
 - **ffmpeg** (80MB) ← evermeet.cx (mac build)
 - **Chromium** (headless shell) ← Playwright CDN qua `python -m playwright install`
-- **Engine** (~26MB) ← GitHub Release `aurexvideo-engine-0.2.3.tar.gz`, tải lại mỗi OTA
+- **Engine** (~26MB) ← GitHub Release `aurexvideo-engine-0.2.4.tar.gz`, tải lại mỗi OTA
 
 Các component nặng tải song song, mỗi lần cài chỉ 1 lần (marker `.runtime_ready`).
 Chỉ engine được thay thế khi có bản cập nhật OTA (marker `.engine_ready`).
@@ -84,15 +84,15 @@ fix triệt để lỗi "Upload PNG button không mở được picker" ở bả
 
 - Icon app `.icns` sinh từ `assets/aurexvideo-logo.png` (emblem xanh cyan + nút play + film strip, 1024x1024).
 - Sinh bằng: resize PNG sang iconset (16→1024, đủ @2x) → `iconutil --convert icns`.
-- Không dùng `~/Desktop/Aurex.png` cũ; file `aurexvideo-logo.png` là chuẩn app icon từ bản 0.2.3.
+- Không dùng `~/Desktop/Aurex.png` cũ; file `aurexvideo-logo.png` là chuẩn app icon từ bản 0.2.4.
 
 ## Trạng thái build (2026-07-28)
 
-- ✅ `AurexVideo-0.2.3-tauri.dmg` (3.2MB) tại `~/Desktop/`: app vỏ **Tauri v2** + ICNS + symlink `/Applications`.
+- ✅ `AurexVideo-0.2.4-tauri.dmg` (3.2MB) tại `~/Desktop/`: app vỏ **Tauri v2** + ICNS + symlink `/Applications`.
 - ✅ `codesign --verify` valid (ad-hoc signing, arm64).
 - ✅ Launch test thực tế: app mở, server up HTTP 200 (không trắng), UI dashboard đầy đủ (verify bằng screenshot).
 - ✅ Tauri WebView tự xử lý native file dialog → fix lỗi "Upload PNG không bấm được" của bản Swift cũ.
-- ✅ Version đồng bộ: `web_server.py APP_VERSION`, `engine/VERSION`, `update-manifest.json` đều `0.2.3`.
+- ✅ Version đồng bộ: `web_server.py APP_VERSION`, `engine/VERSION`, `update-manifest.json` đều `0.2.4`.
 
 - ✅ Browser render flow đang dùng `/api/render` + `/api/jobs/<id>`; đã vá `syncEdgeVoiceCustomField` bị thiếu, đồng bộ tab/pane Edge TTS (`edgetts`), thêm `/api/jobs` để dashboard theo dõi nhiều job render song song thay vì chỉ 1 job live, và chuẩn hoá root project về `studio/project/` để dashboard không còn tự rơi sang `projects/`.
 - ✅ Render demo đã hỗ trợ pose asset dạng `.mp4` của custom character bằng cách cache frame poster đầu tiên trước khi capture, nên project như `pnj-va-sjc` render được lại bình thường.

@@ -1,5 +1,5 @@
 {
-  "notes": "Release engine 0.2.3 - downloader UX (real %/speed/ETA/retry), bootstrap/OTA 2-layer",
-  "installedVersion": "0.2.3",
-  "version": "0.2.3"
+  "notes": "Release engine 0.2.4 - version bump from 0.2.3",
+  "installedVersion": "0.2.4",
+  "version": "0.2.4"
 }

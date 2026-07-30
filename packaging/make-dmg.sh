@@ -5,7 +5,7 @@
 #
 # Usage:
 #   ./make-dmg.sh [version] [output.dmg]
-#   version   : app version (default: read from engine/VERSION, fallback 0.2.3)
+#   version   : app version (default: read from engine/VERSION, fallback 0.2.4)
 #   output    : output DMG path (default: ~/Desktop/AurexVideo-<version>-native.dmg)
 #
 # What it does:
@@ -30,7 +30,7 @@ if [[ -z "$VERSION" ]]; then
   if [[ -f engine/VERSION ]]; then
     VERSION="$(tr -d '[:space:]' < engine/VERSION)"
   else
-    VERSION="0.2.3"
+    VERSION="0.2.4"
   fi
 fi
 

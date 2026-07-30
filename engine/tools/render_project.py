@@ -265,9 +265,17 @@ def alignment_signature(prepared_topic: Path, render_audio: Path, whisper_model:
     return hashlib.sha256(payload).hexdigest()
 def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
     topic = topic_path.read_bytes()
+    renderer_files = [
+        ROOT / "app.js",
+        ROOT / "style.css",
+        ROOT / "index.html",
+        ROOT / "tools" / "render_demo.py",
+    ]
     payload = b"\0".join(
         [
+            b"render-cache-v2",
             topic,
+            *(file_digest(path).encode("ascii") for path in renderer_files),
             args.engine.encode("utf-8"),
             str(args.audio.resolve() if args.audio else "").encode("utf-8"),
             f"{float(args.speed):.6f}".encode("utf-8"),

@@ -51,19 +51,10 @@ let presenterLayoutGeneration = 0;
 let lastPresenterSource = "";
 let lastKaraokeGroupKey = "";
 const presenterAlphaBounds = new Map();
-const presenterFrameCache = new Map();
 const IMPORTED_PRESENTER_GAP_PX = 24;
 const IMPORTED_PRESENTER_BOTTOM_PX = 28;
 const IMPORTED_PRESENTER_MAX_WIDTH = 0.58;
 const IMPORTED_PRESENTER_MAX_HEIGHT = 0.52;
-const OFFLINE_MEDIA_SYNC_TOLERANCE = 1 / 120;
-const offlineMediaSyncStats = {
-  seeks: 0,
-  skippedSeeks: 0,
-  poseChanges: 0,
-  seekWaitMs: 0,
-  maxDriftMs: 0,
-};
 
 if (renderMode) document.body.classList.add("render-mode");
 if (previewFrame) document.body.classList.add("preview-frame");
@@ -199,11 +190,7 @@ function fitLabelPair() {
 }
 
 function fitHeadings() {
-  if (!elements.stage.classList.contains('character-bietchichomet')) fitLabelPair();
-  else {
-    elements.leftLabel.style.removeProperty('font-size');
-    elements.rightLabel.style.removeProperty('font-size');
-  }
+  fitLabelPair();
 }
 
 function tokenize(text) {
@@ -289,7 +276,7 @@ function buildGroups(words) {
   const groups = [];
   let index = 0;
   const compactCjk = usesCompactCjkText();
-  const maxWords = compactCjk ? maxCjkCharacters() : 3;
+  const maxWords = compactCjk ? maxCjkCharacters() : 5;
   const maxChars = compactCjk ? maxWords : maxLatinCharacters();
   while (index < words.length) {
     const segmentEnd = words[index].segmentEnd;
@@ -342,96 +329,6 @@ function poseImage(poseName, speaking) {
   return resolveTopicAsset(speaking ? pose.speaking : pose.closed);
 }
 
-function poseMediaConfig(poseName) {
-  const pose = topic.poseAssets[poseName] || topic.poseAssets.question || Object.values(topic.poseAssets)[0] || {};
-  const syncMode = ["scene", "timeline", "freeze"].includes(pose.syncMode) ? pose.syncMode : "scene";
-  return {
-    syncMode,
-    loop: pose.loop !== false,
-    loopStart: Math.max(0, Number(pose.loopStart) || 0),
-    loopEnd: Math.max(0, Number(pose.loopEnd) || 0),
-  };
-}
-
-function mediaSource(element) {
-  return element.currentSrc || element.src;
-}
-
-function mediaReady(element) {
-  return element instanceof HTMLVideoElement
-    ? element.readyState >= 2 && element.videoWidth > 0 && element.videoHeight > 0
-    : element.complete && element.naturalWidth > 0 && element.naturalHeight > 0;
-}
-
-function mediaIntrinsicWidth(element) {
-  return element instanceof HTMLVideoElement ? element.videoWidth || 1 : element.naturalWidth || 1;
-}
-
-function mediaIntrinsicHeight(element) {
-  return element instanceof HTMLVideoElement ? element.videoHeight || 1 : element.naturalHeight || 1;
-}
-
-function waitForMediaReady(element) {
-  if (mediaReady(element)) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      element.removeEventListener("loadeddata", onReady);
-      element.removeEventListener("load", onReady);
-      element.removeEventListener("error", onError);
-    };
-    const onReady = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error(`Không tải được media: ${mediaSource(element)}`));
-    };
-    element.addEventListener("loadeddata", onReady, { once: true });
-    element.addEventListener("load", onReady, { once: true });
-    element.addEventListener("error", onError, { once: true });
-  });
-}
-
-function isVideoAssetSource(source) {
-  return /\.(mp4|webm|m4v|mov)(?:[?#]|$)/i.test(String(source || ""));
-}
-
-async function loadPresenterFrame(source) {
-  if (presenterFrameCache.has(source)) return presenterFrameCache.get(source);
-  if (!isVideoAssetSource(source)) return source;
-  const video = document.createElement("video");
-  video.crossOrigin = "anonymous";
-  video.preload = "auto";
-  video.playsInline = true;
-  video.muted = true;
-  const loaded = new Promise((resolve, reject) => {
-    video.onloadeddata = () => resolve();
-    video.onerror = () => reject(new Error(`Không tải được pose video: ${source}`));
-  });
-  video.src = source;
-  await loaded;
-  const seekTo = Math.min(0.08, Math.max(0.02, Number(video.duration) > 0 ? Number(video.duration) / 12 : 0.04));
-  await new Promise((resolve, reject) => {
-    video.onseeked = () => resolve();
-    video.onerror = () => reject(new Error(`Không đọc được frame pose video: ${source}`));
-    try {
-      video.currentTime = seekTo;
-    } catch {
-      resolve();
-    }
-  });
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, video.videoWidth || 1);
-  canvas.height = Math.max(1, video.videoHeight || 1);
-  const context = canvas.getContext("2d");
-  if (!context) return source;
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const frame = canvas.toDataURL("image/png");
-  presenterFrameCache.set(source, frame);
-  return frame;
-}
-
 function playPoseSfx(event, time) {
   const sfxName = event.sfx || topic.poseSfx?.[event.pose] || "";
   if (!sfxName) return;
@@ -467,15 +364,13 @@ function updateMediaFocus(poseName) {
 }
 
 async function alphaBoundsForImage(image) {
-  const source = mediaSource(image);
-  const width = mediaIntrinsicWidth(image);
-  const height = mediaIntrinsicHeight(image);
-  if (!source || !width || !height) return null;
+  const source = image.currentSrc || image.src;
+  if (!source || !image.naturalWidth || !image.naturalHeight) return null;
   if (presenterAlphaBounds.has(source)) return presenterAlphaBounds.get(source);
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   context.drawImage(image, 0, 0);
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -509,10 +404,10 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
     clearImportedPresenterLayout();
     return;
   }
-  const source = mediaSource(elements.teacher);
-  if (!source || !mediaReady(elements.teacher)) return;
+  const source = elements.teacher.currentSrc || elements.teacher.src;
+  if (!source || !elements.teacher.complete || !elements.teacher.naturalWidth) return;
   const bounds = await alphaBoundsForImage(elements.teacher);
-  if (!bounds || generation !== presenterLayoutGeneration || source !== mediaSource(elements.teacher)) return;
+  if (!bounds || generation !== presenterLayoutGeneration || source !== (elements.teacher.currentSrc || elements.teacher.src)) return;
 
   const stageRect = elements.stage.getBoundingClientRect();
   const subtitleRects = Array.from(elements.karaoke.children, (node) => node.getBoundingClientRect());
@@ -532,8 +427,8 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
   const renderedVisibleHeight = visibleHeight * imageScale;
   const renderedVisibleTop = Math.max(visibleTop, visibleBottom - renderedVisibleHeight);
 
-  elements.teacher.style.width = `${mediaIntrinsicWidth(elements.teacher) * imageScale}px`;
-  elements.teacher.style.height = `${mediaIntrinsicHeight(elements.teacher) * imageScale}px`;
+  elements.teacher.style.width = `${elements.teacher.naturalWidth * imageScale}px`;
+  elements.teacher.style.height = `${elements.teacher.naturalHeight * imageScale}px`;
   elements.teacher.style.left = `${(stageRect.width - renderedVisibleWidth) / 2 - bounds.left * imageScale}px`;
   elements.teacher.style.top = `${renderedVisibleTop - bounds.top * imageScale}px`;
 }
@@ -548,97 +443,23 @@ function scheduleImportedPresenterLayout() {
 }
 
 function setPose(event, time, allowSfx = false) {
-  const poseChanged = event.index !== lastPoseIndex;
-  if (poseChanged) {
+  if (event.index !== lastPoseIndex) {
     currentPose = event.pose;
     lastPoseIndex = event.index;
-    if (offlineRender) offlineMediaSyncStats.poseChanges += 1;
     if (allowSfx) playPoseSfx(event, time);
   }
   // Use exactly one full-body sprite per pose to keep the presenter stationary.
   const nextSrc = poseImage(currentPose, true);
-  const currentSrc = mediaSource(elements.teacher);
-  const shouldResetVideo = isVideoAssetSource(nextSrc) && poseChanged;
-  if (currentSrc !== nextSrc || shouldResetVideo) {
-    if (currentSrc !== nextSrc) {
-      elements.teacher.classList.add("pose-swap");
-      elements.teacher.src = nextSrc;
-      lastPresenterSource = nextSrc;
-      cancelAnimationFrame(poseSwapRaf);
-      poseSwapRaf = requestAnimationFrame(() => {
-        poseSwapRaf = requestAnimationFrame(() => elements.teacher.classList.remove("pose-swap"));
-      });
-    }
-    if (isVideoAssetSource(nextSrc)) {
-      elements.teacher.muted = true;
-      elements.teacher.loop = true;
-      elements.teacher.playsInline = true;
-      if (offlineRender) {
-        elements.teacher.pause();
-        if (shouldResetVideo) elements.teacher.currentTime = 0;
-      } else {
-        if (shouldResetVideo) elements.teacher.currentTime = 0;
-        elements.teacher.play().catch(() => {});
-      }
-    }
+  if (elements.teacher.src !== nextSrc) {
+    elements.teacher.classList.add("pose-swap");
+    elements.teacher.src = nextSrc;
+    lastPresenterSource = nextSrc;
+    cancelAnimationFrame(poseSwapRaf);
+    poseSwapRaf = requestAnimationFrame(() => {
+      poseSwapRaf = requestAnimationFrame(() => elements.teacher.classList.remove("pose-swap"));
+    });
   }
   updateMediaFocus(currentPose);
-}
-
-async function syncPresenterToOfflineTimeline(event, timelineTime) {
-  const video = elements.teacher;
-  if (!offlineRender || !(video instanceof HTMLVideoElement) || !isVideoAssetSource(mediaSource(video))) return;
-  video.pause();
-  await waitForMediaReady(video);
-
-  const duration = Number(video.duration);
-  if (!Number.isFinite(duration) || duration <= 0) return;
-  const config = poseMediaConfig(event?.pose);
-  const sceneStart = Math.max(0, Number(event?.time) || 0);
-  const localElapsed = config.syncMode === "timeline"
-    ? Math.max(0, Number(timelineTime))
-    : Math.max(0, Number(timelineTime) - sceneStart);
-  const loopStart = Math.min(duration - 0.001, config.loopStart);
-  const configuredEnd = config.loopEnd > loopStart ? config.loopEnd : duration;
-  const loopEnd = Math.min(duration, Math.max(loopStart + 0.001, configuredEnd));
-  const span = Math.max(0.001, loopEnd - loopStart);
-  const targetTime = config.syncMode === "freeze"
-    ? loopStart
-    : config.loop
-      ? loopStart + (localElapsed % span)
-      : Math.min(loopEnd - 0.001, loopStart + localElapsed);
-  const drift = Math.abs((Number(video.currentTime) || 0) - targetTime);
-  offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, drift * 1000);
-  if (drift <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
-    offlineMediaSyncStats.skippedSeeks += 1;
-    return;
-  }
-
-  const startedAt = performance.now();
-  await new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timeout khi đồng bộ video nhân vật tại ${targetTime.toFixed(3)}s`));
-    }, 5000);
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onError);
-    };
-    const onSeeked = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error(`Không seek được video nhân vật: ${mediaSource(video)}`));
-    };
-    video.addEventListener("seeked", onSeeked, { once: true });
-    video.addEventListener("error", onError, { once: true });
-    video.currentTime = targetTime;
-  });
-  offlineMediaSyncStats.seeks += 1;
-  offlineMediaSyncStats.seekWaitMs += performance.now() - startedAt;
 }
 
 function renderKaraoke(time) {
@@ -696,32 +517,24 @@ function offlineImagePaths() {
 }
 
 async function preloadOfflineImages() {
-  await Promise.all(offlineImagePaths().map(async (source) => {
-    if (isVideoAssetSource(source)) {
-      await loadPresenterFrame(source);
-      return;
-    }
-    await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = resolve;
-      image.onerror = () => reject(new Error(`Không tải được ảnh render: ${source}`));
-      image.src = source;
-    });
-  }));
+  await Promise.all(offlineImagePaths().map((source) => new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = resolve;
+    image.onerror = () => reject(new Error(`Không tải được ảnh render: ${source}`));
+    image.src = source;
+  })));
 }
 
 async function renderOfflineFrame(time) {
-  const poseEvent = poseAt(time);
   renderAt(time);
   await Promise.all([
     elements.leftImage.decode().catch(() => {}),
     elements.rightImage.decode().catch(() => {}),
-    waitForMediaReady(elements.teacher).catch(() => {}),
+    elements.teacher.decode().catch(() => {}),
     elements.stageBackgroundImage && !elements.stageBackgroundImage.hidden
       ? elements.stageBackgroundImage.decode().catch(() => {})
       : Promise.resolve(),
   ]);
-  await syncPresenterToOfflineTimeline(poseEvent, time);
   applyStageBackground(topic);
   if (currentComparisonScene) {
     applyImageFrame(
@@ -746,7 +559,6 @@ async function prepareOfflineRender() {
     preloadOfflineImages(),
     document.fonts?.ready || Promise.resolve(),
   ]);
-  if (elements.teacher instanceof HTMLVideoElement) elements.teacher.pause();
   await renderOfflineFrame(0);
 }
 
@@ -1035,17 +847,8 @@ function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   wordGroups = buildGroups(timedWords);
   currentPose = topic.poseTimeline?.[0]?.pose || Object.keys(topic.poseAssets || {})[0] || "question";
   lastPoseIndex = -1;
-  const isCustomCharacter = Boolean(topic.characterId && topic.characterId !== "human-presenter");
-  elements.teacherWrap.classList.toggle("custom-character", isCustomCharacter);
-  // Gắn class character-<id> để CSS tuỳ biến riêng từng nhân vật (vd. character-bietchichomet).
-  // Gắn cả lên #stage để style các sibling (media-slot, label...) theo nhân vật.
-  const stageClasses = elements.stage.classList;
-  stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("character-")));
-  if (isCustomCharacter && topic.characterId) {
-    elements.teacherWrap.classList.add(`character-${topic.characterId}`);
-    stageClasses.add(`character-${topic.characterId}`);
-  }
-  if (!isCustomCharacter) clearImportedPresenterLayout();
+  elements.teacherWrap.classList.toggle("custom-character", Boolean(topic.characterId && topic.characterId !== "human-presenter"));
+  if (!elements.teacherWrap.classList.contains("custom-character")) clearImportedPresenterLayout();
   currentComparisonKey = "";
   applyStageBackground(topic);
   applyComparisonToView(baseComparison(topic), true);
@@ -1060,7 +863,6 @@ async function init() {
   const response = await fetch(topicUrl, { cache: "no-store" });
   if (!response.ok) throw new Error(`Không tải được topic: ${response.status}`);
   topic = await response.json();
-  await preloadOfflineImages();
   applyTopicToView(topic, { preserveAudio: false });
   bindStageImageFrame(elements.leftImage, "left");
   bindStageImageFrame(elements.rightImage, "right");
@@ -1078,20 +880,14 @@ async function init() {
 
   currentPose = topic.poseTimeline[0].pose;
   elements.teacher.src = poseImage(currentPose, false);
-  elements.teacher.muted = true;
-  elements.teacher.loop = true;
-  elements.teacher.playsInline = true;
-  elements.teacher.preload = "auto";
-  elements.teacher.load();
   lastPresenterSource = elements.teacher.src;
-  elements.teacher.addEventListener("loadeddata", scheduleImportedPresenterLayout);
-  elements.teacher.addEventListener("seeked", scheduleImportedPresenterLayout);
+  elements.teacher.addEventListener("load", scheduleImportedPresenterLayout);
   bindControls();
 
   await Promise.all([
     elements.leftImage.decode().catch(() => {}),
     elements.rightImage.decode().catch(() => {}),
-    waitForMediaReady(elements.teacher).catch(() => {}),
+    elements.teacher.decode().catch(() => {}),
     new Promise((resolve) => {
       if (elements.voiceover.readyState >= 1) resolve();
       else elements.voiceover.addEventListener("loadedmetadata", resolve, { once: true });
@@ -1108,7 +904,6 @@ async function init() {
   window.renderAt = renderAt;
   window.prepareOfflineRender = prepareOfflineRender;
   window.renderOfflineFrame = renderOfflineFrame;
-  window.__AUREX_MEDIA_SYNC_STATS__ = offlineMediaSyncStats;
   window.__layoutImportedPresenterForTest = () => layoutImportedPresenter(presenterLayoutGeneration);
   fitHeadings();
   document.fonts?.ready.then(fitHeadings);
