@@ -645,6 +645,35 @@ def choose_source_root_dialog() -> Path:
     return Path(selected)
 
 
+def project_render_status(project_name: str, has_script: bool, has_output: bool, video_url: str | None) -> tuple[str, str, str]:
+    language = current_ui_language()
+    with JOBS_LOCK:
+        jobs = [job for job in JOBS.values() if job.get("project") == project_name]
+    active = next((job for job in sorted(jobs, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)
+                   if job.get("status") in ACTIVE_JOB_STATUSES), None)
+    if active:
+        return (
+            ("Đang render" if language == "vi" else "Rendering"),
+            "warn",
+            "rendering",
+        )
+    if video_url or has_output or any(job.get("status") == "done" for job in jobs):
+        return (
+            ("Đã render" if language == "vi" else "Rendered"),
+            "ok",
+            "rendered",
+        )
+    if any(job.get("status") == "failed" for job in jobs):
+        return (
+            ("Render lỗi" if language == "vi" else "Render failed"),
+            "bad",
+            "failed",
+        )
+    if has_script:
+        return (("Sẵn sàng" if language == "vi" else "Ready"), "ok", "ready")
+    return (("Thiếu script" if language == "vi" else "Missing script"), "bad", "missing-script")
+
+
 def list_projects() -> list[dict]:
     if not project_lookup_root().exists():
         return []
@@ -668,6 +697,12 @@ def list_projects() -> list[dict]:
         final_video = project_dir / "output" / "final_video.mp4"
         has_output = output_dir.is_dir() and any(output_dir.iterdir())
         output_url = final_video_url(project_dir.name)
+        render_status, render_status_class, render_state = project_render_status(
+            project_dir.name,
+            script_path.exists(),
+            has_output,
+            output_url if final_video.exists() else None,
+        )
         projects.append(
             {
                 "name": project_dir.name,
@@ -682,6 +717,9 @@ def list_projects() -> list[dict]:
                 "has_output": has_output,
                 "output_url": output_url,
                 "video_url": output_url if final_video.exists() else None,
+                "render_status": render_status,
+                "render_status_class": render_status_class,
+                "render_state": render_state,
             }
         )
     return projects
@@ -3149,12 +3187,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             if has_video
             else f'<span class="icon-btn disabled">{ui_icon("play")}<span>Mở</span></span>'
         )
-        status = "Sẵn sàng" if project["has_script"] else "Thiếu script"
-        status_class = "ok" if project["has_script"] else "bad"
+        status = project["render_status"]
+        status_class = project["render_status_class"]
         selected_class = " selected" if project["name"] == selected_project else ""
         rows.append(
             f"""
-            <li class="project-row{selected_class}" data-project="{name}">
+            <li class="project-row{selected_class}" data-project="{name}" data-render-state="{project['render_state']}">
               <div class="project-main">
                 <span class="project-name">{name}</span>
                 <div class="project-meta-row">
@@ -5620,6 +5658,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       background: rgba(34, 197, 94, 0.12);
       box-shadow: none;
     }
+    .status-pill.warn { color: #352400; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(245, 158, 11, 0.34); }
     .status-pill.bad { color: #fff0f0; background: rgba(255, 82, 82, 0.22); border: 1px solid rgba(255, 82, 82, 0.35); }
     .muted, .empty { color: var(--muted); }
     .row-video-slot { display: inline-flex; align-items: center; flex: 0 0 auto; }
@@ -6164,7 +6203,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260725-audio-volume"></script>
+  <script src="/web/render_page.js?v=20260730-project-status"></script>
 """,
     )
 
@@ -7613,7 +7652,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260725-audio-volume"></script>
+  <script src="/web/render_page.js?v=20260730-project-status"></script>
 """,
     )
 

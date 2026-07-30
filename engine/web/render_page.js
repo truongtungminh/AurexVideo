@@ -150,6 +150,37 @@
     return $all('.project-row[data-project]').find((element) => element.dataset.project === projectName) || null;
   }
 
+  function projectRenderState(project, jobs) {
+    const projectJobs = (Array.isArray(jobs) ? jobs : []).filter((job) => job.project === project?.name);
+    const active = projectJobs.find((job) => ['authorizing', 'queued', 'running', 'cancelling'].includes(job.status));
+    if (active) return { state: 'rendering', label: tr('Đang render', 'Rendering'), tone: 'warn' };
+    if (project?.video_url || projectJobs.some((job) => job.status === 'done')) {
+      return { state: 'rendered', label: tr('Đã render', 'Rendered'), tone: 'ok' };
+    }
+    if (projectJobs.some((job) => job.status === 'failed')) {
+      return { state: 'failed', label: tr('Render lỗi', 'Render failed'), tone: 'bad' };
+    }
+    if (project?.has_script) return { state: 'ready', label: tr('Sẵn sàng', 'Ready'), tone: 'ok' };
+    return { state: 'missing-script', label: tr('Thiếu script', 'Missing script'), tone: 'bad' };
+  }
+
+  function applyProjectStatus(projectName, status) {
+    const row = rowForProject(projectName);
+    const badge = row?.querySelector('.status-pill');
+    if (!row || !badge) return;
+    row.dataset.renderState = status.state;
+    badge.textContent = status.label;
+    badge.className = `status-pill ${status.tone}`;
+  }
+
+  async function refreshProjectStatuses() {
+    const response = await fetch('/api/jobs', { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+    (window.__PROJECTS__ || []).forEach((project) => applyProjectStatus(project.name, projectRenderState(project, jobs)));
+  }
+
   function setStatus(message, tone = 'warn') {
     const status = $('#renderStatus');
     if (!status) return;
@@ -1733,6 +1764,7 @@
       const progress = renderProgressForJob(data);
       setStatus(`Đã bắt đầu job render: ${data.id}`, 'good');
       setRenderState(renderTitle(progress.title, data), [data.logs || progress.log], 'running', progress);
+      refreshProjectStatuses().catch(() => {});
       await pollJob();
       if (state.pollTimer) window.clearInterval(state.pollTimer);
       state.pollTimer = window.setInterval(pollJob, 1500);
@@ -1774,6 +1806,7 @@
       if (!response.ok) throw new Error(job.error || `HTTP ${response.status}`);
       const progress = renderProgressForJob(job);
       setRenderState(renderTitle(progress.title, job), [job.logs || progress.log], job.status === 'cancelled' ? 'cancelled' : 'running', progress);
+      refreshProjectStatuses().catch(() => {});
     } catch (error) {
       state.canceling = false;
       if (stopButton) stopButton.disabled = false;
@@ -1809,6 +1842,7 @@
         const finalUrl = job.video_url || state.outputUrl;
         setStatus(tr('Render hoàn tất. final_video.mp4 đã sẵn sàng.', 'Render complete. final_video.mp4 is ready.'), 'good');
         setRenderState(renderTitle(progress.title, job), [job.logs || progress.log], 'done', progress);
+        refreshProjectStatuses().catch(() => {});
         if (videoLink) {
           videoLink.href = videoPageUrl(job.project || state.project);
           videoLink.hidden = false;
@@ -1828,6 +1862,7 @@
         }
         setStatus(progress.log || tr('Render thất bại.', 'Render failed.'), 'bad');
         setRenderState(renderTitle(progress.title, job), [job.logs || progress.log], 'failed', progress);
+        refreshProjectStatuses().catch(() => {});
       } else if (job.status === 'cancelled') {
         if (state.pollTimer) window.clearInterval(state.pollTimer);
         state.pollTimer = null;
@@ -1840,6 +1875,7 @@
         }
         setStatus(tr('Đã dừng render.', 'Render stopped.'), 'warn');
         setRenderState(renderTitle(progress.title, job), [job.logs || progress.log], 'cancelled', progress);
+        refreshProjectStatuses().catch(() => {});
       } else {
         if (stopButton) {
           stopButton.hidden = false;
@@ -1849,6 +1885,7 @@
           ? tr('Render đang chờ xử lý...', 'Render is queued…')
           : tr('Render đang chạy...', 'Render is running…'), 'warn');
         setRenderState(renderTitle(progress.title, job), [job.logs || progress.log], 'running', progress);
+        refreshProjectStatuses().catch(() => {});
       }
     } catch (error) {
       if (state.pollTimer) window.clearInterval(state.pollTimer);
@@ -2438,6 +2475,9 @@
   const initialFromUrl = new URLSearchParams(window.location.search).get('project');
   const initialProject = window.__INITIAL_PROJECT__ || initialFromUrl || projects[0]?.name;
   if (initialProject) setSelectedProject(initialProject, false);
+  refreshProjectStatuses().catch(() => {});
+  const projectStatusTimer = window.setInterval(() => refreshProjectStatuses().catch(() => {}), 5000);
+  window.addEventListener('beforeunload', () => window.clearInterval(projectStatusTimer));
   if (typeof syncEdgeVoiceCustomField === 'function') syncEdgeVoiceCustomField();
   syncSpeedPresets();
 })();
