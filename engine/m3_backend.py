@@ -85,6 +85,8 @@ DEFAULT_POSE_LABELS_EN = {
     "smile-right": "Point right · smile",
 }
 
+BIETCHICHOMET_DEFAULT_POSE_SEQUENCE = ("pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5", "pose-1", "pose-2")
+
 
 def normalize_ui_language(value: object) -> str:
     language = str(value or "vi").strip().lower()
@@ -360,6 +362,15 @@ def character_pose_config(character_id: str, language: str = "vi") -> tuple[dict
     if not pose_assets:
         raise ValueError(f"Nhân vật '{character_id}' chưa có pose.")
     return pose_assets, pose_labels
+
+
+def default_pose_sequence(character_id: str, pose_assets: dict[str, dict[str, str]]) -> list[str]:
+    ids = list(pose_assets)
+    if character_id == "bietchichomet":
+        sequence = [pose for pose in BIETCHICHOMET_DEFAULT_POSE_SEQUENCE if pose in pose_assets]
+        if sequence:
+            return sequence
+    return ids
 
 
 def enrich_character_poses(poses: list) -> list[dict]:
@@ -692,12 +703,31 @@ def read_topic(slug: str) -> dict:
         raise ValueError("topic.json phải là một JSON object.")
     current_sfx = value.get("sfx", {}) if isinstance(value.get("sfx"), dict) else {}
     value["sfx"] = {**DEFAULT_SFX, **current_sfx}
+
+    character_id = str(value.get("characterId") or "").strip()
+    synced_assets: dict[str, dict[str, str]] | None = None
+    synced_labels: dict[str, str] | None = None
+    if character_id and character_id != "human-presenter":
+        try:
+            synced_assets, synced_labels = character_pose_config(character_id)
+        except (FileNotFoundError, ValueError):
+            synced_assets = None
+            synced_labels = None
+
     pose_assets = value.get("poseAssets") if isinstance(value.get("poseAssets"), dict) else {}
-    if not pose_assets:
+    if synced_assets and list(pose_assets) != list(synced_assets):
+        pose_assets = synced_assets
+        value["poseAssets"] = pose_assets
+        value["poseLabels"] = synced_labels or {}
+    elif not pose_assets:
         pose_assets = dict(DEFAULT_POSE_ASSETS)
-    value["poseAssets"] = pose_assets
-    labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
-    value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+        value["poseAssets"] = pose_assets
+        labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
+        value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+    else:
+        labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
+        value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+
     valid_poses = list(pose_assets)
     fallback_pose = "question" if "question" in pose_assets else valid_poses[0]
     for event in value.get("poseTimeline", []):
@@ -1011,9 +1041,11 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     for index, item in enumerate(raw_comparisons[:20], 2):
         if not isinstance(item, dict):
             continue
+        raw_id = str(item.get("id") or f"comparison-{index}")
+        layout = "single" if str(item.get("layout") or "").lower() == "single" or raw_id.startswith("single-image-") else "pair"
         left_label = str(item.get("leftLabel") or "").strip()
         right_label = str(item.get("rightLabel") or "").strip()
-        if not left_label or not right_label:
+        if not left_label or (layout == "pair" and not right_label):
             raise ValueError(f"Cặp so sánh {index} cần đủ hai nhãn.")
         try:
             start_sentence = int(item.get("startSentence", 2))
@@ -1023,13 +1055,14 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         cmp_right_sub = str(item.get("rightSubLabel") or "").strip()[:40]
         cmp_show_sub = bool(item.get("showSubLabels", False)) or bool(cmp_left_sub or cmp_right_sub)
         comparison = {
-            "id": re.sub(r"[^a-zA-Z0-9_-]+", "-", str(item.get("id") or f"comparison-{index}")).strip("-")[:80] or f"comparison-{index}",
+            "id": re.sub(r"[^a-zA-Z0-9_-]+", "-", raw_id).strip("-")[:80] or f"comparison-{index}",
+            "layout": layout,
             "startSentence": max(1, min(len(cleaned_segments), start_sentence)),
             "leftLabel": left_label[:100],
-            "rightLabel": right_label[:100],
+            "rightLabel": right_label[:100] if layout == "pair" else "",
             "showSubLabels": cmp_show_sub,
             "leftSubLabel": cmp_left_sub if cmp_show_sub else "",
-            "rightSubLabel": cmp_right_sub if cmp_show_sub else "",
+            "rightSubLabel": cmp_right_sub if cmp_show_sub and layout == "pair" else "",
             "leftImage": safe_relative_asset(item.get("leftImage"), f"comparisons[{index}].leftImage"),
             "rightImage": safe_relative_asset(item.get("rightImage"), f"comparisons[{index}].rightImage"),
             "leftLabelColor": normalize_hex_color(
@@ -1062,6 +1095,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         cleaned_comparisons.append(comparison)
     cleaned_comparisons.sort(key=lambda item: item["startSentence"])
     topic["comparisons"] = cleaned_comparisons
+    topic["baseComparisonEnabled"] = bool(payload.get("baseComparisonEnabled", current.get("baseComparisonEnabled", True)))
 
     current_character_id = str(current.get("characterId") or "default-human")
     requested_character_id = str(payload.get("characterId", current_character_id) or "").strip()
@@ -1204,6 +1238,9 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     except (TypeError, ValueError) as exc:
         raise ValueError("backgroundMusicVolume phải là số.") from exc
     topic["backgroundMusicVolume"] = round(max(0.05, min(0.5, background_music_volume)), 2)
+    topic["pasteImageMode"] = str(payload.get("pasteImageMode", current.get("pasteImageMode", "square")) or "square")
+    if topic["pasteImageMode"] not in {"square", "original"}:
+        topic["pasteImageMode"] = "square"
     return topic
 
 
@@ -1321,7 +1358,8 @@ def create_project(payload: dict) -> dict:
             pose_id: pose_label_for_language(pose_id, label, language)
             for pose_id, label in (DEFAULT_POSE_LABELS_EN if is_en else DEFAULT_POSE_LABELS).items()
         }
-    first_pose = "question" if "question" in pose_assets else next(iter(pose_assets))
+    pose_sequence = default_pose_sequence(character_id, pose_assets)
+    first_pose = pose_sequence[0] if pose_sequence else ("question" if "question" in pose_assets else next(iter(pose_assets)))
     destination.mkdir(parents=True)
     assets_dir = destination / "assets"
     audio_dir = destination / "audio"
@@ -1468,6 +1506,7 @@ def create_project(payload: dict) -> dict:
         "backgroundMusic": background_music,
         "backgroundMusicEnabled": background_music_enabled,
         "backgroundMusicVolume": background_music_volume,
+        "pasteImageMode": str(payload.get("pasteImageMode") or "square") if str(payload.get("pasteImageMode") or "square") in {"square", "original"} else "square",
         "labelColor": "#090909",
         "leftLabelColor": "#090909",
         "rightLabelColor": "#090909",

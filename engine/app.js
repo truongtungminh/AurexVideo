@@ -112,9 +112,11 @@ function applyLabelFontFamily(fontFamily) {
 }
 
 function comparisonAt(time) {
-  if (previewComparisonId === "base") return baseComparison();
+  const comparisons = Array.isArray(topic.comparisons) ? topic.comparisons : [];
+  const baseEnabled = topic.baseComparisonEnabled !== false;
+  if (previewComparisonId === "base" && baseEnabled) return baseComparison();
   if (previewComparisonId) {
-    const locked = (Array.isArray(topic.comparisons) ? topic.comparisons : [])
+    const locked = comparisons
       .find((item) => String(item.id || "") === previewComparisonId);
     if (locked) return locked;
   }
@@ -122,8 +124,8 @@ function comparisonAt(time) {
   (topic.segments || []).forEach((segment, index) => {
     if (Number(segment.start) <= Number(time) + 0.001) sentence = index + 1;
   });
-  let selected = baseComparison();
-  [...(Array.isArray(topic.comparisons) ? topic.comparisons : [])]
+  let selected = baseEnabled ? baseComparison() : (comparisons[0] || baseComparison());
+  [...comparisons]
     .sort((a, b) => Number(a.startSentence) - Number(b.startSentence))
     .forEach((item) => {
       if (Number(item.startSentence) <= sentence) selected = item;
@@ -421,6 +423,7 @@ function isSingleImageScene(scene = currentComparisonScene) {
 }
 
 function singleImagePlaceholderUrl(scene) {
+  if (!isSingleImageScene(scene)) return "";
   if (!String(scene?.leftImage || "").endsWith("/placeholder-left.svg")
     && String(scene?.leftImage || "") !== "assets/placeholder-left.svg") return "";
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial, sans-serif" font-size="42" font-weight="700">Ảnh đơn</text></svg>';

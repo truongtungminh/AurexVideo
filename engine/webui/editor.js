@@ -14,6 +14,7 @@ const DEFAULT_LABEL_A = () => tr("Nội dung A", "Content A");
 const DEFAULT_LABEL_B = () => tr("Nội dung B", "Content B");
 const DEFAULT_SUBLABEL_COLOR = "#808080";
 const DEFAULT_LABEL_FONT_FAMILY = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const DEFAULT_PASTE_IMAGE_MODE = "square";
 const STARTER_SCRIPT = () => tr("Nhập nội dung đầu tiên tại đây.", "Enter your first line here.");
 
 function hasSubLabelRow(source) {
@@ -52,6 +53,34 @@ function localizedPoseLabel(id, label) {
   return POSE_LABEL_EN[raw] || POSE_LABEL_EN[id] || raw || id;
 }
 
+function normalizePasteImageMode(value) {
+  return value === "original" ? "original" : DEFAULT_PASTE_IMAGE_MODE;
+}
+
+function currentPasteImageMode() {
+  return normalizePasteImageMode(state.topic?.pasteImageMode);
+}
+
+function syncPasteImageModeControls() {
+  const selected = currentPasteImageMode();
+  document.querySelectorAll("[data-paste-image-mode]").forEach((button) => {
+    const active = button.dataset.pasteImageMode === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setPasteImageMode(value) {
+  if (!state.topic) return;
+  state.topic.pasteImageMode = normalizePasteImageMode(value);
+  syncPasteImageModeControls();
+  markDirty();
+  scheduleAutoSave(120);
+  showToast(state.topic.pasteImageMode === "square"
+    ? tr("Ảnh dán mới sẽ tự căn khung vuông 1:1.", "New pasted images will use a 1:1 frame.")
+    : tr("Ảnh dán mới sẽ giữ ảnh gốc.", "New pasted images will keep the original image."));
+}
+
 function localizeStarterContent(topic) {
   if (!topic || !isEnglishUi()) return false;
   let changed = false;
@@ -85,7 +114,7 @@ const elements = Object.fromEntries([
   "leftLabelColor", "rightLabelColor", "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
   "labelFontFamily",
   "primarySubLabelRow",
-  "comparisonList", "addComparisonButton", "addSingleImageButton",
+  "comparisonList", "addComparisonButton", "addSingleImageButton", "deleteBaseComparison",
   "backgroundType", "backgroundColor", "backgroundColorField", "backgroundImagePanel",
   "backgroundThumb", "backgroundViewport", "backgroundImageFile", "deleteBackgroundImage",
   "backgroundImageZoom", "backgroundZoomText",
@@ -533,15 +562,30 @@ function comparisonLayout(comparison) {
   return comparison?.layout === "single" ? "single" : "pair";
 }
 
+function baseComparisonEnabled() {
+  return state.topic?.baseComparisonEnabled !== false;
+}
+
+function syncBaseComparisonVisibility() {
+  const block = document.querySelector(".comparison-block-primary");
+  if (block) block.hidden = !baseComparisonEnabled();
+}
+
 function comparisonSides(comparison) {
   return comparisonLayout(comparison) === "single" ? ["left"] : ["left", "right"];
 }
 
+function comparisonFrameAspect(comparison) {
+  return comparisonLayout(comparison) === "single" ? 16 / 9 : 1;
+}
+
 function comparisonUploadCardHtml(comparison, side) {
+  const single = comparisonLayout(comparison) === "single";
+  const slotLabel = single ? "Ảnh đơn" : `Ảnh bên ${side === "left" ? "trái" : "phải"}`;
   return `<div class="upload-card" data-side="${side}">
-    <span class="sr-only">Ảnh bên ${side === "left" ? "trái" : "phải"}</span>
+    <span class="sr-only">${slotLabel}</span>
     <div class="image-viewport" data-comparison-viewport data-side="${side}" title="Kéo để di chuyển vị trí hiển thị">
-      <img data-comparison-thumb data-side="${side}" src="${assetUrl(comparison[`${side}Image`])}" alt="" draggable="false" />
+      <img data-comparison-thumb data-side="${side}" src="${comparisonThumbUrl(comparison, side)}" alt="" draggable="false" />
     </div>
     <label class="image-zoom"><span>Zoom <output data-zoom-text data-side="${side}">${Math.round(Number(comparison[`${side}ImageZoom`] || 1) * 100)}%</output></span><input data-field="${side}ImageZoom" data-side="${side}" type="range" min="1" max="3" step="0.01" value="${Number(comparison[`${side}ImageZoom`] || 1)}" /></label>
     <div class="image-actions"><label class="replace-image">Thay ảnh<input data-comparison-file data-side="${side}" type="file" accept="image/png,image/jpeg,image/webp" /></label><button class="crop-image" data-action="crop-comparison-image" data-side="${side}" type="button">Crop/xoay</button><button class="remove-bg-image" data-action="remove-bg-comparison-image" data-side="${side}" type="button">${tr("Xóa nền", "Remove BG")}</button><button class="delete-image" data-action="clear-comparison-image" data-side="${side}" type="button">Xoá ảnh</button></div>
@@ -549,8 +593,11 @@ function comparisonUploadCardHtml(comparison, side) {
 }
 
 function comparisonCardHtml(comparison, index) {
-  const number = index + 2;
   const layout = comparisonLayout(comparison);
+  const earlierScenes = (state.topic?.comparisons || []).slice(0, index + 1);
+  const number = layout === "single"
+    ? earlierScenes.filter((item) => comparisonLayout(item) === "single").length
+    : earlierScenes.filter((item) => comparisonLayout(item) === "pair").length + (baseComparisonEnabled() ? 1 : 0);
   const leftSub = escapeHtml(comparison.leftSubLabel || "");
   const rightSub = escapeHtml(comparison.rightSubLabel || "");
   const leftSubColor = escapeHtml(comparison.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR);
@@ -618,6 +665,7 @@ function renderComparisonList() {
   const previousScrollTop = scrollPane?.scrollTop || 0;
   const previousScrollLeft = scrollPane?.scrollLeft || 0;
   state.topic.comparisons = Array.isArray(state.topic.comparisons) ? state.topic.comparisons : [];
+  syncBaseComparisonVisibility();
   elements.comparisonList.innerHTML = state.topic.comparisons.map(comparisonCardHtml).join("");
   elements.comparisonList.querySelectorAll("[data-comparison-thumb]").forEach((thumb) => {
     thumb.addEventListener("load", () => applyComparisonThumb(thumb.closest("[data-comparison-id]")?.dataset.comparisonId, thumb.dataset.side));
@@ -672,11 +720,23 @@ function placeholderImage(side) {
   return `assets/placeholder-${side}.svg`;
 }
 
+function singleImagePlaceholderUrl() {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial, sans-serif" font-size="42" font-weight="700">Ảnh đơn</text></svg>';
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function isPlaceholderImage(value, side) {
   return String(value || "").endsWith(`/placeholder-${side}.svg`) || String(value || "") === placeholderImage(side);
 }
 
-function setBaseImageFile(side, file) {
+function comparisonThumbUrl(comparison, side) {
+  if (comparisonLayout(comparison) === "single" && side === "left" && isPlaceholderImage(comparison.leftImage, "left")) {
+    return singleImagePlaceholderUrl();
+  }
+  return assetUrl(comparison[`${side}Image`]);
+}
+
+function setBaseImageFile(side, file, frame = null) {
   const input = elements[side === "left" ? "leftImageFile" : "rightImageFile"];
   const thumb = elements[side === "left" ? "leftThumb" : "rightThumb"];
   state.pendingUploads[`${side}Image`] = file;
@@ -703,10 +763,10 @@ function clearBaseImage(side) {
   scheduleAutoSave(120);
 }
 
-function setComparisonImageFile(comparison, side, file) {
+function setComparisonImageFile(comparison, side, file, frame = null) {
   const key = `comparison:${comparison.id}:${side}`;
   state.pendingUploads[key] = file;
-  writeComparisonFrame(comparison, side, { zoom: 1, x: 0, y: 0 });
+  writeComparisonFrame(comparison, side, frame || { zoom: 1, x: 0, y: 0 });
   const card = elements.comparisonList.querySelector(`[data-comparison-id="${CSS.escape(comparison.id)}"]`);
   const thumb = card?.querySelector(`[data-comparison-thumb][data-side="${side}"]`);
   const input = card?.querySelector(`[data-comparison-file][data-side="${side}"]`);
@@ -726,7 +786,7 @@ function clearComparisonImage(comparison, side) {
   const input = card?.querySelector(`[data-comparison-file][data-side="${side}"]`);
   if (input) input.value = "";
   const thumb = card?.querySelector(`[data-comparison-thumb][data-side="${side}"]`);
-  if (thumb) thumb.src = assetUrl(comparison[`${side}Image`]);
+  if (thumb) thumb.src = comparisonThumbUrl(comparison, side);
   applyComparisonThumb(comparison.id, side);
   jumpPreviewToComparison(comparison);
   markDirty();
@@ -735,20 +795,44 @@ function clearComparisonImage(comparison, side) {
 }
 
 function nextEmptyImageSlot() {
-  for (const side of ["left", "right"]) {
-    if (isPlaceholderImage(state.topic?.[`${side}Image`], side) && !state.pendingUploads[`${side}Image`]) {
-      return { type: "base", side };
-    }
-  }
-  for (const comparison of state.topic?.comparisons || []) {
-    for (const side of ["left", "right"]) {
+  const firstEmptyComparisonSlot = (comparison) => {
+    if (!comparison) return null;
+    for (const side of comparisonSides(comparison)) {
       const key = `comparison:${comparison.id}:${side}`;
-      if (isPlaceholderImage(comparison[`${side}Image`], side) && !state.pendingUploads[key]) {
-        return { type: "comparison", comparison, side };
-      }
+      if (isPlaceholderImage(comparison[`${side}Image`], side) && !state.pendingUploads[key]) return { type: "comparison", comparison, side };
     }
+    return null;
+  };
+  const firstEmptyBaseSlot = () => {
+    if (!baseComparisonEnabled()) return null;
+    for (const side of ["left", "right"]) {
+      if (isPlaceholderImage(state.topic?.[`${side}Image`], side) && !state.pendingUploads[`${side}Image`]) return { type: "base", side };
+    }
+    return null;
+  };
+  const activeComparison = comparisonById(state.previewComparisonId);
+  const activeSlot = firstEmptyComparisonSlot(activeComparison);
+  if (activeSlot) return activeSlot;
+  if (state.previewComparisonId === "base") {
+    const baseSlot = firstEmptyBaseSlot();
+    if (baseSlot) return baseSlot;
+  }
+  const baseSlot = firstEmptyBaseSlot();
+  if (baseSlot) return baseSlot;
+  for (const comparison of state.topic?.comparisons || []) {
+    if (comparison.id === activeComparison?.id) continue;
+    const comparisonSlot = firstEmptyComparisonSlot(comparison);
+    if (comparisonSlot) return comparisonSlot;
   }
   return null;
+}
+
+function comparisonSceneName(comparison) {
+  const scenes = state.topic?.comparisons || [];
+  const index = scenes.findIndex((item) => item.id === comparison?.id);
+  const earlierScenes = scenes.slice(0, index + 1);
+  if (comparisonLayout(comparison) === "single") return `Ảnh đơn ${earlierScenes.filter((item) => comparisonLayout(item) === "single").length}`;
+  return `So sánh ${earlierScenes.filter((item) => comparisonLayout(item) === "pair").length + (baseComparisonEnabled() ? 1 : 0)}`;
 }
 
 function normalizedClipboardImage(file, index) {
@@ -759,29 +843,23 @@ function normalizedClipboardImage(file, index) {
   return new File([file], `clipboard-${Date.now()}-${index + 1}.${extension}`, { type: file.type });
 }
 
-async function squareCropFile(file, namePrefix = "clipboard-square") {
-  const url = URL.createObjectURL(file);
+async function frameForClipboardImage(file, frameAspect = 1) {
+  const sourceUrl = URL.createObjectURL(file);
+  const source = document.createElement("img");
   try {
-    const image = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(tr("Không đọc được ảnh clipboard.", "Could not read clipboard image.")));
-      img.src = url;
+    await new Promise((resolve, reject) => {
+      source.onload = resolve;
+      source.onerror = () => reject(new Error(tr("Không thể đọc ảnh clipboard.", "Could not read the clipboard image.")));
+      source.src = sourceUrl;
     });
-    const size = Math.max(1, Math.min(image.naturalWidth || image.width || 1, image.naturalHeight || image.height || 1));
-    const sourceX = Math.max(0, Math.floor(((image.naturalWidth || image.width || size) - size) / 2));
-    const sourceY = Math.max(0, Math.floor(((image.naturalHeight || image.height || size) - size) / 2));
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const context = canvas.getContext("2d");
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    context.drawImage(image, sourceX, sourceY, size, size, 0, 0, size, size);
-    const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error(tr("Không crop được ảnh clipboard.", "Could not crop clipboard image."))), "image/png"));
-    return new File([blob], `${namePrefix}-${Date.now()}.png`, { type: "image/png" });
+    const aspect = source.naturalWidth / Math.max(1, source.naturalHeight);
+    return {
+      zoom: Math.round(clamp(Math.max(aspect / frameAspect, frameAspect / aspect), 1, 3) * 100) / 100,
+      x: 0,
+      y: 0,
+    };
   } finally {
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(sourceUrl);
   }
 }
 
@@ -978,6 +1056,7 @@ function draftTopic(forceRetime = false) {
   const backgroundType = elements.backgroundType?.value || state.topic.backgroundType || "default";
   return {
     ...state.topic,
+    pasteImageMode: normalizePasteImageMode(state.topic.pasteImageMode),
     brand: state.topic.brand || "Aurex",
     leftLabel: elements.leftLabelInput.value.trim(),
     rightLabel: elements.rightLabelInput.value.trim(),
@@ -1163,6 +1242,10 @@ function jumpPreviewToComparison(comparison) {
 }
 
 function jumpPreviewToBaseComparison() {
+  if (!baseComparisonEnabled()) {
+    jumpPreviewToComparison(state.topic?.comparisons?.[0]);
+    return;
+  }
   state.previewComparisonId = "base";
   jumpPreviewToSentence(1);
   elements.previewFrame.contentWindow?.postMessage({
@@ -1413,7 +1496,7 @@ function renderCropSelection() {
   }
   const outputWidth = Math.max(1, Math.round(elements.cropImage.naturalWidth * selection.width));
   const outputHeight = Math.max(1, Math.round(elements.cropImage.naturalHeight * selection.height));
-  elements.cropSizeText.textContent = `Ảnh đầu ra: ${outputWidth} × ${outputHeight}px`;
+  elements.cropSizeText.textContent = `${Math.round(state.cropZoom * 100)}% · Ảnh đầu ra: ${outputWidth} × ${outputHeight}px`;
 }
 
 function openCropDialog(target) {
@@ -1670,6 +1753,8 @@ async function saveEditor(event, quiet = false) {
     }
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`, { method: "PUT", body: JSON.stringify(draftTopic(false)) });
     state.topic = result.topic;
+    state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);
+    syncPasteImageModeControls();
     configurePoseOptions(state.topic);
     state.dirty = savingRevision !== state.revision;
     elements.saveState.textContent = state.dirty ? "Có thay đổi mới, đang lưu tiếp..." : "Đã tự động lưu";
@@ -1742,6 +1827,8 @@ async function loadProject() {
     await Promise.all([loadSfxLibrary(), loadCharacters()]);
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`);
     state.topic = result.topic;
+    state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);
+    syncPasteImageModeControls();
     if (localizeStarterContent(state.topic)) {
       markDirty();
       scheduleAutoSave(120);
@@ -1766,6 +1853,7 @@ async function loadProject() {
     if (elements.leftSubLabelColor) elements.leftSubLabelColor.value = state.topic.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR;
     if (elements.rightSubLabelColor) elements.rightSubLabelColor.value = state.topic.rightSubLabelColor || DEFAULT_SUBLABEL_COLOR;
     state.topic.comparisons = Array.isArray(state.topic.comparisons) ? state.topic.comparisons : [];
+    syncBaseComparisonVisibility();
     elements.leftThumb.src = assetUrl(state.topic.leftImage);
     elements.rightThumb.src = assetUrl(state.topic.rightImage);
     applyImageFrameToThumb("left");
@@ -1840,14 +1928,14 @@ elements.cropStage.addEventListener("pointerdown", (event) => {
     };
     return;
   }
-  const handle = event.target.closest("[data-crop-handle]")?.dataset.cropHandle || "move";
-  if (handle === "move" && !event.target.closest("#cropSelection")) return;
+  const isCropSurface = event.target.closest("#cropSelection") || event.target.closest("#cropImage");
+  if (!isCropSurface) return;
   event.preventDefault();
   elements.cropStage.setPointerCapture(event.pointerId);
   state.cropDrag = {
     type: "crop",
     pointerId: event.pointerId,
-    handle,
+    handle: "move",
     start: cropPoint(event),
     selection: { ...state.cropSelection },
   };
@@ -1894,43 +1982,6 @@ elements.cropStage.addEventListener("pointermove", (event) => {
       x: clamp(original.x + dx, 0, 1 - original.width),
       y: clamp(original.y + dy, 0, 1 - original.height),
     };
-  } else if (state.cropAspectLocked) {
-    const minSize = Math.max(minWidth, minHeight);
-    const anchor = (() => {
-      switch (drag.handle) {
-        case "nw": return { x: original.x + original.width, y: original.y + original.height, maxSize: Math.min(original.x + original.width, original.y + original.height) };
-        case "ne": return { x: original.x, y: original.y + original.height, maxSize: Math.min(1 - original.x, original.y + original.height) };
-        case "sw": return { x: original.x + original.width, y: original.y, maxSize: Math.min(original.x + original.width, 1 - original.y) };
-        case "se":
-        default:
-          return { x: original.x, y: original.y, maxSize: Math.min(1 - original.x, 1 - original.y) };
-      }
-    })();
-    const size = (() => {
-      switch (drag.handle) {
-        case "nw": return clamp(Math.max(anchor.x - point.x, anchor.y - point.y), minSize, anchor.maxSize);
-        case "ne": return clamp(Math.max(point.x - anchor.x, anchor.y - point.y), minSize, anchor.maxSize);
-        case "sw": return clamp(Math.max(anchor.x - point.x, point.y - anchor.y), minSize, anchor.maxSize);
-        case "se":
-        default:
-          return clamp(Math.max(point.x - anchor.x, point.y - anchor.y), minSize, anchor.maxSize);
-      }
-    })();
-    switch (drag.handle) {
-      case "nw":
-        state.cropSelection = { x: anchor.x - size, y: anchor.y - size, width: size, height: size };
-        break;
-      case "ne":
-        state.cropSelection = { x: anchor.x, y: anchor.y - size, width: size, height: size };
-        break;
-      case "sw":
-        state.cropSelection = { x: anchor.x - size, y: anchor.y, width: size, height: size };
-        break;
-      case "se":
-      default:
-        state.cropSelection = { x: anchor.x, y: anchor.y, width: size, height: size };
-        break;
-    }
   } else {
     let left = original.x;
     let top = original.y;
@@ -2058,6 +2109,17 @@ function addComparisonScene(layout) {
 
 elements.addComparisonButton.addEventListener("click", () => addComparisonScene("pair"));
 elements.addSingleImageButton?.addEventListener("click", () => addComparisonScene("single"));
+elements.deleteBaseComparison?.addEventListener("click", () => {
+  if (!state.topic || !baseComparisonEnabled()) return;
+  state.topic.baseComparisonEnabled = false;
+  state.previewComparisonId = "";
+  syncBaseComparisonVisibility();
+  renderComparisonList();
+  jumpPreviewToComparison(state.topic.comparisons?.[0]);
+  markDirty();
+  sendDraftToPreview();
+  scheduleAutoSave(200);
+});
 const primaryComparisonBlock = document.querySelector(".comparison-block-primary");
 primaryComparisonBlock?.addEventListener("pointerdown", jumpPreviewToBaseComparison);
 primaryComparisonBlock?.addEventListener("focusin", jumpPreviewToBaseComparison);
@@ -2239,26 +2301,40 @@ window.addEventListener("paste", async (event) => {
     showToast("Ảnh clipboard cần ở định dạng PNG, JPG hoặc WebP.", true);
     return;
   }
+  const pasteMode = currentPasteImageMode();
+  const cropMode = pasteMode === "square";
   let placed = 0;
   const destinations = [];
+  const usedAspects = new Set();
   for (const file of images) {
     const slot = nextEmptyImageSlot();
     if (!slot) break;
-    const squareFile = await squareCropFile(file, "clipboard-square");
-    if (slot.type === "base") setBaseImageFile(slot.side, squareFile);
-    else setComparisonImageFile(slot.comparison, slot.side, squareFile);
+    const frameAspect = slot.type === "comparison" ? comparisonFrameAspect(slot.comparison) : 1;
+    let frame = null;
+    try {
+      frame = cropMode ? await frameForClipboardImage(file, frameAspect) : null;
+    } catch (error) {
+      showToast(error.message, true);
+      return;
+    }
+    if (slot.type === "base") setBaseImageFile(slot.side, file, frame);
+    else setComparisonImageFile(slot.comparison, slot.side, file, frame);
+    if (cropMode) usedAspects.add(frameAspect === 1 ? "1:1" : "16:9");
     placed += 1;
     const comparisonName = slot.type === "base"
       ? (slot.side === "left" ? "Ảnh bên trái" : "Ảnh bên phải")
-      : `So sánh ${(state.topic.comparisons || []).indexOf(slot.comparison) + 2}`;
-    destinations.push(`${comparisonName} · bên ${slot.side === "left" ? "trái" : "phải"}`);
+      : comparisonSceneName(slot.comparison);
+    destinations.push(slot.type === "comparison" && comparisonLayout(slot.comparison) === "single"
+      ? comparisonName
+      : `${comparisonName} · bên ${slot.side === "left" ? "trái" : "phải"}`);
   }
   if (!placed) {
     showToast("Không còn ô ảnh trống. Hãy xoá một ảnh trước khi dán.", true);
     return;
   }
   const remaining = images.length - placed;
-  showToast(`Đã dán ${placed} ảnh và crop vuông 1:1 vào ${destinations.join(", ")}${remaining ? `; còn ${remaining} ảnh chưa có ô trống` : ""}.`);
+  const cropLabel = usedAspects.size ? `${tr("Đã căn khung", "Framed")} ${[...usedAspects].join(" / ")} ${tr("và dán", "and pasted")}` : tr("Đã dán", "Pasted");
+  showToast(`${cropLabel} ${placed} ${tr("ảnh vào", "image(s) into")} ${destinations.join(", ")}${remaining ? `; ${tr("còn", "")} ${remaining} ${tr("ảnh chưa có ô trống", "image(s) had no empty slot")}` : ""}.`);
 });
 
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });

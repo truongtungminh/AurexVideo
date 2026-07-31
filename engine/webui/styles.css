@@ -243,7 +243,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   box-shadow: 0 0 0 1px rgba(216, 132, 53, .12);
 }
 .editor-topbar .button.primary:hover { background: rgba(242, 178, 101, .18); transform: none; }
-.editor-shell { display: grid; grid-template-columns: clamp(320px, 29vw, 460px) minmax(0, 1fr) clamp(260px, 21vw, 330px); gap: 20px; height: calc(100vh - 88px); padding: 20px; }
+.editor-shell { display: grid; grid-template-columns: clamp(240px, 23vw, 340px) minmax(0, 1fr) clamp(220px, 17vw, 270px); gap: 20px; height: calc(100vh - 88px); padding: 20px; }
 .preview-panel { position: relative; min-height: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 10px; overflow: visible; padding: 0; background: transparent; }
 .time-tools { align-self: center; display: grid; justify-items: center; gap: 10px; padding: 8px 4px; border: 1px solid var(--control-line-soft); border-radius: 999px; background: transparent; box-shadow: none; backdrop-filter: none; }
 .time-tools button { width: 34px; min-height: 34px; padding: 0; border: 1px solid var(--control-line); border-radius: 50%; color: var(--text-soft); background: var(--accent-soft); box-shadow: none; cursor: pointer; font-size: 15px; font-weight: 900; line-height: 1; }
@@ -259,7 +259,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   background: transparent;
 }
 .editor-panel {
-  min-height: 0; overflow: hidden; border: 1px solid var(--control-line-soft); border-radius: 28px;
+  min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--control-line-soft); border-radius: 28px;
   background: transparent; box-shadow: none;
 }
 .editor-tabs { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 0; width: min(520px, calc(100% - 36px)); margin: 10px auto 4px; padding: 0; border: 0; border-bottom: 1px solid var(--control-line-soft); border-radius: 0; background: transparent; }
@@ -305,9 +305,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .paste-hint .platform-icon { display: inline-grid; place-items: center; width: 21px; height: 21px; padding: 0; color: #4e4438; vertical-align: middle; }
 .paste-hint .platform-macos { font: 900 17px/1 -apple-system, BlinkMacSystemFont, sans-serif; }
 .paste-hint .platform-windows svg { width: 16px; height: 16px; fill: currentColor; }
-.content-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(270px, 23vw, 310px); gap: 14px; align-items: start; }
+.content-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(210px, 24vw, 250px);
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  max-width: 1260px;
+  min-width: 0;
+  justify-self: start;
+}
 .content-primary,
-.content-rail { display: grid; gap: 12px; min-width: 0; }
+.content-rail { display: grid; gap: 10px; min-width: 0; }
+.content-primary { width: 100%; justify-self: stretch; }
 .content-rail {
   position: sticky;
   top: 0;
@@ -325,8 +335,18 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .comparison-sublabel-grid { margin-top: 8px; }
 .comparison-sublabel-field > div > input[type="text"] { min-height: 40px; font-size: 14px; font-weight: 650; color: #4b5563; letter-spacing: 0; }
 .comparison-list { display: grid; gap: 14px; }
-.comparison-block { display: grid; gap: 14px; padding: 4px 0 10px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.comparison-primary-heading { display: grid; justify-items: center; padding: 1px 0 2px; }
+.comparison-block {
+  display: grid;
+  gap: 14px;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--control-line-soft);
+  border-radius: 20px;
+  background: rgba(255, 251, 244, .72);
+  box-shadow: 0 12px 30px rgba(62, 44, 18, .05);
+}
+.comparison-block[hidden] { display: none !important; }
+.comparison-primary-heading { position: relative; display: grid; justify-items: center; padding: 1px 0 2px; }
+.comparison-primary-heading .comparison-remove { position: absolute; right: 0; top: 0; }
 .comparison-block-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; padding: 2px 0 4px; text-align: left; }
 .comparison-block-heading > div { grid-column: 1 / -1; display: grid; justify-items: center; padding-bottom: 2px; }
 .comparison-primary-heading strong,
@@ -656,6 +676,7 @@ html[data-theme="dark"] .crop-dialog-card { border-color: var(--line); backgroun
   }
   .tab-pane[data-pane="content"] > .eyebrow,
   .tab-pane[data-pane="content"] > .paste-hint { grid-column: 1 / -1; }
+  .tab-pane[data-pane="content"] > .content-layout { grid-column: 1 / -1; }
   .tab-pane[data-pane="content"] > .comparison-block-primary,
   .tab-pane[data-pane="content"] > .comparison-list,
   .tab-pane[data-pane="content"] > .add-comparison-button { grid-column: 1; }
