@@ -3,8 +3,8 @@
 // Tauri's macOS WebView handles native file dialogs automatically,
 // fixing the "Upload PNG button doesn't open picker" bug.
 
-use std::fs;
-use std::io::Read;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -97,6 +97,67 @@ fn ensure_python() -> Result<PathBuf, String> {
     Ok(py)
 }
 
+fn remove_appledouble_files(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with("._") {
+            if path.is_dir() {
+                fs::remove_dir_all(path).ok();
+            } else {
+                fs::remove_file(path).ok();
+            }
+            continue;
+        }
+        if path.is_dir() {
+            remove_appledouble_files(&path);
+        }
+    }
+}
+
+fn ensure_python_package(python: &Path, import_name: &str, package: &str) -> Result<(), String> {
+    if let Some(python_root) = python.parent().and_then(Path::parent) {
+        remove_appledouble_files(python_root);
+    }
+    let available = Command::new(python)
+        .args(["-c", &format!("import {}", import_name)])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if available {
+        return Ok(());
+    }
+
+    append_server_log(&format!(
+        "[bootstrap] Python module {} missing; installing {}\n",
+        import_name, package
+    ));
+    let ensurepip = Command::new(python)
+        .args(["-m", "ensurepip", "--upgrade"])
+        .status()
+        .map_err(|error| format!("failed to start ensurepip: {}", error))?;
+    if !ensurepip.success() {
+        return Err(format!("ensurepip failed with {}", ensurepip));
+    }
+
+    let install = Command::new(python)
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-cache-dir",
+            package,
+        ])
+        .status()
+        .map_err(|error| format!("failed to install {}: {}", package, error))?;
+    if !install.success() {
+        return Err(format!("pip install {} failed with {}", package, install));
+    }
+    Ok(())
+}
+
 fn wait_for_server(timeout: Duration) -> bool {
     let url = format!("http://{}:{}/", SERVER_HOST, SERVER_PORT);
     let client = reqwest::blocking::Client::builder()
@@ -141,6 +202,106 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
     Ok(child)
 }
 
+fn append_server_log(message: &str) {
+    let log_path = support_dir().join("server.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = file.write_all(message.as_bytes());
+    }
+}
+
+fn drain_server_output<R: Read + Send + 'static>(mut reader: R, stderr: bool) {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let chunk = String::from_utf8_lossy(&buf[..n]);
+                    append_server_log(&chunk);
+                    if stderr {
+                        eprint!("{}", chunk);
+                    } else {
+                        print!("{}", chunk);
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn terminate_unhealthy_server_on_port() {
+    let port = format!("TCP:{}", SERVER_PORT);
+    let output = Command::new("/usr/sbin/lsof")
+        .args(["-ti", &port, "-sTCP:LISTEN"])
+        .output();
+    let Ok(output) = output else { return };
+    let pids = String::from_utf8_lossy(&output.stdout);
+    for pid in pids.lines().filter(|pid| !pid.trim().is_empty()) {
+        append_server_log(&format!(
+            "[launcher] terminating unhealthy backend pid={} on port {}\n",
+            pid, SERVER_PORT
+        ));
+        let _ = Command::new("/bin/kill").args(["-TERM", pid]).status();
+    }
+    if !pids.trim().is_empty() {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
+    let mut consecutive_failures = 0u32;
+    loop {
+        if wait_for_server(Duration::from_secs(2)) {
+            consecutive_failures = 0;
+            append_server_log("[launcher] using healthy backend already listening on port 4173\n");
+            while wait_for_server(Duration::from_secs(2)) {
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            append_server_log("[launcher] existing backend stopped responding; taking ownership\n");
+        }
+
+        terminate_unhealthy_server_on_port();
+        let started_at = Instant::now();
+        append_server_log("\n[launcher] starting backend\n");
+        match spawn_server(&python, &engine) {
+            Ok(mut server) => {
+                if let Some(stdout) = server.stdout.take() {
+                    drain_server_output(stdout, false);
+                }
+                if let Some(stderr) = server.stderr.take() {
+                    drain_server_output(stderr, true);
+                }
+                match server.wait() {
+                    Ok(status) => append_server_log(&format!(
+                        "\n[launcher] backend exited status={} uptime={:.1}s\n",
+                        status,
+                        started_at.elapsed().as_secs_f64()
+                    )),
+                    Err(error) => append_server_log(&format!(
+                        "\n[launcher] failed waiting for backend: {}\n",
+                        error
+                    )),
+                }
+            }
+            Err(error) => {
+                append_server_log(&format!("\n[launcher] backend spawn failed: {}\n", error));
+            }
+        }
+
+        if started_at.elapsed() >= Duration::from_secs(60) {
+            consecutive_failures = 0;
+        } else {
+            consecutive_failures = consecutive_failures.saturating_add(1);
+        }
+        let delay = 2u64.saturating_pow(consecutive_failures.min(4));
+        append_server_log(&format!(
+            "[launcher] restarting backend in {}s (failure {})\n",
+            delay, consecutive_failures
+        ));
+        std::thread::sleep(Duration::from_secs(delay));
+    }
+}
+
 fn main() {
     println!("[aurexvideo] starting bootstrap");
     if let Err(e) = ensure_engine() {
@@ -153,42 +314,15 @@ fn main() {
             std::process::exit(1);
         }
     };
+    if let Err(error) = ensure_python_package(&python, "PIL", "Pillow>=10,<12") {
+        eprintln!("[bootstrap] Pillow error: {}", error);
+        append_server_log(&format!("[bootstrap] Pillow error: {}\n", error));
+    }
 
     let engine = engine_dir();
-    let server = match spawn_server(&python, &engine) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("[aurexvideo] {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    // Give the server a moment, then let Tauri open the window which polls the URL.
-    std::thread::spawn(move || {
-        let mut srv = server;
-        // keep stderr/stdout flowing to parent for debugging
-        let mut out = srv.stdout.take();
-        let mut err = srv.stderr.take();
-        std::thread::spawn(move || {
-            if let Some(mut o) = out {
-                let mut buf = [0u8; 1024];
-                while let Ok(n) = o.read(&mut buf) {
-                    if n == 0 { break; }
-                    print!("{}", String::from_utf8_lossy(&buf[..n]));
-                }
-            }
-        });
-        std::thread::spawn(move || {
-            if let Some(mut e) = err {
-                let mut buf = [0u8; 1024];
-                while let Ok(n) = e.read(&mut buf) {
-                    if n == 0 { break; }
-                    eprint!("{}", String::from_utf8_lossy(&buf[..n]));
-                }
-            }
-        });
-        let _ = srv.wait();
-    });
+    // Keep the backend supervised for the entire app lifetime. If Python exits,
+    // preserve its output in server.log and restart it with bounded backoff.
+    std::thread::spawn(move || run_server_watchdog(python, engine));
 
     if !wait_for_server(Duration::from_secs(90)) {
         eprintln!("[aurexvideo] WARNING: server did not respond in 90s");
