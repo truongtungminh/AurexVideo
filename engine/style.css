@@ -172,6 +172,24 @@ body {
   left: 50.6%;
 }
 
+.stage.single-image-scene .topic-label-left {
+  left: var(--safe-zone-x);
+  width: calc(100% - var(--safe-zone-x) * 2);
+}
+
+.stage.single-image-scene .topic-label-right,
+.stage.single-image-scene .media-slot-right {
+  display: none;
+}
+
+.stage.single-image-scene .media-slot-left {
+  left: var(--safe-zone-x);
+  width: calc(100% - var(--safe-zone-x) * 2);
+  height: auto;
+  aspect-ratio: 16 / 9;
+  filter: none;
+}
+
 .media-slot.dimmed {
   filter: brightness(0.42) saturate(0.85);
 }

@@ -51,6 +51,14 @@
                 <div class="comparison-label-field"><label class="sr-only" for="leftLabelInput">Nhãn bên trái</label><div><input id="leftLabelInput" required /><input id="leftLabelColor" class="label-color-input" type="color" value="#090909" aria-label="Màu nhãn bên trái" title="Màu nhãn bên trái" /></div></div>
                 <div class="comparison-label-field"><label class="sr-only" for="rightLabelInput">Nhãn bên phải</label><div><input id="rightLabelInput" required /><input id="rightLabelColor" class="label-color-input" type="color" value="#090909" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>
               </div>
+              <label class="comparison-font-field">Font nhãn
+                <select id="labelFontFamily">
+                  <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'>Inter</option>
+                  <option value='Arial, sans-serif'>Arial</option>
+                  <option value='Georgia, serif'>Georgia</option>
+                  <option value='"Times New Roman", Times, serif'>Times New Roman</option>
+                </select>
+              </label>
               <div class="form-grid comparison-label-grid comparison-sublabel-grid" id="primarySubLabelRow">
                 <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only" for="leftSubLabelInput">Phiên âm bên trái</label><div><input id="leftSubLabelInput" maxlength="40" placeholder="/lʊk/" autocomplete="off" spellcheck="false" /><input id="leftSubLabelColor" class="label-color-input" type="color" value="#808080" aria-label="Màu phiên âm bên trái" title="Màu phiên âm bên trái" /></div></div>
                 <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only" for="rightSubLabelInput">Phiên âm bên phải</label><div><input id="rightSubLabelInput" maxlength="40" placeholder="/siː/" autocomplete="off" spellcheck="false" /><input id="rightSubLabelColor" class="label-color-input" type="color" value="#808080" aria-label="Màu phiên âm bên phải" title="Màu phiên âm bên phải" /></div></div>
@@ -75,7 +83,10 @@
               </div>
             </section>
             <div class="comparison-list" id="comparisonList"></div>
-            <button class="button secondary add-comparison-button" id="addComparisonButton" type="button">＋ Thêm so sánh</button>
+            <div class="scene-add-actions">
+              <button class="button secondary add-comparison-button" id="addComparisonButton" type="button">＋ Thêm so sánh</button>
+              <button class="button secondary add-comparison-button add-single-image-button" id="addSingleImageButton" type="button">＋ Thêm ảnh đơn</button>
+            </div>
             <section class="editor-character-picker" aria-labelledby="editorCharacterTitle">
               <div class="editor-character-heading">
                 <div><p class="eyebrow" id="editorCharacterTitle">Nhân vật</p><strong>Nhân vật xuất hiện trong video</strong></div>
@@ -181,6 +192,7 @@
           <span id="cropSizeText">—</span>
           <div class="crop-dialog-actions">
             <button class="button secondary" id="toggleCropRotate" type="button" aria-pressed="false">Xoay</button>
+            <button class="button secondary active" id="toggleCropAspect" type="button" aria-pressed="true" aria-label="Khóa crop 1:1">1:1</button>
             <button class="button secondary" id="resetCrop" type="button">Đặt lại</button>
             <button class="button primary" id="applyCrop" type="button">Dùng vùng crop/xoay</button>
           </div>
@@ -201,6 +213,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/webui/editor.js?v=20260730-preview-neon-v2"></script>
+    <script src="/webui/editor.js?v=20260731-crop-label-font-v2"></script>
   </body>
 </html>

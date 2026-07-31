@@ -1,6 +1,6 @@
 const pathProject = window.location.pathname.match(/^\/project\/([^/]+)\/$/)?.[1] || "";
 const project = new URLSearchParams(window.location.search).get("project") || decodeURIComponent(pathProject);
-const state = { topic: null, characters: [], dirty: false, revision: 0, saving: false, previewTime: 0, previewSegmentIndex: -1, previewComparisonId: "", poseBySegment: [], activeJob: null, pendingUploads: {}, imageDrag: null, cropTarget: null, cropOriginalSrc: null, cropZoom: 1, cropPanX: 0, cropPanY: 0, cropSelection: null, cropDisplay: null, cropDrag: null, cropRotateMode: false, activePoseSfx: "neutral-left" };
+const state = { topic: null, characters: [], dirty: false, revision: 0, saving: false, previewTime: 0, previewSegmentIndex: -1, previewComparisonId: "", poseBySegment: [], activeJob: null, pendingUploads: {}, imageDrag: null, cropTarget: null, cropOriginalSrc: null, cropZoom: 1, cropPanX: 0, cropPanY: 0, cropSelection: null, cropDisplay: null, cropDrag: null, cropRotateMode: false, cropAspectLocked: true, cropFrameAspect: 1, activePoseSfx: "neutral-left" };
 
 function isEnglishUi() {
   return (window.__AUREX_LANGUAGE__ || document.documentElement.lang) === "en";
@@ -13,12 +13,24 @@ function tr(vi, en) {
 const DEFAULT_LABEL_A = () => tr("Nội dung A", "Content A");
 const DEFAULT_LABEL_B = () => tr("Nội dung B", "Content B");
 const DEFAULT_SUBLABEL_COLOR = "#808080";
+const DEFAULT_LABEL_FONT_FAMILY = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const STARTER_SCRIPT = () => tr("Nhập nội dung đầu tiên tại đây.", "Enter your first line here.");
 
 function hasSubLabelRow(source) {
   if (!source) return false;
   if (source.showSubLabels === true) return true;
   return Boolean(String(source.leftSubLabel || "").trim() || String(source.rightSubLabel || "").trim());
+}
+
+function normalizeLabelFontFamily(value) {
+  const fonts = new Set([
+    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    'Arial, sans-serif',
+    'Georgia, serif',
+    '"Times New Roman", Times, serif',
+  ]);
+  const next = String(value || "").trim();
+  return fonts.has(next) ? next : DEFAULT_LABEL_FONT_FAMILY;
 }
 
 const POSE_LABEL_EN = {
@@ -71,8 +83,9 @@ const elements = Object.fromEntries([
   "leftThumb", "rightThumb", "leftViewport", "rightViewport", "leftImageFile", "rightImageFile", "deleteLeftImage", "deleteRightImage",
   "leftImageZoom", "rightImageZoom", "leftZoomText", "rightZoomText",
   "leftLabelColor", "rightLabelColor", "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
+  "labelFontFamily",
   "primarySubLabelRow",
-  "comparisonList", "addComparisonButton",
+  "comparisonList", "addComparisonButton", "addSingleImageButton",
   "backgroundType", "backgroundColor", "backgroundColorField", "backgroundImagePanel",
   "backgroundThumb", "backgroundViewport", "backgroundImageFile", "deleteBackgroundImage",
   "backgroundImageZoom", "backgroundZoomText",
@@ -83,7 +96,7 @@ const elements = Object.fromEntries([
   "scriptInput", "poseList", "poseSfxMap", "autoPoseButton", "customSfxFile", "sfxVolumeInput", "sfxVolumeText", "editorForm",
   "saveButton", "renderButton", "minusButton", "plusButton", "jobDialog", "jobKicker", "jobTitle",
   "jobProgress", "jobMessage", "jobLogs", "jobOutput", "cropDialog", "cropStage", "cropImage", "cropSelection",
-  "cropSizeText", "cropZoomInput", "cropZoomText", "closeCropDialog", "cropRotateLayer", "toggleCropRotate", "resetCrop", "applyCrop", "toast",
+  "cropSizeText", "cropZoomInput", "cropZoomText", "closeCropDialog", "cropRotateLayer", "toggleCropRotate", "toggleCropAspect", "resetCrop", "applyCrop", "toast",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
 
 const IMAGE_SIDES = {
@@ -234,6 +247,19 @@ let POSE_OPTIONS = [
   { id: "smile-left", label: localizedPoseLabel("smile-left", "Chỉ trái · cười"), defaultSfx: "pose-explainer-pop-whoosh" },
   { id: "smile-right", label: localizedPoseLabel("smile-right", "Chỉ phải · cười"), defaultSfx: "pose-explainer-pop-whoosh" },
 ];
+
+const CUSTOM_POSE_SEQUENCES = {
+  bietchichomet: ["pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5", "pose-1", "pose-2"],
+};
+
+function defaultPoseForCharacter(characterId, index, ids) {
+  const sequence = CUSTOM_POSE_SEQUENCES[String(characterId || "")];
+  if (sequence && sequence.length) {
+    const preferred = sequence[index % sequence.length];
+    if (preferred && ids.includes(preferred)) return preferred;
+  }
+  return ids[index % ids.length] || fallbackPose();
+}
 
 function configurePoseOptions(topic) {
   const assets = topic?.poseAssets && typeof topic.poseAssets === "object" ? topic.poseAssets : {};
@@ -503,22 +529,72 @@ function sentenceOptions(selected) {
   }).join("");
 }
 
+function comparisonLayout(comparison) {
+  return comparison?.layout === "single" ? "single" : "pair";
+}
+
+function comparisonSides(comparison) {
+  return comparisonLayout(comparison) === "single" ? ["left"] : ["left", "right"];
+}
+
+function comparisonUploadCardHtml(comparison, side) {
+  return `<div class="upload-card" data-side="${side}">
+    <span class="sr-only">Ảnh bên ${side === "left" ? "trái" : "phải"}</span>
+    <div class="image-viewport" data-comparison-viewport data-side="${side}" title="Kéo để di chuyển vị trí hiển thị">
+      <img data-comparison-thumb data-side="${side}" src="${assetUrl(comparison[`${side}Image`])}" alt="" draggable="false" />
+    </div>
+    <label class="image-zoom"><span>Zoom <output data-zoom-text data-side="${side}">${Math.round(Number(comparison[`${side}ImageZoom`] || 1) * 100)}%</output></span><input data-field="${side}ImageZoom" data-side="${side}" type="range" min="1" max="3" step="0.01" value="${Number(comparison[`${side}ImageZoom`] || 1)}" /></label>
+    <div class="image-actions"><label class="replace-image">Thay ảnh<input data-comparison-file data-side="${side}" type="file" accept="image/png,image/jpeg,image/webp" /></label><button class="crop-image" data-action="crop-comparison-image" data-side="${side}" type="button">Crop/xoay</button><button class="remove-bg-image" data-action="remove-bg-comparison-image" data-side="${side}" type="button">${tr("Xóa nền", "Remove BG")}</button><button class="delete-image" data-action="clear-comparison-image" data-side="${side}" type="button">Xoá ảnh</button></div>
+  </div>`;
+}
+
 function comparisonCardHtml(comparison, index) {
   const number = index + 2;
+  const layout = comparisonLayout(comparison);
   const leftSub = escapeHtml(comparison.leftSubLabel || "");
   const rightSub = escapeHtml(comparison.rightSubLabel || "");
   const leftSubColor = escapeHtml(comparison.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR);
   const rightSubColor = escapeHtml(comparison.rightSubLabelColor || DEFAULT_SUBLABEL_COLOR);
-  return `<section class="comparison-block" data-comparison-id="${escapeHtml(comparison.id)}">
-    <div class="comparison-block-heading">
-      <div><strong>So sánh ${number}</strong></div>
+  const labelFontFamily = escapeHtml(comparison.labelFontFamily || state.topic.labelFontFamily || DEFAULT_LABEL_FONT_FAMILY);
+  const heading = `<div class="comparison-block-heading">
+      <div><strong>${layout === "single" ? `Ảnh đơn ${number}` : `So sánh ${number}`}</strong></div>
       <label class="comparison-start">Bắt đầu từ câu<select data-field="startSentence">${sentenceOptions(comparison.startSentence)}</select></label>
       <button class="button tiny danger comparison-remove" data-action="remove-comparison" type="button">Xoá</button>
-    </div>
+    </div>`;
+  if (layout === "single") {
+    return `<section class="comparison-block comparison-block-single" data-layout="single" data-comparison-id="${escapeHtml(comparison.id)}">
+      ${heading}
+      <div class="single-image-label-grid">
+        <div class="comparison-label-field"><label class="sr-only">Nhãn chính</label><div><input data-field="leftLabel" required value="${escapeHtml(comparison.leftLabel || "")}" aria-label="Nhãn chính" /><input class="label-color-input" data-field="leftLabelColor" type="color" value="${escapeHtml(comparison.leftLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn chính" title="Màu nhãn chính" /></div></div>
+        <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Nhãn phụ</label><div><input data-field="leftSubLabel" maxlength="40" placeholder="Nhãn phụ" autocomplete="off" spellcheck="false" value="${leftSub}" aria-label="Nhãn phụ" /><input class="label-color-input" data-field="leftSubLabelColor" type="color" value="${leftSubColor}" aria-label="Màu nhãn phụ" title="Màu nhãn phụ" /></div></div>
+      </div>
+      <label class="comparison-font-field">Font nhãn
+        <select data-field="labelFontFamily">
+          <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ${labelFontFamily === '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ? "selected" : ""}>Inter</option>
+          <option value='Arial, sans-serif' ${labelFontFamily === 'Arial, sans-serif' ? "selected" : ""}>Arial</option>
+          <option value='Georgia, serif' ${labelFontFamily === 'Georgia, serif' ? "selected" : ""}>Georgia</option>
+          <option value='"Times New Roman", Times, serif' ${labelFontFamily === '"Times New Roman", Times, serif' ? "selected" : ""}>Times New Roman</option>
+        </select>
+      </label>
+      <div class="upload-grid single-image-upload-grid">
+        ${comparisonUploadCardHtml(comparison, "left")}
+      </div>
+    </section>`;
+  }
+  return `<section class="comparison-block" data-layout="pair" data-comparison-id="${escapeHtml(comparison.id)}">
+    ${heading}
     <div class="form-grid comparison-label-grid">
-      <div class="comparison-label-field"><label class="sr-only">Nhãn bên trái</label><div><input data-field="leftLabel" required value="${escapeHtml(comparison.leftLabel)}" aria-label="Nhãn bên trái" /><input class="label-color-input" data-field="leftLabelColor" type="color" value="${escapeHtml(comparison.leftLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn bên trái" title="Màu nhãn bên trái" /></div></div>
-      <div class="comparison-label-field"><label class="sr-only">Nhãn bên phải</label><div><input data-field="rightLabel" required value="${escapeHtml(comparison.rightLabel)}" aria-label="Nhãn bên phải" /><input class="label-color-input" data-field="rightLabelColor" type="color" value="${escapeHtml(comparison.rightLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>
+      <div class="comparison-label-field"><label class="sr-only">Nhãn bên trái</label><div><input data-field="leftLabel" required value="${escapeHtml(comparison.leftLabel || "")}" aria-label="Nhãn bên trái" /><input class="label-color-input" data-field="leftLabelColor" type="color" value="${escapeHtml(comparison.leftLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn bên trái" title="Màu nhãn bên trái" /></div></div>
+      <div class="comparison-label-field"><label class="sr-only">Nhãn bên phải</label><div><input data-field="rightLabel" required value="${escapeHtml(comparison.rightLabel || "")}" aria-label="Nhãn bên phải" /><input class="label-color-input" data-field="rightLabelColor" type="color" value="${escapeHtml(comparison.rightLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>
     </div>
+    <label class="comparison-font-field">Font nhãn
+      <select data-field="labelFontFamily">
+        <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ${labelFontFamily === '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ? "selected" : ""}>Inter</option>
+        <option value='Arial, sans-serif' ${labelFontFamily === 'Arial, sans-serif' ? "selected" : ""}>Arial</option>
+        <option value='Georgia, serif' ${labelFontFamily === 'Georgia, serif' ? "selected" : ""}>Georgia</option>
+        <option value='"Times New Roman", Times, serif' ${labelFontFamily === '"Times New Roman", Times, serif' ? "selected" : ""}>Times New Roman</option>
+      </select>
+    </label>
     <div class="form-grid comparison-label-grid comparison-sublabel-grid" data-sublabel-row>
       <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Phiên âm bên trái</label><div><input data-field="leftSubLabel" maxlength="40" placeholder="/lʊk/" autocomplete="off" spellcheck="false" value="${leftSub}" aria-label="Phiên âm bên trái" /><input class="label-color-input" data-field="leftSubLabelColor" type="color" value="${leftSubColor}" aria-label="Màu phiên âm bên trái" title="Màu phiên âm bên trái" /></div></div>
       <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Phiên âm bên phải</label><div><input data-field="rightSubLabel" maxlength="40" placeholder="/siː/" autocomplete="off" spellcheck="false" value="${rightSub}" aria-label="Phiên âm bên phải" /><input class="label-color-input" data-field="rightSubLabelColor" type="color" value="${rightSubColor}" aria-label="Màu phiên âm bên phải" title="Màu phiên âm bên phải" /></div></div>
@@ -683,6 +759,32 @@ function normalizedClipboardImage(file, index) {
   return new File([file], `clipboard-${Date.now()}-${index + 1}.${extension}`, { type: file.type });
 }
 
+async function squareCropFile(file, namePrefix = "clipboard-square") {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(tr("Không đọc được ảnh clipboard.", "Could not read clipboard image.")));
+      img.src = url;
+    });
+    const size = Math.max(1, Math.min(image.naturalWidth || image.width || 1, image.naturalHeight || image.height || 1));
+    const sourceX = Math.max(0, Math.floor(((image.naturalWidth || image.width || size) - size) / 2));
+    const sourceY = Math.max(0, Math.floor(((image.naturalHeight || image.height || size) - size) / 2));
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, sourceX, sourceY, size, size, 0, 0, size, size);
+    const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error(tr("Không crop được ảnh clipboard.", "Could not crop clipboard image."))), "image/png"));
+    return new File([blob], `${namePrefix}-${Date.now()}.png`, { type: "image/png" });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function api(url, options = {}) {
   const response = await fetch(url, { cache: "no-store", headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
   const payload = await response.json().catch(() => ({}));
@@ -752,11 +854,12 @@ function segmentsFromEditor(forceRetime = false) {
 }
 
 function inferPose(text, index) {
-  const normalized = text.toLowerCase();
   const leftTokens = [state.topic.leftLabel, "bên trái", "loại đầu", "thứ nhất", "304"].filter(Boolean).map((value) => value.toLowerCase());
   const rightTokens = [state.topic.rightLabel, "bên phải", "loại sau", "thứ hai", "316"].filter(Boolean).map((value) => value.toLowerCase());
   const ids = POSE_OPTIONS.map((item) => item.id);
   const pick = (preferred, fallbackIndex) => ids.includes(preferred) ? preferred : ids[Math.min(fallbackIndex, ids.length - 1)] || fallbackPose();
+  if (state.topic?.characterId === "bietchichomet") return defaultPoseForCharacter("bietchichomet", index, ids);
+  const normalized = text.toLowerCase();
   if (/[?？]|vậy|khác nhau|tại sao/.test(normalized)) return pick("question", 2);
   if (leftTokens.some((token) => normalized.includes(token))) return index <= 2 ? pick("neutral-left", 0) : pick("smile-left", 3);
   if (rightTokens.some((token) => normalized.includes(token))) return index <= 2 ? pick("neutral-right", 1) : pick("smile-right", 4);
@@ -880,6 +983,7 @@ function draftTopic(forceRetime = false) {
     rightLabel: elements.rightLabelInput.value.trim(),
     leftLabelColor: elements.leftLabelColor.value,
     rightLabelColor: elements.rightLabelColor.value,
+    labelFontFamily: normalizeLabelFontFamily(elements.labelFontFamily?.value || state.topic.labelFontFamily),
     showSubLabels: hasSubLabelRow({
       showSubLabels: state.topic.showSubLabels,
       leftSubLabel: elements.leftSubLabelInput?.value,
@@ -1085,18 +1189,19 @@ function fitPreviewFrame() {
 function resetCropSelection() {
   clearCropLiveRotation();
   setCropRotateMode(false);
+  setCropAspectLock(true, true);
   state.cropZoom = 1;
   state.cropPanX = 0;
   state.cropPanY = 0;
   syncCropZoomControls();
   const original = state.cropOriginalSrc;
   if (original && elements.cropImage && elements.cropImage.getAttribute("src") !== original) {
-    state.cropSelection = { x: 0.08, y: 0.08, width: 0.84, height: 0.84 };
+    state.cropSelection = centeredCropSelection(1);
     state.cropDisplay = null;
     elements.cropImage.src = original;
     return;
   }
-  state.cropSelection = { x: 0.08, y: 0.08, width: 0.84, height: 0.84 };
+  state.cropSelection = centeredCropSelection(1);
   layoutCropImage();
 }
 
@@ -1114,6 +1219,40 @@ function clearCropLiveRotation() {
 function cropRotateToggleLabel(active) {
   if (active) return "OK";
   return document.documentElement.lang === "en" ? "Rotate" : "Xoay";
+}
+
+function fitCropSelectionToAspect(selection, aspect = 1) {
+  const targetAspect = Math.max(0.01, Number(aspect) || 1);
+  let width = clamp(Number(selection?.width) || 1, 0.001, 1);
+  let height = clamp(Number(selection?.height) || 1, 0.001, 1);
+  if (width / height > targetAspect) width = height * targetAspect;
+  else height = width / targetAspect;
+  const centerX = clamp((Number(selection?.x) || 0) + (Number(selection?.width) || 1) / 2, width / 2, 1 - width / 2);
+  const centerY = clamp((Number(selection?.y) || 0) + (Number(selection?.height) || 1) / 2, height / 2, 1 - height / 2);
+  return { x: centerX - width / 2, y: centerY - height / 2, width, height };
+}
+
+function centeredCropSelection(aspect = 1) {
+  return fitCropSelectionToAspect({ x: 0, y: 0, width: 1, height: 1 }, aspect);
+}
+
+function setCropAspectLock(enabled, normalizeSelection = false) {
+  state.cropAspectLocked = Boolean(enabled);
+  if (elements.toggleCropAspect) {
+    elements.toggleCropAspect.classList.toggle("active", state.cropAspectLocked);
+    elements.toggleCropAspect.setAttribute("aria-pressed", state.cropAspectLocked ? "true" : "false");
+    elements.toggleCropAspect.setAttribute("aria-label", tr("Khóa crop 1:1", "Lock 1:1 crop"));
+    elements.toggleCropAspect.textContent = "1:1";
+  }
+  if (
+    normalizeSelection
+    && state.cropAspectLocked
+    && state.cropSelection
+    && elements.cropImage?.naturalWidth
+  ) {
+    state.cropSelection = fitCropSelectionToAspect(state.cropSelection, 1);
+    renderCropSelection();
+  }
 }
 
 function setCropRotateMode(enabled) {
@@ -1283,10 +1422,11 @@ function openCropDialog(target) {
   if (!source) return;
   state.cropTarget = target;
   state.cropOriginalSrc = source;
+  setCropAspectLock(true);
   state.cropZoom = 1;
   state.cropPanX = 0;
   state.cropPanY = 0;
-  state.cropSelection = { x: 0.08, y: 0.08, width: 0.84, height: 0.84 };
+  state.cropSelection = centeredCropSelection(1);
   state.cropDisplay = null;
   state.cropDrag = null;
   clearCropLiveRotation();
@@ -1620,6 +1760,7 @@ async function loadProject() {
     elements.rightLabelInput.value = state.topic.rightLabel;
     elements.leftLabelColor.value = state.topic.leftLabelColor || state.topic.labelColor || "#090909";
     elements.rightLabelColor.value = state.topic.rightLabelColor || state.topic.labelColor || "#090909";
+    if (elements.labelFontFamily) elements.labelFontFamily.value = normalizeLabelFontFamily(state.topic.labelFontFamily);
     if (elements.leftSubLabelInput) elements.leftSubLabelInput.value = state.topic.leftSubLabel || "";
     if (elements.rightSubLabelInput) elements.rightSubLabelInput.value = state.topic.rightSubLabel || "";
     if (elements.leftSubLabelColor) elements.leftSubLabelColor.value = state.topic.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR;
@@ -1671,6 +1812,10 @@ new ResizeObserver(layoutCropImage).observe(elements.cropStage);
 elements.closeCropDialog.addEventListener("click", closeCropDialog);
 elements.toggleCropRotate.addEventListener("click", () => {
   setCropRotateMode(!state.cropRotateMode);
+  renderCropSelection();
+});
+elements.toggleCropAspect.addEventListener("click", () => {
+  setCropAspectLock(!state.cropAspectLocked, true);
   renderCropSelection();
 });
 elements.resetCrop.addEventListener("click", resetCropSelection);
@@ -1749,6 +1894,43 @@ elements.cropStage.addEventListener("pointermove", (event) => {
       x: clamp(original.x + dx, 0, 1 - original.width),
       y: clamp(original.y + dy, 0, 1 - original.height),
     };
+  } else if (state.cropAspectLocked) {
+    const minSize = Math.max(minWidth, minHeight);
+    const anchor = (() => {
+      switch (drag.handle) {
+        case "nw": return { x: original.x + original.width, y: original.y + original.height, maxSize: Math.min(original.x + original.width, original.y + original.height) };
+        case "ne": return { x: original.x, y: original.y + original.height, maxSize: Math.min(1 - original.x, original.y + original.height) };
+        case "sw": return { x: original.x + original.width, y: original.y, maxSize: Math.min(original.x + original.width, 1 - original.y) };
+        case "se":
+        default:
+          return { x: original.x, y: original.y, maxSize: Math.min(1 - original.x, 1 - original.y) };
+      }
+    })();
+    const size = (() => {
+      switch (drag.handle) {
+        case "nw": return clamp(Math.max(anchor.x - point.x, anchor.y - point.y), minSize, anchor.maxSize);
+        case "ne": return clamp(Math.max(point.x - anchor.x, anchor.y - point.y), minSize, anchor.maxSize);
+        case "sw": return clamp(Math.max(anchor.x - point.x, point.y - anchor.y), minSize, anchor.maxSize);
+        case "se":
+        default:
+          return clamp(Math.max(point.x - anchor.x, point.y - anchor.y), minSize, anchor.maxSize);
+      }
+    })();
+    switch (drag.handle) {
+      case "nw":
+        state.cropSelection = { x: anchor.x - size, y: anchor.y - size, width: size, height: size };
+        break;
+      case "ne":
+        state.cropSelection = { x: anchor.x, y: anchor.y - size, width: size, height: size };
+        break;
+      case "sw":
+        state.cropSelection = { x: anchor.x - size, y: anchor.y, width: size, height: size };
+        break;
+      case "se":
+      default:
+        state.cropSelection = { x: anchor.x, y: anchor.y, width: size, height: size };
+        break;
+    }
   } else {
     let left = original.x;
     let top = original.y;
@@ -1784,6 +1966,7 @@ function handleEditorInput(event) {
   markDirty();
   if ([
     "leftLabelInput", "rightLabelInput", "leftLabelColor", "rightLabelColor",
+    "labelFontFamily",
     "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
     "scriptInput", "karaokeActiveColor", "karaokeColor", "karaokeSize",
     "backgroundType", "backgroundColor",
@@ -1841,17 +2024,20 @@ document.querySelectorAll('[data-action="crop-base-image"]').forEach((button) =>
 document.querySelectorAll('[data-action="remove-bg-base-image"]').forEach((button) => button.addEventListener("click", () => {
   removeBackgroundForSlot({ type: "base", side: button.dataset.side }, button).catch((error) => showToast(error.message, true));
 }));
-elements.addComparisonButton.addEventListener("click", () => {
+function addComparisonScene(layout) {
   if (!state.topic) return;
   const lines = scriptLines();
   const startSentence = Math.min(6, Math.max(1, lines.length));
-  state.topic.comparisons = [...(state.topic.comparisons || []), {
-    id: `comparison-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  const single = layout === "single";
+  const scene = {
+    id: `${single ? "single-image" : "comparison"}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    layout: single ? "single" : "pair",
     startSentence,
-    leftLabel: elements.leftLabelInput.value.trim() || DEFAULT_LABEL_A(),
-    rightLabel: elements.rightLabelInput.value.trim() || DEFAULT_LABEL_B(),
+    leftLabel: single ? tr("Nhãn chính", "Main label") : (elements.leftLabelInput.value.trim() || DEFAULT_LABEL_A()),
+    rightLabel: single ? "" : (elements.rightLabelInput.value.trim() || DEFAULT_LABEL_B()),
     leftLabelColor: elements.leftLabelColor.value || "#090909",
-    rightLabelColor: elements.rightLabelColor.value || "#090909",
+    rightLabelColor: single ? "#090909" : (elements.rightLabelColor.value || "#090909"),
+    labelFontFamily: normalizeLabelFontFamily(elements.labelFontFamily?.value || state.topic.labelFontFamily),
     showSubLabels: false,
     leftSubLabel: "",
     rightSubLabel: "",
@@ -1861,13 +2047,17 @@ elements.addComparisonButton.addEventListener("click", () => {
     rightImage: "assets/placeholder-right.svg",
     leftImageZoom: 1, leftImageX: 0, leftImageY: 0,
     rightImageZoom: 1, rightImageX: 0, rightImageY: 0,
-  }];
+  };
+  state.topic.comparisons = [...(state.topic.comparisons || []), scene];
   renderComparisonList();
-  jumpPreviewToComparison(state.topic.comparisons[state.topic.comparisons.length - 1]);
+  jumpPreviewToComparison(scene);
   markDirty();
   sendDraftToPreview();
   scheduleAutoSave(500);
-});
+}
+
+elements.addComparisonButton.addEventListener("click", () => addComparisonScene("pair"));
+elements.addSingleImageButton?.addEventListener("click", () => addComparisonScene("single"));
 const primaryComparisonBlock = document.querySelector(".comparison-block-primary");
 primaryComparisonBlock?.addEventListener("pointerdown", jumpPreviewToBaseComparison);
 primaryComparisonBlock?.addEventListener("focusin", jumpPreviewToBaseComparison);
@@ -2036,7 +2226,7 @@ elements.renderButton.addEventListener("click", async () => {
   if (state.dirty && !(await saveEditor())) return;
   window.location.href = `/?project=${encodeURIComponent(project)}`;
 });
-window.addEventListener("paste", (event) => {
+window.addEventListener("paste", async (event) => {
   if (!state.topic) return;
   const clipboardImages = [...(event.clipboardData?.items || [])]
     .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
@@ -2051,24 +2241,26 @@ window.addEventListener("paste", (event) => {
   }
   let placed = 0;
   const destinations = [];
-  images.forEach((file) => {
+  for (const file of images) {
     const slot = nextEmptyImageSlot();
-    if (!slot) return;
-    if (slot.type === "base") setBaseImageFile(slot.side, file);
-    else setComparisonImageFile(slot.comparison, slot.side, file);
+    if (!slot) break;
+    const squareFile = await squareCropFile(file, "clipboard-square");
+    if (slot.type === "base") setBaseImageFile(slot.side, squareFile);
+    else setComparisonImageFile(slot.comparison, slot.side, squareFile);
     placed += 1;
     const comparisonName = slot.type === "base"
-      ? "So sánh 1"
+      ? (slot.side === "left" ? "Ảnh bên trái" : "Ảnh bên phải")
       : `So sánh ${(state.topic.comparisons || []).indexOf(slot.comparison) + 2}`;
     destinations.push(`${comparisonName} · bên ${slot.side === "left" ? "trái" : "phải"}`);
-  });
+  }
   if (!placed) {
     showToast("Không còn ô ảnh trống. Hãy xoá một ảnh trước khi dán.", true);
     return;
   }
   const remaining = images.length - placed;
-  showToast(`Đã dán ${placed} ảnh vào ${destinations.join(", ")}${remaining ? `; còn ${remaining} ảnh chưa có ô trống` : ""}.`);
+  showToast(`Đã dán ${placed} ảnh và crop vuông 1:1 vào ${destinations.join(", ")}${remaining ? `; còn ${remaining} ảnh chưa có ô trống` : ""}.`);
 });
+
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
 window.addEventListener("keydown", (event) => {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;

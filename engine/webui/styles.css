@@ -328,6 +328,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   background: var(--accent-soft); box-shadow: 0 0 0 1px rgba(216, 132, 53, .10);
 }
 .button.add-comparison-button:hover { border-color: rgba(216, 132, 53, .70); background: rgba(242, 178, 101, .18); transform: none; }
+.scene-add-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.button.add-single-image-button { border-color: rgba(30, 139, 92, .42); background: rgba(30, 139, 92, .09); }
+.button.add-single-image-button:hover { border-color: rgba(30, 139, 92, .68); background: rgba(30, 139, 92, .14); }
 .editor-character-picker {
   display: grid; gap: 13px; padding: 16px 18px; border: 1px solid var(--accent-border); border-radius: 20px;
   background: var(--accent-soft); box-shadow: 0 0 0 1px rgba(216, 132, 53, .12); text-align: left;
@@ -367,7 +370,21 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 }
 .delete-image:hover { border-color: rgba(159, 46, 46, .40); background: rgba(159, 46, 46, .10); transform: none; }
 .comparison-block .image-viewport { height: clamp(190px, 27vh, 290px); aspect-ratio: auto; }
-.sticky-actions { padding: 14px 24px; border-top: 1px solid var(--control-line-soft); background: transparent; }
+.comparison-block-single .upload-card { width: 100%; }
+.single-image-label-grid,
+.upload-grid.single-image-upload-grid {
+  width: min(100%, clamp(338px, 48vh, 516px));
+  max-width: 100%;
+  justify-self: center;
+}
+.single-image-label-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.single-image-label-grid .comparison-label-field input:not(.label-color-input) { text-align: center; }
+.upload-grid.single-image-upload-grid { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
+.comparison-block-single .image-viewport {
+  width: 100%; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
+}
+.comparison-block-single .image-zoom,
+.comparison-block-single .image-actions { width: 100%; justify-self: center; }
 .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .upload-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 15px; background: var(--soft); text-align: center; }
 .upload-card > span { font-size: 12px; font-weight: 850; color: #37342c; }
@@ -755,6 +772,7 @@ html[data-theme="dark"] .editor-page .image-viewport { border-color: var(--contr
 html[data-theme="dark"] .editor-page .comparison-block .replace-image,
 html[data-theme="dark"] .editor-page .background-upload-button,
 html[data-theme="dark"] .editor-page .button.add-comparison-button,
+html[data-theme="dark"] .editor-page .button.add-single-image-button,
 html[data-theme="dark"] .editor-page .button.custom-sfx-upload {
   color: var(--text-soft);
   border-color: var(--accent-border);
@@ -805,6 +823,9 @@ html[data-theme="dark"] .editor-page .tab-pane[data-pane="content"] > .eyebrow::
   .project-grid { grid-template-columns: 1fr; }
   .project-grid-compact { grid-template-columns: 1fr; }
   .form-grid, .upload-grid { grid-template-columns: 1fr; }
+  .scene-add-actions { grid-template-columns: 1fr; }
+  .single-image-label-grid,
+  .upload-grid.single-image-upload-grid { width: 100%; }
   .background-controls-row { grid-template-columns: minmax(0, 1.15fr) minmax(72px, 0.85fr); }
   .comparison-label-grid { grid-template-columns: 1fr 1fr; }
   .editor-shell { padding: 8px; }

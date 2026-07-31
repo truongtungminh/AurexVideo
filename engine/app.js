@@ -97,11 +97,18 @@ function baseComparison(nextTopic = topic) {
     rightImageY: nextTopic.rightImageY,
     leftLabelColor: nextTopic.leftLabelColor || nextTopic.labelColor || "#090909",
     rightLabelColor: nextTopic.rightLabelColor || nextTopic.labelColor || "#090909",
+    labelFontFamily: nextTopic.labelFontFamily || '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     leftSubLabelColor: nextTopic.leftSubLabelColor || "#808080",
     rightSubLabelColor: nextTopic.rightSubLabelColor || "#808080",
     showSubLabels: nextTopic.showSubLabels === true
       || Boolean(String(nextTopic.leftSubLabel || "").trim() || String(nextTopic.rightSubLabel || "").trim()),
   };
+}
+
+function applyLabelFontFamily(fontFamily) {
+  const family = String(fontFamily || '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
+  elements.leftLabel.style.fontFamily = family;
+  elements.rightLabel.style.fontFamily = family;
 }
 
 function comparisonAt(time) {
@@ -130,18 +137,30 @@ function applyComparisonToView(scene, force = false) {
   if (!force && key === currentComparisonKey) return;
   currentComparisonKey = key;
   currentComparisonScene = scene;
+  const single = isSingleImageScene(scene);
+  elements.stage.classList.toggle("single-image-scene", single);
   elements.leftLabel.textContent = formatTopicLabel(scene.leftLabel);
-  elements.rightLabel.textContent = formatTopicLabel(scene.rightLabel);
+  elements.rightLabel.textContent = single ? "" : formatTopicLabel(scene.rightLabel);
   elements.leftLabel.style.color = String(scene.leftLabelColor || scene.labelColor || topic.leftLabelColor || topic.labelColor || "#090909");
   elements.rightLabel.style.color = String(scene.rightLabelColor || scene.labelColor || topic.rightLabelColor || topic.labelColor || "#090909");
+  applyLabelFontFamily(scene.labelFontFamily || topic.labelFontFamily);
+  if (single) {
+    elements.rightSubLabel.hidden = true;
+    elements.rightSubLabel.textContent = "";
+    elements.rightImage.parentElement.hidden = true;
+  } else {
+    elements.rightImage.parentElement.hidden = false;
+  }
   applySubLabel(elements.leftSubLabel, scene.leftSubLabel, scene.leftSubLabelColor || topic.leftSubLabelColor, scene);
-  applySubLabel(elements.rightSubLabel, scene.rightSubLabel, scene.rightSubLabelColor || topic.rightSubLabelColor, scene);
-  const leftSrc = resolveTopicAsset(scene.leftImage);
-  const rightSrc = resolveTopicAsset(scene.rightImage);
+  applySubLabel(elements.rightSubLabel, single ? "" : scene.rightSubLabel, scene.rightSubLabelColor || topic.rightSubLabelColor, scene);
+  const leftSrc = singleImagePlaceholderUrl(scene) || resolveTopicAsset(scene.leftImage);
   if (elements.leftImage.src !== leftSrc) elements.leftImage.src = leftSrc;
-  if (elements.rightImage.src !== rightSrc) elements.rightImage.src = rightSrc;
+  if (!single) {
+    const rightSrc = resolveTopicAsset(scene.rightImage);
+    if (elements.rightImage.src !== rightSrc) elements.rightImage.src = rightSrc;
+  }
   applyImageFrame(elements.leftImage, scene.leftImageZoom, scene.leftImageX, scene.leftImageY);
-  applyImageFrame(elements.rightImage, scene.rightImageZoom, scene.rightImageX, scene.rightImageY);
+  if (!single) applyImageFrame(elements.rightImage, scene.rightImageZoom, scene.rightImageX, scene.rightImageY);
   requestAnimationFrame(fitHeadings);
 }
 
@@ -186,7 +205,7 @@ function fitLabelPair() {
   const min = stageWidth * 2.8 / 100;
   let low = min;
   let high = max;
-  const labels = [elements.leftLabel, elements.rightLabel];
+  const labels = isSingleImageScene() ? [elements.leftLabel] : [elements.leftLabel, elements.rightLabel];
   for (let index = 0; index < 12; index += 1) {
     const middle = (low + high) / 2;
     labels.forEach((label) => { label.style.fontSize = `${middle}px`; });
@@ -393,6 +412,55 @@ function waitForMediaReady(element) {
   });
 }
 
+function presenterWantsVideo() {
+  return topic?.characterId === "bietchichomet";
+}
+
+function isSingleImageScene(scene = currentComparisonScene) {
+  return String(scene?.layout || "pair").toLowerCase() === "single";
+}
+
+function singleImagePlaceholderUrl(scene) {
+  if (!String(scene?.leftImage || "").endsWith("/placeholder-left.svg")
+    && String(scene?.leftImage || "") !== "assets/placeholder-left.svg") return "";
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial, sans-serif" font-size="42" font-weight="700">Ảnh đơn</text></svg>';
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function createTeacherElement(isVideo = false) {
+  const element = document.createElement(isVideo ? "video" : "img");
+  element.className = "teacher";
+  element.id = "teacher";
+  element.setAttribute("aria-label", "Nhân vật đang trình bày");
+  if (isVideo) {
+    element.autoplay = true;
+    element.muted = true;
+    element.playsInline = true;
+    element.loop = true;
+    element.preload = "auto";
+  } else {
+    element.alt = "Nhân vật đang trình bày";
+  }
+  return element;
+}
+
+function ensureTeacherElement(isVideo = false) {
+  const current = elements.teacher;
+  if (!!(current instanceof HTMLVideoElement) === isVideo) return current;
+  const next = createTeacherElement(isVideo);
+  const currentSrc = mediaSource(current);
+  if (currentSrc) next.src = currentSrc;
+  current.replaceWith(next);
+  elements.teacher = next;
+  if (isVideo) {
+    next.addEventListener("loadeddata", scheduleImportedPresenterLayout);
+    next.addEventListener("seeked", scheduleImportedPresenterLayout);
+  } else {
+    next.addEventListener("load", scheduleImportedPresenterLayout);
+  }
+  return next;
+}
+
 function isVideoAssetSource(source) {
   return /\.(mp4|webm|m4v|mov)(?:[?#]|$)/i.test(String(source || ""));
 }
@@ -461,6 +529,11 @@ function updateMediaFocus(poseName) {
   const leftSlot = elements.leftImage.parentElement;
   const rightSlot = elements.rightImage.parentElement;
   if (!leftSlot || !rightSlot) return;
+  if (isSingleImageScene()) {
+    leftSlot.classList.remove("dimmed");
+    rightSlot.classList.remove("dimmed");
+    return;
+  }
   const focusSide = focusSideForPose(poseName);
   leftSlot.classList.toggle("dimmed", focusSide === "right");
   rightSlot.classList.toggle("dimmed", focusSide === "left");
@@ -557,28 +630,30 @@ function setPose(event, time, allowSfx = false) {
   }
   // Use exactly one full-body sprite per pose to keep the presenter stationary.
   const nextSrc = poseImage(currentPose, true);
-  const currentSrc = mediaSource(elements.teacher);
-  const shouldResetVideo = isVideoAssetSource(nextSrc) && poseChanged;
+  const useVideo = presenterWantsVideo() && isVideoAssetSource(nextSrc);
+  const teacher = ensureTeacherElement(useVideo);
+  const currentSrc = mediaSource(teacher);
+  const shouldResetVideo = useVideo && poseChanged;
   if (currentSrc !== nextSrc || shouldResetVideo) {
     if (currentSrc !== nextSrc) {
-      elements.teacher.classList.add("pose-swap");
-      elements.teacher.src = nextSrc;
+      teacher.classList.add("pose-swap");
+      teacher.src = nextSrc;
       lastPresenterSource = nextSrc;
       cancelAnimationFrame(poseSwapRaf);
       poseSwapRaf = requestAnimationFrame(() => {
-        poseSwapRaf = requestAnimationFrame(() => elements.teacher.classList.remove("pose-swap"));
+        poseSwapRaf = requestAnimationFrame(() => teacher.classList.remove("pose-swap"));
       });
     }
-    if (isVideoAssetSource(nextSrc)) {
-      elements.teacher.muted = true;
-      elements.teacher.loop = true;
-      elements.teacher.playsInline = true;
+    if (useVideo) {
+      teacher.muted = true;
+      teacher.loop = true;
+      teacher.playsInline = true;
       if (offlineRender) {
-        elements.teacher.pause();
-        if (shouldResetVideo) elements.teacher.currentTime = 0;
+        teacher.pause();
+        if (shouldResetVideo) teacher.currentTime = 0;
       } else {
-        if (shouldResetVideo) elements.teacher.currentTime = 0;
-        elements.teacher.play().catch(() => {});
+        if (shouldResetVideo) teacher.currentTime = 0;
+        teacher.play().catch(() => {});
       }
     }
   }
@@ -687,7 +762,10 @@ function offlineImagePaths() {
     paths.push(topic.backgroundImage);
   }
   (Array.isArray(topic.comparisons) ? topic.comparisons : []).forEach((scene) => {
-    paths.push(scene.leftImage, scene.rightImage);
+    paths.push(scene.leftImage);
+    if (!isSingleImageScene(scene)) {
+      paths.push(scene.rightImage);
+    }
   });
   Object.values(topic.poseAssets || {}).forEach((pose) => {
     paths.push(pose?.closed, pose?.speaking);
@@ -715,7 +793,9 @@ async function renderOfflineFrame(time) {
   renderAt(time);
   await Promise.all([
     elements.leftImage.decode().catch(() => {}),
-    elements.rightImage.decode().catch(() => {}),
+    isSingleImageScene()
+      ? Promise.resolve()
+      : elements.rightImage.decode().catch(() => {}),
     waitForMediaReady(elements.teacher).catch(() => {}),
     elements.stageBackgroundImage && !elements.stageBackgroundImage.hidden
       ? elements.stageBackgroundImage.decode().catch(() => {})
@@ -730,12 +810,14 @@ async function renderOfflineFrame(time) {
       currentComparisonScene.leftImageX,
       currentComparisonScene.leftImageY,
     );
-    applyImageFrame(
-      elements.rightImage,
-      currentComparisonScene.rightImageZoom,
-      currentComparisonScene.rightImageX,
-      currentComparisonScene.rightImageY,
-    );
+    if (!isSingleImageScene(currentComparisonScene)) {
+      applyImageFrame(
+        elements.rightImage,
+        currentComparisonScene.rightImageZoom,
+        currentComparisonScene.rightImageX,
+        currentComparisonScene.rightImageY,
+      );
+    }
   }
   await layoutImportedPresenter(presenterLayoutGeneration);
   fitHeadings();
@@ -1077,13 +1159,18 @@ async function init() {
   });
 
   currentPose = topic.poseTimeline[0].pose;
-  elements.teacher.src = poseImage(currentPose, false);
-  elements.teacher.muted = true;
-  elements.teacher.loop = true;
-  elements.teacher.playsInline = true;
-  elements.teacher.preload = "auto";
-  elements.teacher.load();
-  lastPresenterSource = elements.teacher.src;
+  const initialSrc = poseImage(currentPose, false);
+  const initialUseVideo = presenterWantsVideo() && isVideoAssetSource(initialSrc);
+  const teacher = ensureTeacherElement(initialUseVideo);
+  teacher.src = initialSrc;
+  if (initialUseVideo) {
+    teacher.muted = true;
+    teacher.loop = true;
+    teacher.playsInline = true;
+    teacher.preload = "auto";
+    teacher.load();
+  }
+  lastPresenterSource = teacher.src;
   elements.teacher.addEventListener("loadeddata", scheduleImportedPresenterLayout);
   elements.teacher.addEventListener("seeked", scheduleImportedPresenterLayout);
   bindControls();

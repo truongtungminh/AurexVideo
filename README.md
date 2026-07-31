@@ -19,6 +19,11 @@ cd engine
 - Render pipeline accepts `--engine maziao` end to end. Direct Maziao voice IDs from the favourites dropdown are preserved exactly, including mixed-case IDs without hyphens, so rendering uses the selected voice instead of falling back to OncoinX.
 - The standalone voiceover worker bootstraps the engine root before importing `tts.maziao`, preventing `No module named 'tts'` in the packaged runtime.
 - Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites`, với dropdown 56px và nút play/pause tròn rõ nét ngay bên phải phát trực tiếp `previewUrl`. OncoinX và Mạnh Dũng có link preview fallback khi API không trả link. Checkbox tạo lại cache được đặt sát hàng chọn voice. Không còn hàng preview riêng, text mẫu, custom Voice ID hay ElevenLabs trong render page.
+- Crop dialog của editor đã thêm nút khóa 1:1 kiểu FastScene để crop box giữ vuông khi resize, và cache-bust editor JS đã được đẩy lên `20260731-crop-1to1`.
+- Editor/preview đã có thêm font chooser cho nhãn A/B (`labelFontFamily`), áp vào live preview và render output, để đổi font nhãn mà không đụng phần auto-fit kích thước.
+- Khi dán ảnh clipboard vào editor, hệ thống sẽ tự crop centered vuông 1:1 trước khi đưa vào slot.
+- Presenter mặc định là `<img>`; chỉ `character-bietchichomet` mới upgrade sang `<video>` khi pose source là video, các character khác luôn hiển thị bằng ảnh.
+- Editor/preview giờ có cả `＋ Thêm so sánh` và `＋ Thêm ảnh đơn`; scene single dùng `layout: "single"` để ẩn cột phải và render một ảnh duy nhất.
 
 ## Cách phát hành / cài máy khác
 
@@ -105,6 +110,9 @@ fix triệt để lỗi "Upload PNG button không mở được picker" ở bả
 - ✅ Dashboard gọn hơn: bỏ khối **Đang render / Job live / Lịch sử phiên / Tác vụ gần đây** khỏi panel chính.
 - ✅ Khi đổi character, pose mặc định giờ quay vòng theo số pose thực có của character mới, không còn chốt dồn vào pose cuối.
 - ✅ Âm lượng hiệu ứng pose mặc định ở editor/topic mới chuyển về **50%**.
+- ✅ Topic cũ sẽ auto-sync `poseAssets`/`poseLabels` theo manifest hiện tại của character khi load, nên thêm pose mới không còn bị kẹt trong snapshot cũ.
+- ✅ Riêng `bietchichomet` dùng chuỗi pose mặc định `1 2 3 1 2 4 1 2 5 1 2` cho các segment auto-select / project mới.
+- ✅ Thư viện dự án ở home page có thêm cột **Đăng social**, lấy từ `upload-metadata.json` và được cập nhật sau khi upload YouTube/Facebook thành công.
 - ⚠️ TTS vẫn là stage phụ thuộc bên thứ 3; tối ưu chính tập trung vào render video/frame export, không chạm vào chất lượng TTS.
 
 ## Custom character CSS (per-character override)
