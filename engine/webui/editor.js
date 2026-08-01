@@ -582,7 +582,7 @@ function bindImageViewport(side) {
       y: maxOffsetY ? clamp((top - centerTop) / maxOffsetY * 50, -50, 50) : 0,
     });
     applyImageFrameToThumb(side);
-    sendDraftToPreview();
+    schedulePreviewUpdate(null, 40);
   });
   const endDrag = (event) => {
     const drag = state.imageDrag;
@@ -929,6 +929,19 @@ function markDirty() {
 function scheduleAutoSave(delay = 800) {
   clearTimeout(scheduleAutoSave.timer);
   scheduleAutoSave.timer = setTimeout(() => saveEditor(null, true), delay);
+}
+
+// Coalesce preview messages so desktop WebView layout/compositing does not
+// compete with the text field for every keystroke.
+function schedulePreviewUpdate(comparison = null, delay = 80) {
+  schedulePreviewUpdate.comparisonId = comparison?.id || null;
+  clearTimeout(schedulePreviewUpdate.timer);
+  schedulePreviewUpdate.timer = setTimeout(() => {
+    const comparisonId = schedulePreviewUpdate.comparisonId;
+    schedulePreviewUpdate.comparisonId = null;
+    if (comparisonId) jumpPreviewToComparison(comparisonById(comparisonId));
+    sendDraftToPreview();
+  }, delay);
 }
 
 function scriptLines() {
@@ -2105,7 +2118,7 @@ function handleEditorInput(event) {
     "scriptInput", "karaokeActiveColor", "karaokeColor", "karaokeSize",
     "backgroundType", "backgroundColor",
     "backgroundMusicVolume",
-  ].includes(event.target.id)) sendDraftToPreview();
+  ].includes(event.target.id)) schedulePreviewUpdate();
   if (event.target.id === "sfxVolumeInput") elements.sfxVolumeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "karaokeSize") elements.karaokeSizeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "backgroundMusicVolume") {
@@ -2255,9 +2268,8 @@ elements.comparisonList.addEventListener("input", (event) => {
     writeComparisonFrame(comparison, side, { ...frame, zoom: Number(event.target.value) });
     applyComparisonThumb(comparison.id, side);
   } else comparison[field] = event.target.value;
-  jumpPreviewToComparison(comparison);
+  schedulePreviewUpdate(comparison);
   markDirty();
-  sendDraftToPreview();
   scheduleAutoSave(field.endsWith("ImageZoom") ? 200 : 500);
 });
 elements.comparisonList.addEventListener("change", (event) => {
@@ -2325,7 +2337,7 @@ elements.comparisonList.addEventListener("pointercancel", endComparisonDrag);
     writeImageFrame(side, { zoom: Number(elements[keys.zoomInput].value), x: frame.x, y: frame.y });
     applyImageFrameToThumb(side);
     markDirty();
-    sendDraftToPreview();
+    schedulePreviewUpdate(null, 40);
     scheduleAutoSave(200);
   });
   bindImageViewport(side);

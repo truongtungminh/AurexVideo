@@ -1852,6 +1852,40 @@ def cancel_job(job_id: str) -> dict | None:
     return get_job(job_id)
 
 
+def cancel_active_jobs_for_shutdown() -> None:
+    """Stop every render process group owned by this backend before exit."""
+    with JOBS_LOCK:
+        active_job_ids = [
+            job_id
+            for job_id, job in JOBS.items()
+            if str(job.get("status") or "") in ACTIVE_JOB_STATUSES
+        ]
+    for job_id in active_job_ids:
+        cancel_job(job_id)
+
+
+def install_shutdown_handlers(server: ThreadingHTTPServer) -> None:
+    """Gracefully stop render children when the desktop launcher exits."""
+    shutdown_started = threading.Event()
+
+    def request_shutdown(signum: int, _frame: object) -> None:
+        if shutdown_started.is_set():
+            return
+        shutdown_started.set()
+        print(f"\nReceived signal {signum}; stopping active render jobs.")
+
+        def stop_server() -> None:
+            cancel_active_jobs_for_shutdown()
+            server.shutdown()
+
+        threading.Thread(target=stop_server, daemon=True, name="aurex-shutdown").start()
+
+    for signal_name in ("SIGTERM", "SIGINT"):
+        signal_value = getattr(signal, signal_name, None)
+        if signal_value is not None:
+            signal.signal(signal_value, request_shutdown)
+
+
 def delete_project_output(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     confirm = bool(payload.get("confirm"))
@@ -9244,6 +9278,7 @@ def main() -> None:
         parser.error(str(exc))
 
     server = ThreadingHTTPServer((args.host, args.port), WebHandler)
+    install_shutdown_handlers(server)
     actual_port = int(server.server_address[1])
     url = f"http://localhost:{actual_port}"
     os.environ["AUREX_SERVER_ORIGIN"] = url
@@ -9266,6 +9301,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print(f"\n{color_text('👋 Đã dừng server.', 'yellow')}")
     finally:
+        cancel_active_jobs_for_shutdown()
         server.server_close()
 
 

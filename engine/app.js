@@ -335,10 +335,17 @@ function buildGroups(words) {
   return groups;
 }
 
+// Audio is continuous while the rendered video is sampled at fixed frame
+// boundaries. Cue a new pose slightly before its sentence start so the first
+// audible syllable never lands on the previous pose (at 30fps, one frame is
+// already 33ms late). The timeline itself remains the authoritative sentence
+// timing; this only controls visual selection.
+const POSE_EDGE_LEAD_SECONDS = 0.05;
+
 function poseAt(time) {
   let index = 0;
   for (let i = 0; i < topic.poseTimeline.length; i += 1) {
-    if (topic.poseTimeline[i].time <= time) index = i;
+    if (topic.poseTimeline[i].time <= time + POSE_EDGE_LEAD_SECONDS) index = i;
     else break;
   }
   return { ...topic.poseTimeline[index], index };

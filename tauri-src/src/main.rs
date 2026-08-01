@@ -7,9 +7,11 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::time::{Duration, Instant};
-
-use tauri::Manager;
 
 const APP_VERSION: &str = "0.2.4";
 const GITHUB_REPO: &str = "truongtungminh/AurexVideo";
@@ -248,23 +250,48 @@ fn terminate_unhealthy_server_on_port() {
     }
 }
 
-fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
+fn terminate_managed_backend(backend_pid: &Arc<Mutex<Option<u32>>>) {
+    let pid = backend_pid.lock().ok().and_then(|mut guard| guard.take());
+    if let Some(pid) = pid {
+        append_server_log(&format!("[launcher] shutting down managed backend pid={}\n", pid));
+        let _ = Command::new("/bin/kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+    }
+}
+
+fn run_server_watchdog(
+    python: PathBuf,
+    engine: PathBuf,
+    shutdown: Arc<AtomicBool>,
+    backend_pid: Arc<Mutex<Option<u32>>>,
+) {
     let mut consecutive_failures = 0u32;
-    loop {
+    while !shutdown.load(Ordering::SeqCst) {
         if wait_for_server(Duration::from_secs(2)) {
             consecutive_failures = 0;
             append_server_log("[launcher] using healthy backend already listening on port 4173\n");
-            while wait_for_server(Duration::from_secs(2)) {
+            while !shutdown.load(Ordering::SeqCst) && wait_for_server(Duration::from_secs(2)) {
                 std::thread::sleep(Duration::from_secs(2));
+            }
+            if shutdown.load(Ordering::SeqCst) {
+                break;
             }
             append_server_log("[launcher] existing backend stopped responding; taking ownership\n");
         }
 
+        if shutdown.load(Ordering::SeqCst) {
+            break;
+        }
         terminate_unhealthy_server_on_port();
         let started_at = Instant::now();
         append_server_log("\n[launcher] starting backend\n");
         match spawn_server(&python, &engine) {
             Ok(mut server) => {
+                let server_pid = server.id();
+                if let Ok(mut guard) = backend_pid.lock() {
+                    *guard = Some(server_pid);
+                }
                 if let Some(stdout) = server.stdout.take() {
                     drain_server_output(stdout, false);
                 }
@@ -282,10 +309,19 @@ fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
                         error
                     )),
                 }
+                if let Ok(mut guard) = backend_pid.lock() {
+                    if *guard == Some(server_pid) {
+                        *guard = None;
+                    }
+                }
             }
             Err(error) => {
                 append_server_log(&format!("\n[launcher] backend spawn failed: {}\n", error));
             }
+        }
+
+        if shutdown.load(Ordering::SeqCst) {
+            break;
         }
 
         if started_at.elapsed() >= Duration::from_secs(60) {
@@ -298,8 +334,12 @@ fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
             "[launcher] restarting backend in {}s (failure {})\n",
             delay, consecutive_failures
         ));
-        std::thread::sleep(Duration::from_secs(delay));
+        let wait_started = Instant::now();
+        while !shutdown.load(Ordering::SeqCst) && wait_started.elapsed() < Duration::from_secs(delay) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
+    terminate_managed_backend(&backend_pid);
 }
 
 fn main() {
@@ -322,18 +362,31 @@ fn main() {
     let engine = engine_dir();
     // Keep the backend supervised for the entire app lifetime. If Python exits,
     // preserve its output in server.log and restart it with bounded backoff.
-    std::thread::spawn(move || run_server_watchdog(python, engine));
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let backend_pid = Arc::new(Mutex::new(None));
+    let watchdog_shutdown = Arc::clone(&shutdown);
+    let watchdog_backend_pid = Arc::clone(&backend_pid);
+    std::thread::spawn(move || run_server_watchdog(python, engine, watchdog_shutdown, watchdog_backend_pid));
 
     if !wait_for_server(Duration::from_secs(90)) {
         eprintln!("[aurexvideo] WARNING: server did not respond in 90s");
     }
 
-    tauri::Builder::default()
+    let exit_shutdown = Arc::clone(&shutdown);
+    let exit_backend_pid = Arc::clone(&backend_pid);
+    let app = tauri::Builder::default()
         .setup(|app| {
             // window already configured in tauri.conf.json to load the URL
             let _ = app;
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running AurexVideo");
+    app.run(move |_app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+            if !exit_shutdown.swap(true, Ordering::SeqCst) {
+                terminate_managed_backend(&exit_backend_pid);
+            }
+        }
+    });
 }
