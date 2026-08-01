@@ -47,7 +47,7 @@
               <label>Maziao API key<input id="maziaoApiKey" type="password" autocomplete="off" placeholder="Đã lưu thì có thể để trống" /></label>
               <div class="form-grid">
                 <label>Giọng<input id="maziaoVoiceId" type="text" value="OncoinX" /></label>
-                <label>Model<input id="maziaoModelId" type="text" value="vietten_speech" /></label>
+                <label>Model<input id="maziaoModelId" type="text" value="vieten_speech" /></label>
               </div>
               <button class="button tiny secondary" id="saveMaziaoConfig" type="button">Lưu cấu hình API</button>
               <p class="form-note" id="maziaoConfigState">Đang kiểm tra cấu hình...</p>
@@ -131,7 +131,7 @@
           <label>Nhãn bên phải<input name="rightLabel" required value="Nội dung B" /></label>
         </div>
         <section class="character-picker">
-          <div class="character-picker-heading"><label for="characterSelect">Nhân vật</label><button class="button tiny secondary" id="createCharacterButton" type="button">+ Tạo nhân vật</button></div>
+          <div class="character-picker-heading"><label for="characterSelect">Nhân vật</label><span><button class="button tiny secondary" id="editCharacterButton" type="button">Sửa pose</button> <button class="button tiny secondary" id="createCharacterButton" type="button">+ Tạo nhân vật</button></span></div>
           <div class="character-selected"><img id="characterCover" alt="Nhân vật đã chọn" /><div><select name="characterId" id="characterSelect" required></select><small id="characterMeta">Đang tải thư viện...</small></div></div>
         </section>
         <button class="button primary wide" type="submit">Tạo và mở editor</button>
@@ -159,6 +159,17 @@
       </form>
     </dialog>
 
+    <dialog id="characterEditDialog" class="dialog dialog-wide">
+      <form id="characterEditForm" method="dialog">
+        <button class="dialog-close" type="button" data-close-dialog aria-label="Đóng">×</button>
+        <p class="eyebrow">Thư viện nhân vật</p>
+        <h2>Chỉnh sửa pose</h2>
+        <div id="characterEditStatus" class="form-note">Đặt tên, chọn hướng nhìn hoặc xoá pose không dùng.</div>
+        <div id="characterEditGrid" class="pose-draft-grid"></div>
+        <button class="button primary wide" id="saveCharacterEditButton" type="submit">Lưu thay đổi</button>
+      </form>
+    </dialog>
+
     <dialog id="duplicateDialog" class="dialog">
       <form id="duplicateForm" method="dialog">
         <button class="dialog-close" type="button" data-close-dialog aria-label="Đóng">×</button>
@@ -179,6 +190,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/webui/dashboard.js?v=20260730-jobs-slim"></script>
+    <script src="/webui/dashboard.js?v=20260801-fs144"></script>
   </body>
 </html>

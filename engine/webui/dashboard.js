@@ -8,6 +8,7 @@ const state = {
   poller: 0,
   characters: [],
   characterDraft: null,
+  characterEdit: null,
 };
 
 const elements = Object.fromEntries([
@@ -21,6 +22,8 @@ const elements = Object.fromEntries([
   "characterDialog", "characterForm", "createCharacterButton", "characterSelect", "characterCover", "characterMeta",
   "characterPrompt", "copyCharacterPrompt", "characterSheetFile", "characterSplitStatus", "poseDraftGrid",
   "characterName", "characterId", "saveCharacterButton",
+  "editCharacterButton", "characterEditDialog", "characterEditForm", "characterEditGrid",
+  "characterEditStatus", "saveCharacterEditButton",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
 
 function escapeHtml(value) {
@@ -219,7 +222,11 @@ function renderCharacterSelect(selected = "") {
   const active = characters.find((item) => item.id === elements.characterSelect.value) || characters[0];
   elements.characterCover.src = active?.coverUrl || "";
   elements.characterCover.hidden = !active;
-  elements.characterMeta.textContent = active ? `${active.poseCount} dáng pose · dùng lại cho mọi dự án` : "Chưa có nhân vật trong thư viện";
+  const usedBy = active?.usedBy || [];
+  elements.characterMeta.textContent = active
+    ? `${active.poseCount} dáng pose · ${usedBy.length ? `đang dùng ở ${usedBy.length} project (khoá sửa)` : "dùng lại cho mọi dự án"}`
+    : "Chưa có nhân vật trong thư viện";
+  if (elements.editCharacterButton) elements.editCharacterButton.disabled = !active || usedBy.length > 0;
 }
 
 async function loadCharacters(selected = "") {
@@ -267,6 +274,85 @@ async function saveCharacter(event) {
   } catch (error) {
     showToast(error.message, true);
     elements.saveCharacterButton.disabled = false;
+  }
+}
+
+function renderCharacterEdit() {
+  const edit = state.characterEdit;
+  if (!edit) return;
+  const focusOptions = (value) => ["left", "center", "right"]
+    .map((side) => `<option value="${side}" ${value === side ? "selected" : ""}>${side === "left" ? "Trái" : side === "right" ? "Phải" : "Giữa"}</option>`)
+    .join("");
+  elements.characterEditGrid.innerHTML = edit.poses.map((pose, index) => `
+    <div class="pose-draft-card" data-pose-index="${index}">
+      <img src="/assets/characters/${encodeURIComponent(edit.id)}/${encodeURIComponent(pose.file)}" alt="Pose ${index + 1}" />
+      <input data-edit-pose-name required value="${escapeHtml(pose.label || `Dáng ${index + 1}`)}" placeholder="Tên dáng pose" />
+      <label class="pose-focus-field">Hướng<select data-edit-pose-focus>${focusOptions(pose.focusSide || "center")}</select></label>
+      <button class="button tiny danger" type="button" data-remove-pose="${index}">Xoá pose</button>
+    </div>`).join("");
+  elements.saveCharacterEditButton.disabled = edit.poses.length === 0;
+}
+
+async function openCharacterEditor() {
+  const characterId = elements.characterSelect.value;
+  const character = state.characters.find((item) => item.id === characterId);
+  if (!character) { showToast("Chưa chọn nhân vật.", true); return; }
+  if ((character.usedBy || []).length) {
+    showToast(`Nhân vật đang được dùng trong project: ${character.usedBy.join(", ")}. Đổi nhân vật của project trước khi sửa.`, true);
+    return;
+  }
+  state.characterEdit = {
+    id: character.id,
+    originalCount: (character.poses || []).length,
+    poses: (character.poses || []).map((pose, index) => ({
+      id: pose.id,
+      index,
+      label: pose.label || pose.id,
+      file: pose.file,
+      focusSide: ["left", "right", "center"].includes(pose.focusSide) ? pose.focusSide : "center",
+    })),
+  };
+  elements.characterEditStatus.textContent = `${character.name || character.id} · ${state.characterEdit.poses.length} pose`;
+  renderCharacterEdit();
+  elements.projectDialog.close();
+  elements.characterEditDialog.showModal();
+}
+
+async function saveCharacterEdit(event) {
+  event.preventDefault();
+  const edit = state.characterEdit;
+  if (!edit) return;
+  const cards = [...elements.characterEditGrid.querySelectorAll("[data-pose-index]")];
+  const kept = cards.map((card) => ({
+    index: edit.poses[Number(card.dataset.poseIndex)].index,
+    name: card.querySelector("[data-edit-pose-name]").value.trim(),
+    focusSide: card.querySelector("[data-edit-pose-focus]").value,
+  }));
+  // The backend indexes against the ORIGINAL manifest order, so rebuild
+  // full-length arrays and list removed original indexes explicitly.
+  const poseNames = [];
+  const poseFocusSides = [];
+  const removedPoses = [];
+  for (let index = 0; index < edit.originalCount; index += 1) {
+    const match = kept.find((item) => item.index === index);
+    poseNames.push(match ? match.name : `pose-${index + 1}`);
+    poseFocusSides.push(match ? match.focusSide : "center");
+    if (!match) removedPoses.push(index);
+  }
+  elements.saveCharacterEditButton.disabled = true;
+  try {
+    const result = await api(`/api/characters/${encodeURIComponent(edit.id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ id: edit.id, poseNames, poseFocusSides, removedPoses }),
+    });
+    state.characterEdit = null;
+    await loadCharacters(result.character.id);
+    elements.characterEditDialog.close();
+    showToast(`Đã cập nhật nhân vật “${result.character.name || result.character.id}”.`);
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    elements.saveCharacterEditButton.disabled = false;
   }
 }
 
@@ -499,6 +585,25 @@ elements.characterName.addEventListener("input", () => {
 });
 elements.characterId.addEventListener("input", () => { elements.characterId.dataset.edited = "1"; });
 elements.characterForm.addEventListener("submit", saveCharacter);
+if (elements.editCharacterButton) {
+  elements.editCharacterButton.addEventListener("click", () => {
+    openCharacterEditor().catch((error) => showToast(error.message, true));
+  });
+}
+if (elements.characterEditForm) elements.characterEditForm.addEventListener("submit", saveCharacterEdit);
+if (elements.characterEditGrid) {
+  elements.characterEditGrid.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-pose]");
+    if (!button || !state.characterEdit) return;
+    const index = Number(button.dataset.removePose);
+    if (state.characterEdit.poses.length <= 1) {
+      showToast("Nhân vật phải giữ lại ít nhất một pose.", true);
+      return;
+    }
+    state.characterEdit.poses.splice(index, 1);
+    renderCharacterEdit();
+  });
+}
 elements.refreshButton.addEventListener("click", loadPage);
 elements.projectForm.addEventListener("submit", submitProject);
 elements.duplicateForm.addEventListener("submit", submitDuplicate);

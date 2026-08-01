@@ -31,6 +31,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from social_upload import (
     build_upload_metadata,
+    disconnect_facebook_page,
+    disconnect_youtube_channel,
     facebook_comment_source,
     facebook_upload_video,
     finish_youtube_oauth,
@@ -670,7 +672,7 @@ def project_render_status(project_name: str, has_script: bool, has_output: bool,
             "failed",
         )
     if has_script:
-        return (("Sẵn sàng" if language == "vi" else "Ready"), "ok", "ready")
+        return (("Chưa render" if language == "vi" else "Not rendered"), "bad", "not-rendered")
     return (("Thiếu script" if language == "vi" else "Missing script"), "bad", "missing-script")
 
 
@@ -703,6 +705,7 @@ def list_projects() -> list[dict]:
             has_output,
             output_url if final_video.exists() else None,
         )
+        social_status = social_metadata.project_social_status(project_dir)
         projects.append(
             {
                 "name": project_dir.name,
@@ -720,6 +723,9 @@ def list_projects() -> list[dict]:
                 "render_status": render_status,
                 "render_status_class": render_status_class,
                 "render_state": render_state,
+                "social_status": social_status["label"],
+                "social_status_class": "ok" if social_status.get("posted") else "bad",
+                "social_status_title": social_status["title"],
             }
         )
     return projects
@@ -1690,7 +1696,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
 
     if engine in {"maziao"}:
         voice = str(payload.get("voice") or "OncoinX").strip()
-        model_id = str(payload.get("modelId") or "vietten_speech").strip()
+        model_id = str(payload.get("modelId") or "vieten_speech").strip()
         cmd.extend(["--engine", "maziao", "--voice", voice, "--model-id", model_id])
         if bool(payload.get("force", False)):
             cmd.append("--force-tts")
@@ -3202,6 +3208,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
                 </div>
               </div>
               <span class="status-pill {status_class}">{status}</span>
+              <span class="status-pill {project['social_status_class']} social-status" title="{html.escape(project['social_status_title'], quote=True)}">{html.escape(project['social_status'])}</span>
               <div class="actions">
                 <button class="select-btn icon-btn" type="button" data-project="{name}">{ui_icon("check")}<span>Chọn</span></button>
                 <a class="small-link icon-btn" href="{href}">{ui_icon("external-link")}<span>Xem</span></a>
@@ -3459,6 +3466,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div class="list-head">
         <span>Dự án</span>
         <span>Trạng thái</span>
+        <span>Đăng social</span>
         <span>Thao tác</span>
       </div>
       <ol class="project-list" id="projectList">
@@ -5414,7 +5422,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     .list-head,
     .project-row {
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) 100px minmax(320px, 460px);
+      grid-template-columns: minmax(180px, 1fr) 100px 120px minmax(320px, 420px);
       gap: 12px;
       align-items: center;
     }
@@ -5426,7 +5434,8 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       letter-spacing: 0.12em;
       text-transform: uppercase;
     }
-    .list-head span:last-child {
+    .list-head span:last-child,
+    .list-head span:nth-child(3) {
       justify-self: center;
       text-align: center;
     }
@@ -7159,6 +7168,33 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       border-color: rgba(79, 57, 31, 0.12);
       background: #fffbf4;
     }
+    .platform-account-row {
+      display: flex;
+      align-items: stretch;
+      gap: 6px;
+    }
+    .platform-account-row .platform-account-option {
+      flex: 1;
+    }
+    .platform-account-remove {
+      flex: 0 0 auto;
+      width: 34px;
+      border: 1px solid rgba(79, 57, 31, 0.14);
+      border-radius: 14px;
+      background: #fffbf4;
+      color: #b3261e;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .platform-account-remove:hover {
+      background: #ffe9e6;
+    }
+    body:not(.theme-light) .platform-account-remove {
+      border-color: rgba(255, 255, 255, 0.10);
+      background: #171a21;
+      color: #ff8b80;
+    }
     body:not(.theme-light) .platform-account-options {
       background: #111318;
       box-shadow: 0 24px 54px rgba(0, 0, 0, 0.46);
@@ -7650,6 +7686,7 @@ def render_page_shell(title: str, body: str, extra_style: str = "", extra_script
   <link rel="icon" href="/web/favicon.ico" sizes="any" />
   <link rel="shortcut icon" href="/web/favicon.ico" type="image/x-icon" />
   <style>
+    @import url("/assets/fonts/catalog.css");
     /* Prefer OS Vietnamese-capable faces on Windows WebView2. Keep Inter as a
        self-hosted fallback with multi-format src so variable fonts still load. */
     @font-face {{
@@ -8028,6 +8065,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         data = json_dumps(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -8036,6 +8074,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         data = inject_ui_language(data)
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -8180,6 +8219,24 @@ class WebHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/projects":
             self.send_json(200, {"projects": list_projects()})
+            return
+
+        if path == "/api/render-preferences":
+            try:
+                self.send_json(200, {"preferences": m3.read_render_preferences()})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/label-fonts":
+            character_id = (parse_qs(parsed.query).get("characterId") or [""])[0].strip()
+            try:
+                self.send_json(200, {
+                    "fonts": m3.label_font_catalog(),
+                    "default": m3.remembered_label_font(character_id),
+                })
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
             return
 
         if path == "/api/characters":
@@ -8796,6 +8853,26 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, result)
                 return
 
+            if parsed.path == "/api/social/youtube/disconnect":
+                try:
+                    payload = self.read_json_body()
+                    result = disconnect_youtube_channel(str(payload.get("channelId") or payload.get("channel_id") or ""))
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/social/facebook/disconnect":
+                try:
+                    payload = self.read_json_body()
+                    result = disconnect_facebook_page(str(payload.get("pageId") or payload.get("page_id") or ""))
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
             if parsed.path == "/api/social/youtube/config":
                 try:
                     payload = self.read_json_body()
@@ -8879,6 +8956,12 @@ class WebHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self.send_json(400, {"error": str(exc)})
             return
+
+        # Remember the render options so the next render starts pre-filled.
+        try:
+            m3.write_render_preferences(payload)
+        except Exception:
+            pass
 
         self.send_json(202, job)
 

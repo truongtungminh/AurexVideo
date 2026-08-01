@@ -1,6 +1,6 @@
 const pathProject = window.location.pathname.match(/^\/project\/([^/]+)\/$/)?.[1] || "";
 const project = new URLSearchParams(window.location.search).get("project") || decodeURIComponent(pathProject);
-const state = { topic: null, characters: [], dirty: false, revision: 0, saving: false, previewTime: 0, previewSegmentIndex: -1, previewComparisonId: "", poseBySegment: [], activeJob: null, pendingUploads: {}, imageDrag: null, cropTarget: null, cropOriginalSrc: null, cropZoom: 1, cropPanX: 0, cropPanY: 0, cropSelection: null, cropDisplay: null, cropDrag: null, cropRotateMode: false, cropAspectLocked: true, cropFrameAspect: 1, activePoseSfx: "neutral-left" };
+const state = { topic: null, characters: [], dirty: false, revision: 0, saving: false, previewTime: 0, previewSegmentIndex: -1, previewComparisonId: "", poseBySegment: [], renderedSegments: [], activeJob: null, pendingUploads: {}, imageDrag: null, cropTarget: null, cropOriginalSrc: null, cropZoom: 1, cropPanX: 0, cropPanY: 0, cropSelection: null, cropDisplay: null, cropDrag: null, cropRotateMode: false, cropAspectLocked: true, cropFrameAspect: 1, activePoseSfx: "neutral-left" };
 
 function isEnglishUi() {
   return (window.__AUREX_LANGUAGE__ || document.documentElement.lang) === "en";
@@ -23,15 +23,55 @@ function hasSubLabelRow(source) {
   return Boolean(String(source.leftSubLabel || "").trim() || String(source.rightSubLabel || "").trim());
 }
 
+// Bundled Vietnamese-capable catalog. Kept in sync with
+// m3_backend.LABEL_FONT_CATALOG so the editor, preview and render agree.
+const LABEL_FONT_CATALOG = [
+  { name: "Inter", stack: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
+  { name: "Be Vietnam Pro", stack: '"Be Vietnam Pro", "Inter", sans-serif' },
+  { name: "Manrope", stack: '"Manrope", "Inter", sans-serif' },
+  { name: "Lexend", stack: '"Lexend", "Inter", sans-serif' },
+  { name: "Nunito", stack: '"Nunito", "Inter", sans-serif' },
+  { name: "Quicksand", stack: '"Quicksand", "Inter", sans-serif' },
+  { name: "Saira", stack: '"Saira", "Inter", sans-serif' },
+  { name: "Roboto", stack: '"Roboto", "Inter", sans-serif' },
+  { name: "Literata", stack: '"Literata", Georgia, serif' },
+  { name: "Playfair Display", stack: '"Playfair Display", Georgia, serif' },
+];
+// Legacy stacks render Vietnamese diacritics badly on Windows.
+const LEGACY_LABEL_FONTS = {
+  'arial, sans-serif': '"Be Vietnam Pro", "Inter", sans-serif',
+  'georgia, serif': '"Literata", Georgia, serif',
+  '"times new roman", times, serif': '"Literata", Georgia, serif',
+};
+
 function normalizeLabelFontFamily(value) {
-  const fonts = new Set([
-    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    'Arial, sans-serif',
-    'Georgia, serif',
-    '"Times New Roman", Times, serif',
-  ]);
   const next = String(value || "").trim();
-  return fonts.has(next) ? next : DEFAULT_LABEL_FONT_FAMILY;
+  if (LABEL_FONT_CATALOG.some((item) => item.stack === next)) return next;
+  return LEGACY_LABEL_FONTS[next.toLowerCase()] || DEFAULT_LABEL_FONT_FAMILY;
+}
+
+function labelFontOptionsHtml(selected) {
+  const current = normalizeLabelFontFamily(selected);
+  return LABEL_FONT_CATALOG
+    .map((item) => `<option value='${item.stack.replace(/'/g, "&#39;")}' ${item.stack === current ? "selected" : ""}>${item.name}</option>`)
+    .join("");
+}
+
+function populateLabelFontSelect(select, selected) {
+  if (!select) return;
+  select.innerHTML = labelFontOptionsHtml(selected);
+  select.value = normalizeLabelFontFamily(selected);
+}
+
+async function rememberedLabelFontFor(characterId) {
+  try {
+    const response = await fetch(`/api/label-fonts?characterId=${encodeURIComponent(characterId || "")}`, { cache: "no-store" });
+    if (!response.ok) return "";
+    const data = await response.json();
+    return normalizeLabelFontFamily(data?.default);
+  } catch (error) {
+    return "";
+  }
 }
 
 const POSE_LABEL_EN = {
@@ -309,6 +349,7 @@ function characterTopicData(character) {
     poseAssets: Object.fromEntries(poses.map((pose) => [pose.id, {
       closed: `../../assets/characters/${character.id}/${pose.closedFile || pose.file}`,
       speaking: `../../assets/characters/${character.id}/${pose.speakingFile || pose.file}`,
+      focusSide: ["left", "right", "center"].includes(pose.focusSide) ? pose.focusSide : "center",
       syncMode: ["scene", "timeline", "freeze"].includes(pose.syncMode) ? pose.syncMode : "scene",
       loop: pose.loop !== false,
       loopStart: Math.max(0, Number(pose.loopStart) || 0),
@@ -372,6 +413,16 @@ function switchCharacter(characterId) {
   renderCharacterPicker();
   renderPoseSfxMap();
   renderPoseList();
+  // Apply the font remembered for this character (same behaviour as background
+  // and subtitle colour presets).
+  rememberedLabelFontFor(character.id).then((font) => {
+    if (!font || !state.topic || state.topic.characterId !== character.id) return;
+    state.topic.labelFontFamily = font;
+    populateLabelFontSelect(elements.labelFontFamily, font);
+    markDirty();
+    sendDraftToPreview();
+    scheduleAutoSave(120);
+  });
   markDirty();
   sendDraftToPreview();
   scheduleAutoSave(100);
@@ -616,12 +667,7 @@ function comparisonCardHtml(comparison, index) {
         <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Nhãn phụ</label><div><input data-field="leftSubLabel" maxlength="40" placeholder="Nhãn phụ" autocomplete="off" spellcheck="false" value="${leftSub}" aria-label="Nhãn phụ" /><input class="label-color-input" data-field="leftSubLabelColor" type="color" value="${leftSubColor}" aria-label="Màu nhãn phụ" title="Màu nhãn phụ" /></div></div>
       </div>
       <label class="comparison-font-field">Font nhãn
-        <select data-field="labelFontFamily">
-          <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ${labelFontFamily === '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ? "selected" : ""}>Inter</option>
-          <option value='Arial, sans-serif' ${labelFontFamily === 'Arial, sans-serif' ? "selected" : ""}>Arial</option>
-          <option value='Georgia, serif' ${labelFontFamily === 'Georgia, serif' ? "selected" : ""}>Georgia</option>
-          <option value='"Times New Roman", Times, serif' ${labelFontFamily === '"Times New Roman", Times, serif' ? "selected" : ""}>Times New Roman</option>
-        </select>
+        <select data-field="labelFontFamily">${labelFontOptionsHtml(labelFontFamily)}</select>
       </label>
       <div class="upload-grid single-image-upload-grid">
         ${comparisonUploadCardHtml(comparison, "left")}
@@ -635,12 +681,7 @@ function comparisonCardHtml(comparison, index) {
       <div class="comparison-label-field"><label class="sr-only">Nhãn bên phải</label><div><input data-field="rightLabel" required value="${escapeHtml(comparison.rightLabel || "")}" aria-label="Nhãn bên phải" /><input class="label-color-input" data-field="rightLabelColor" type="color" value="${escapeHtml(comparison.rightLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>
     </div>
     <label class="comparison-font-field">Font nhãn
-      <select data-field="labelFontFamily">
-        <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ${labelFontFamily === '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ? "selected" : ""}>Inter</option>
-        <option value='Arial, sans-serif' ${labelFontFamily === 'Arial, sans-serif' ? "selected" : ""}>Arial</option>
-        <option value='Georgia, serif' ${labelFontFamily === 'Georgia, serif' ? "selected" : ""}>Georgia</option>
-        <option value='"Times New Roman", Times, serif' ${labelFontFamily === '"Times New Roman", Times, serif' ? "selected" : ""}>Times New Roman</option>
-      </select>
+    <select data-field="labelFontFamily">${labelFontOptionsHtml(labelFontFamily)}</select>
     </label>
     <div class="form-grid comparison-label-grid comparison-sublabel-grid" data-sublabel-row>
       <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Phiên âm bên trái</label><div><input data-field="leftSubLabel" maxlength="40" placeholder="/lʊk/" autocomplete="off" spellcheck="false" value="${leftSub}" aria-label="Phiên âm bên trái" /><input class="label-color-input" data-field="leftSubLabelColor" type="color" value="${leftSubColor}" aria-label="Màu phiên âm bên trái" title="Màu phiên âm bên trái" /></div></div>
@@ -1022,11 +1063,32 @@ function renderPoseList() {
   if (state.poseBySegment.length !== segments.length) {
     state.poseBySegment = segments.map((segment, index) => state.poseBySegment[index] || { pose: inferPose(segment.text, index) });
   }
-  elements.poseList.innerHTML = segments.map((segment, index) => `<div class="pose-row" data-index="${index}">
-    <span class="pose-row-time">${formatTime(segment.start)}<strong>${index + 1}.</strong></span>
+  elements.poseList.innerHTML = segments.map((segment, index) => {
+    const rendered = state.renderedSegments[index];
+    const start = rendered && String(rendered.text || "").trim() === String(segment.text || "").trim()
+      ? Number(rendered.start) : segment.start;
+    return `<div class="pose-row" data-index="${index}">
+    <span class="pose-row-time">${formatTime(start)}<strong>${index + 1}.</strong></span>
     <p title="${segment.text.replace(/"/g, "&quot;")}">${segment.text}</p>
     <select data-field="pose">${poseOptionsHtml(state.poseBySegment[index].pose)}</select>
-  </div>`).join("");
+  </div>`;
+  }).join("");
+}
+
+async function loadRenderedTiming() {
+  state.renderedSegments = [];
+  try {
+    const response = await fetch(`/project/${encodeURIComponent(project)}/topic.rendered.json`, { cache: "no-store" });
+    if (!response.ok) return;
+    const rendered = await response.json();
+    const source = state.topic?.segments || [];
+    const aligned = Array.isArray(rendered.segments) ? rendered.segments : [];
+    if (aligned.length === source.length && aligned.every((item, index) => String(item.text || "").trim() === String(source[index]?.text || "").trim())) {
+      state.renderedSegments = aligned;
+    }
+  } catch {
+    // Render timing is optional until a video has been rendered.
+  }
 }
 
 function timelineFromPoses(segments) {
@@ -1120,6 +1182,26 @@ function sendDraftToPreview() {
   if (state.previewSegmentIndex < 0) {
     elements.previewFrame.contentWindow.postMessage({ type: "tho-preview-blank" }, window.location.origin);
   }
+}
+
+function reloadPreviewKeepingState(src) {
+  // Reloading the iframe resets the preview to frame 0. Remember where the
+  // user was and restore it once the new document has booted.
+  const segmentIndex = state.previewSegmentIndex;
+  const time = state.previewTime;
+  const comparisonId = state.previewComparisonId;
+  const frame = elements.previewFrame;
+  const restore = () => {
+    frame.removeEventListener("load", restore);
+    state.previewSegmentIndex = segmentIndex;
+    state.previewTime = time;
+    state.previewComparisonId = comparisonId;
+    updatePreviewCounter(segmentIndex);
+    // The preview boots asynchronously, so give it a tick before seeking.
+    window.setTimeout(() => sendDraftToPreview(), 120);
+  };
+  frame.addEventListener("load", restore);
+  frame.src = src;
 }
 
 function seekPreview(delta = 0) {
@@ -1758,7 +1840,7 @@ async function saveEditor(event, quiet = false) {
     configurePoseOptions(state.topic);
     state.dirty = savingRevision !== state.revision;
     elements.saveState.textContent = state.dirty ? "Có thay đổi mới, đang lưu tiếp..." : "Đã tự động lưu";
-    if (uploadedVoice) elements.previewFrame.src = `/index.html?topic=${encodeURIComponent(`project/${project}/topic.json`)}&render=1&preview=1&v=${Date.now()}`;
+    if (uploadedVoice) reloadPreviewKeepingState(`/index.html?topic=${encodeURIComponent(`project/${project}/topic.json`)}&render=1&preview=1&v=${Date.now()}`);
     else sendDraftToPreview();
     elements.leftThumb.src = assetUrl(state.topic.leftImage);
     elements.rightThumb.src = assetUrl(state.topic.rightImage);
@@ -1827,6 +1909,7 @@ async function loadProject() {
     await Promise.all([loadSfxLibrary(), loadCharacters()]);
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`);
     state.topic = result.topic;
+    await loadRenderedTiming();
     state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);
     syncPasteImageModeControls();
     if (localizeStarterContent(state.topic)) {
@@ -1847,7 +1930,7 @@ async function loadProject() {
     elements.rightLabelInput.value = state.topic.rightLabel;
     elements.leftLabelColor.value = state.topic.leftLabelColor || state.topic.labelColor || "#090909";
     elements.rightLabelColor.value = state.topic.rightLabelColor || state.topic.labelColor || "#090909";
-    if (elements.labelFontFamily) elements.labelFontFamily.value = normalizeLabelFontFamily(state.topic.labelFontFamily);
+    populateLabelFontSelect(elements.labelFontFamily, state.topic.labelFontFamily);
     if (elements.leftSubLabelInput) elements.leftSubLabelInput.value = state.topic.leftSubLabel || "";
     if (elements.rightSubLabelInput) elements.rightSubLabelInput.value = state.topic.rightSubLabel || "";
     if (elements.leftSubLabelColor) elements.leftSubLabelColor.value = state.topic.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR;

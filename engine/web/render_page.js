@@ -118,8 +118,11 @@
       const brandingControl = $('#renderBranding');
       if (brandingControl?.disabled) brandingControl.checked = true;
       else if (typeof value.branding === 'boolean' && brandingControl) brandingControl.checked = value.branding;
+      else if (brandingControl) brandingControl.checked = false;
       if (typeof value.brandName === 'string' && value.brandName.trim()) state.renderOptions.brandName = value.brandName.trim();
     } catch (_) {
+      const brandingControl = $('#renderBranding');
+      if (brandingControl && !brandingControl.disabled) brandingControl.checked = false;
       localStorage.removeItem(RENDER_PREFERENCES_KEY);
     }
   }
@@ -651,9 +654,47 @@
         if (prefix === 'youtube') setYoutubeActiveChannel(accountId);
         else setFacebookActivePage(accountId);
       });
-      menu.appendChild(option);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'platform-account-remove';
+      remove.textContent = '×';
+      remove.setAttribute('title', 'Gỡ tài khoản này');
+      remove.addEventListener('click', (event) => {
+        event.stopPropagation();
+        closePlatformAccountMenus();
+        disconnectSocialAccount(prefix, accountId, account.name || account.title || accountId);
+      });
+      const row = document.createElement('div');
+      row.className = 'platform-account-row';
+      row.appendChild(option);
+      row.appendChild(remove);
+      menu.appendChild(row);
     });
     list.appendChild(menu);
+  }
+
+  async function disconnectSocialAccount(prefix, accountId, label) {
+    if (!accountId) return;
+    const platform = prefix === 'youtube' ? 'YouTube Channel' : 'Facebook Page';
+    if (!window.confirm(`Gỡ ${platform} “${label}” khỏi AurexVideo?`)) return;
+    setAccountListDisabled(prefix, true);
+    setUploadStatus(`Đang gỡ ${platform}...`, 'warn');
+    try {
+      const body = prefix === 'youtube' ? { channelId: accountId } : { pageId: accountId };
+      const response = await fetch(`/api/social/${prefix}/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      setUploadStatus(`Đã gỡ ${platform}.`, 'good');
+      await refreshSocialStatus();
+    } catch (error) {
+      setUploadStatus(error.message || String(error), 'bad');
+    } finally {
+      setAccountListDisabled(prefix, false);
+    }
   }
 
   function setAccountListDisabled(prefix, disabled) {
@@ -2244,6 +2285,17 @@
         const links = [];
         if (data.url) links.push({ label: 'Mở Reel/Post', href: data.url });
         setUploadResult(data.message || 'Uploaded.', 'good', links);
+        const sourceComment = ($('#facebookSourceComment')?.value || '').trim();
+        if (facebookVideoState === 'PUBLISHED' && sourceComment && state.facebookCommentTargetId) {
+          commentFacebookSourceWithDelay(project, Date.now())
+            .then((commentData) => {
+              setUploadStatus(commentData.message || 'Đã comment nguồn lên Facebook.', 'good');
+              setUploadResult(commentData.message || 'Đã comment nguồn lên Facebook.', 'good', links);
+            })
+            .catch((commentError) => {
+              setUploadStatus(commentError.message || String(commentError), 'bad');
+            });
+        }
       } catch (error) {
         setUploadStatus(error.message || String(error), 'bad');
       } finally {
@@ -2480,4 +2532,35 @@
   window.addEventListener('beforeunload', () => window.clearInterval(projectStatusTimer));
   if (typeof syncEdgeVoiceCustomField === 'function') syncEdgeVoiceCustomField();
   syncSpeedPresets();
+
+  // Restore the render options saved by the previous render.
+  async function restoreRenderPreferences() {
+    let preferences = null;
+    try {
+      const response = await fetch('/api/render-preferences', { cache: 'no-store' });
+      if (!response.ok) return;
+      preferences = (await response.json()).preferences;
+    } catch (error) {
+      return;
+    }
+    if (!preferences || typeof preferences !== 'object') return;
+    const applyValue = (selector, value) => {
+      const field = $(selector);
+      if (!field || value === undefined || value === null || value === '') return;
+      field.value = String(value);
+    };
+    applyValue('#renderSpeed', preferences.speed);
+    applyValue('#renderVolume', preferences.volume);
+    applyValue('#renderSize', preferences.size);
+    const branding = $('#renderBranding');
+    if (branding && !branding.disabled && typeof preferences.branding === 'boolean') {
+      branding.checked = preferences.branding;
+    }
+    if (preferences.engine && typeof setEngine === 'function') {
+      try { setEngine(preferences.engine); } catch (error) { /* engine tab may be fixed */ }
+    }
+    syncSpeedPresets();
+    if (typeof syncEdgeVoiceCustomField === 'function') syncEdgeVoiceCustomField();
+  }
+  restoreRenderPreferences();
 })();
