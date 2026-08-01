@@ -8268,6 +8268,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, {
                     "fonts": m3.label_font_catalog(),
                     "default": m3.remembered_label_font(character_id),
+                    "settings": m3.remembered_character_settings(character_id),
                 })
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})

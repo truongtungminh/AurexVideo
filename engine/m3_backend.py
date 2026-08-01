@@ -48,8 +48,8 @@ AUREX_PYTHON = PYTHON_EXECUTABLE
 TTS_PYTHON = AUREX_PYTHON if AUREX_PYTHON.is_file() else Path(sys.executable)
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 DEFAULT_YOUTUBE_TITLE = "Sự khác nhau là gì?, Phần 1"
-DEFAULT_YOUTUBE_DESCRIPTION = "🎬 Sự khác nhau là gì?\n#Hieuhamhoc #sosanh #kienthuc"
-DEFAULT_FACEBOOK_CAPTION = "🎬 Sự khác nhau là gì?, Phần 1\n#Hieuhamhoc #sosanh #kienthuc"
+DEFAULT_YOUTUBE_DESCRIPTION = "🎬 Sự khác nhau là gì?\n#bietchichonhieu #sosanh #kienthuc"
+DEFAULT_FACEBOOK_CAPTION = "🎬 Sự khác nhau là gì?, Phần 1\n#bietchichonhieu #sosanh #kienthuc"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = Lock()
 PROJECT_DEFAULTS_LOCK = Lock()
@@ -230,7 +230,7 @@ def social_metadata(slug: str) -> dict:
         "facebookSourceComment": "",
         "source_url": "",
         "privacyStatus": "public",
-        "tags": ["Hieuhamhoc", "sosanh", "kienthuc"],
+        "tags": ["bietchichonhieu", "sosanh", "kienthuc"],
         "video_url": file_url(latest_output_video(slug)),
     }
 
@@ -913,6 +913,29 @@ def remembered_label_font(character_id: str) -> str:
     return normalize_label_font_family(defaults.get("labelFontFamily"))
 
 
+def remembered_character_settings(character_id: str) -> dict:
+    defaults = read_project_defaults()
+    key = str(character_id or "").strip()
+    mapping = defaults.get("settingsByCharacter")
+    if isinstance(mapping, dict) and isinstance(mapping.get(key), dict):
+        return dict(mapping[key])
+    return {
+        "backgroundType": defaults.get("backgroundType", "default"),
+        "backgroundColor": defaults.get("backgroundColor", "#f5eee3"),
+        "backgroundImageZoom": defaults.get("backgroundImageZoom", 1.0),
+        "backgroundImageX": defaults.get("backgroundImageX", 0.0),
+        "backgroundImageY": defaults.get("backgroundImageY", 0.0),
+        "karaokeColor": defaults.get("karaokeColor", "#271f11"),
+        "karaokeActiveColor": defaults.get("karaokeActiveColor", "#de370d"),
+        "karaokeSize": defaults.get("karaokeSize", 1.2),
+        "labelColor": defaults.get("labelColor", "#090909"),
+        "leftLabelColor": defaults.get("leftLabelColor", "#090909"),
+        "rightLabelColor": defaults.get("rightLabelColor", "#090909"),
+        "leftSubLabelColor": defaults.get("leftSubLabelColor", "#808080"),
+        "rightSubLabelColor": defaults.get("rightSubLabelColor", "#808080"),
+    }
+
+
 def read_project_defaults() -> dict:
     try:
         value = json.loads(PROJECT_DEFAULTS_PATH.read_text(encoding="utf-8"))
@@ -1086,6 +1109,24 @@ def remember_project_defaults(slug: str, topic: dict) -> None:
                 font_mappings = {}
             font_mappings[character_id] = label_font
             defaults["labelFontByCharacter"] = font_mappings
+            settings = defaults.get("settingsByCharacter")
+            if not isinstance(settings, dict):
+                settings = {}
+            settings[character_id] = {
+                "backgroundType": background_type,
+                "backgroundColor": defaults["backgroundColor"],
+                "backgroundImageZoom": defaults["backgroundImageZoom"],
+                "backgroundImageX": defaults["backgroundImageX"],
+                "backgroundImageY": defaults["backgroundImageY"],
+                "karaokeColor": defaults["karaokeColor"],
+                "karaokeActiveColor": defaults["karaokeActiveColor"],
+                "karaokeSize": defaults["karaokeSize"],
+                "labelColor": normalize_hex_color(topic.get("labelColor"), "#090909"),
+                "leftLabelColor": normalize_hex_color(topic.get("leftLabelColor"), "#090909"),
+                "rightLabelColor": normalize_hex_color(topic.get("rightLabelColor"), "#090909"),
+                "leftSubLabelColor": normalize_hex_color(topic.get("leftSubLabelColor"), "#808080"),
+                "rightSubLabelColor": normalize_hex_color(topic.get("rightSubLabelColor"), "#808080"),
+            }
 
         if character_id:
             mappings = defaults.get("poseSfxByCharacter")
@@ -1531,6 +1572,7 @@ def create_project(payload: dict) -> dict:
     is_en = language == "en"
     defaults = read_project_defaults()
     character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
+    character_settings = remembered_character_settings(character_id)
     try:
         character = character_manifest(character_id)
         character_poses = character["poses"]
@@ -1636,14 +1678,14 @@ def create_project(payload: dict) -> dict:
             shutil.copy2(source, target)
             sfx_map[key] = target.relative_to(destination).as_posix()
 
-    background_type = str(defaults.get("backgroundType") or "default").strip().lower()
+    background_type = str(character_settings.get("backgroundType") or "default").strip().lower()
     if background_type not in {"default", "color", "image"}:
         background_type = "default"
-    background_color = normalize_hex_color(defaults.get("backgroundColor"), "#f5eee3")
+    background_color = normalize_hex_color(character_settings.get("backgroundColor"), "#f5eee3")
     try:
-        background_zoom = round(max(1.0, min(3.0, float(defaults.get("backgroundImageZoom", 1.0)))), 2)
-        background_x = round(max(-50.0, min(50.0, float(defaults.get("backgroundImageX", 0.0)))), 1)
-        background_y = round(max(-50.0, min(50.0, float(defaults.get("backgroundImageY", 0.0)))), 1)
+        background_zoom = round(max(1.0, min(3.0, float(character_settings.get("backgroundImageZoom", 1.0)))), 2)
+        background_x = round(max(-50.0, min(50.0, float(character_settings.get("backgroundImageX", 0.0)))), 1)
+        background_y = round(max(-50.0, min(50.0, float(character_settings.get("backgroundImageY", 0.0)))), 1)
     except (TypeError, ValueError):
         background_zoom, background_x, background_y = 1.0, 0.0, 0.0
     background_image = ""
@@ -1657,7 +1699,7 @@ def create_project(payload: dict) -> dict:
             background_type = "color" if background_color else "default"
 
     try:
-        karaoke_size = round(max(0.6, min(1.5, float(defaults.get("karaokeSize", 1.2)))), 2)
+        karaoke_size = round(max(0.6, min(1.5, float(character_settings.get("karaokeSize", 1.2)))), 2)
     except (TypeError, ValueError):
         karaoke_size = 1.2
 
@@ -1712,13 +1754,15 @@ def create_project(payload: dict) -> dict:
         "backgroundMusicEnabled": background_music_enabled,
         "backgroundMusicVolume": background_music_volume,
         "pasteImageMode": str(payload.get("pasteImageMode") or "square") if str(payload.get("pasteImageMode") or "square") in {"square", "original"} else "square",
-        "labelColor": "#090909",
+        "labelColor": normalize_hex_color(character_settings.get("labelColor"), "#090909"),
         "labelFontFamily": remembered_label_font(character_id),
-        "leftLabelColor": "#090909",
-        "rightLabelColor": "#090909",
+        "leftLabelColor": normalize_hex_color(character_settings.get("leftLabelColor"), "#090909"),
+        "rightLabelColor": normalize_hex_color(character_settings.get("rightLabelColor"), "#090909"),
+        "leftSubLabelColor": normalize_hex_color(character_settings.get("leftSubLabelColor"), "#808080"),
+        "rightSubLabelColor": normalize_hex_color(character_settings.get("rightSubLabelColor"), "#808080"),
         "comparisons": [],
-        "karaokeColor": normalize_hex_color(defaults.get("karaokeColor"), "#271f11"),
-        "karaokeActiveColor": normalize_hex_color(defaults.get("karaokeActiveColor"), "#de370d"),
+        "karaokeColor": normalize_hex_color(character_settings.get("karaokeColor"), "#271f11"),
+        "karaokeActiveColor": normalize_hex_color(character_settings.get("karaokeActiveColor"), "#de370d"),
         "karaokeSize": karaoke_size,
     }
     atomic_write_json(destination / "topic.json", topic)

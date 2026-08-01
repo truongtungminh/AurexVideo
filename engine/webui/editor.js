@@ -68,9 +68,9 @@ async function rememberedLabelFontFor(characterId) {
     const response = await fetch(`/api/label-fonts?characterId=${encodeURIComponent(characterId || "")}`, { cache: "no-store" });
     if (!response.ok) return "";
     const data = await response.json();
-    return normalizeLabelFontFamily(data?.default);
+    return { font: normalizeLabelFontFamily(data?.default), settings: data?.settings || {} };
   } catch (error) {
-    return "";
+    return { font: "", settings: {} };
   }
 }
 
@@ -383,7 +383,7 @@ function renderCharacterPicker() {
   elements.characterPoseCount.textContent = poseCount ? tr(`${poseCount} dáng pose`, `${poseCount} poses`) : tr("Chưa có pose", "No poses yet");
 }
 
-function switchCharacter(characterId) {
+async function switchCharacter(characterId) {
   if (!state.topic || characterId === state.topic.characterId) return;
   const character = state.characters.find((item) => item.id === characterId);
   if (!character) { showToast("Không tìm thấy nhân vật đã chọn.", true); renderCharacterPicker(); return; }
@@ -398,6 +398,15 @@ function switchCharacter(characterId) {
     id,
     oldSfx[oldOptions[index]] || ["pose-hard-pop-click", "pose-hard-pop-click", "pose-bubble-pop", "pose-explainer-pop-whoosh", "pose-explainer-pop-whoosh"][index] || "",
   ]));
+  // Resolve the preset before scheduling the first save. Otherwise the
+  // autosave below can briefly persist the previous character's font under
+  // the new character id.
+  let remembered = { font: "", settings: {} };
+  try {
+    remembered = await rememberedLabelFontFor(character.id);
+  } catch (error) {
+    remembered = { font: "", settings: {} };
+  }
   state.poseBySegment = state.poseBySegment.map((item) => {
     const oldIndex = Math.max(0, oldOptions.indexOf(item.pose));
     return { pose: nextIds[oldIndex % nextIds.length] || nextIds[0] };
@@ -407,22 +416,25 @@ function switchCharacter(characterId) {
     poseAssets: next.poseAssets,
     poseLabels: next.poseLabels,
     poseSfx: nextSfx,
+    labelFontFamily: remembered.font || normalizeLabelFontFamily(state.topic.labelFontFamily),
   });
+  Object.entries(remembered.settings || {}).forEach(([key, value]) => {
+    if (key in state.topic) state.topic[key] = value;
+  });
+  elements.leftLabelColor.value = state.topic.leftLabelColor || "#090909";
+  elements.rightLabelColor.value = state.topic.rightLabelColor || "#090909";
+  elements.leftSubLabelColor.value = state.topic.leftSubLabelColor || "#808080";
+  elements.rightSubLabelColor.value = state.topic.rightSubLabelColor || "#808080";
+  elements.karaokeActiveColor.value = state.topic.karaokeActiveColor || "#de370d";
+  elements.karaokeColor.value = state.topic.karaokeColor || "#271f11";
+  elements.karaokeSize.value = String(state.topic.karaokeSize || 1.2);
+  syncBackgroundControls();
   configurePoseOptions(state.topic);
   state.topic.poseTimeline = timelineFromPoses(segmentsFromEditor(false));
   renderCharacterPicker();
   renderPoseSfxMap();
   renderPoseList();
-  // Apply the font remembered for this character (same behaviour as background
-  // and subtitle colour presets).
-  rememberedLabelFontFor(character.id).then((font) => {
-    if (!font || !state.topic || state.topic.characterId !== character.id) return;
-    state.topic.labelFontFamily = font;
-    populateLabelFontSelect(elements.labelFontFamily, font);
-    markDirty();
-    sendDraftToPreview();
-    scheduleAutoSave(120);
-  });
+  populateLabelFontSelect(elements.labelFontFamily, state.topic.labelFontFamily);
   markDirty();
   sendDraftToPreview();
   scheduleAutoSave(100);
