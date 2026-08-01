@@ -16,14 +16,38 @@ cd engine
 ## Version
 
 - Code/app: `0.2.4`
-- Render pipeline accepts `--engine maziao` end to end. Direct Maziao voice IDs from the favourites dropdown are preserved exactly, including mixed-case IDs without hyphens, so rendering uses the selected voice instead of falling back to OncoinX.
+- Render pipeline accepts `--engine maziao` end to end. Direct Maziao voice IDs from the favourites dropdown are preserved exactly, and Maziao now standardizes on a single modelId: `vieten_speech`, so rendering no longer drifts between `vietten_speech` / `vieten_speech` variants.
 - The standalone voiceover worker bootstraps the engine root before importing `tts.maziao`, preventing `No module named 'tts'` in the packaged runtime.
 - Render audio UI: Maziao là tab mặc định; danh sách TTS Voice tải động từ `/api/voices/favourites`, với dropdown 56px và nút play/pause tròn rõ nét ngay bên phải phát trực tiếp `previewUrl`. OncoinX và Mạnh Dũng có link preview fallback khi API không trả link. Checkbox tạo lại cache được đặt sát hàng chọn voice. Không còn hàng preview riêng, text mẫu, custom Voice ID hay ElevenLabs trong render page.
-- Crop dialog của editor đã thêm nút khóa 1:1 kiểu FastScene để crop box giữ vuông khi resize, và cache-bust editor JS đã được đẩy lên `20260731-crop-1to1`.
+- Crop dialog của editor giờ theo kiểu zoom/pan: khung 1:1 cố định, kéo ảnh để đổi vị trí, không còn tay nắm crop cứng; cache-bust editor JS đã được đẩy lên `20260731-crop-paste-modes-v4`.
 - Editor/preview đã có thêm font chooser cho nhãn A/B (`labelFontFamily`), áp vào live preview và render output, để đổi font nhãn mà không đụng phần auto-fit kích thước.
-- Khi dán ảnh clipboard vào editor, hệ thống sẽ tự crop centered vuông 1:1 trước khi đưa vào slot.
+- Khi dán ảnh clipboard vào editor, hệ thống có 2 mode: `square` (tự fit vào khung 1:1) và `original` (giữ ảnh gốc, chỉ set frame zoom/pan), đúng kiểu FastScene.
 - Presenter mặc định là `<img>`; chỉ `character-bietchichomet` mới upgrade sang `<video>` khi pose source là video, các character khác luôn hiển thị bằng ảnh.
 - Editor/preview giờ có cả `＋ Thêm so sánh` và `＋ Thêm ảnh đơn`; scene single dùng `layout: "single"` để ẩn cột phải và render một ảnh duy nhất.
+
+### Bản cập nhật tính năng (parity FastScene 0.1.44)
+
+**Font & Nhãn**
+- Bundle webfont chuẩn tiếng Việt (subset `vietnamese`) trong `engine/assets/fonts/` + `catalog.css`, nạp qua `style.css` và `webui/styles.css`. Không còn phụ thuộc Arial/Georgia hệ thống → hết lỗi vỡ dấu trên Windows.
+- Catalog font mới: Inter, Be Vietnam Pro, Manrope, Lexend, Nunito, Quicksand, Saira, Roboto, Literata, Playfair Display. Nguồn duy nhất: `m3_backend.LABEL_FONT_CATALOG`, expose qua `GET /api/label-fonts`.
+- Arial/Georgia/Times cũ được map tự động sang Inter/Literata khi mở project cũ.
+- Font nhãn được **ghi nhớ theo từng nhân vật** (`labelFontByCharacter` trong project-defaults, giống nền và màu sub). Tạo project mới hoặc đổi nhân vật trong editor sẽ tự áp đúng font đó.
+
+**Pose & Nhân vật**
+- Pose có trường `focusSide` (`left` / `right` / `center`) rõ ràng, không còn đoán theo tên/số pose. Manifest cũ được suy luận tự động khi đọc.
+- Dialog **Sửa pose** trên dashboard: đổi tên pose, chọn hướng, và **xoá pose** (xoá cả file ảnh trong `studio/assets/characters/<id>/`).
+- **Chặn chỉnh sửa nhân vật đang được dùng trong project** (cùng cơ chế an toàn với xoá). `/api/characters` trả thêm `usedBy`, nút Sửa pose bị disable kèm nhãn trạng thái.
+
+**Karaoke & Timing**
+- Thêm edge epsilon (`WORD_EDGE_EPSILON = 0.035s`) trong `app.js::activeWordAt` để hấp thụ lệch giữa mốc frame và mốc từ, giảm lệch highlight từ.
+
+**Social & Render**
+- Gỡ tài khoản đã kết nối: `POST /api/social/youtube/disconnect`, `POST /api/social/facebook/disconnect`, kèm nút `×` trong dropdown chọn account.
+- Tuỳ chọn render (engine, speed, volume, size, branding) được tự lưu sau mỗi lần start render và khôi phục ở lần mở sau (`GET /api/render-preferences`).
+
+**Script & Preview**
+- `normalize_display_text()` chuẩn hoá mọi text khởi tạo/nhãn: NFC (chống dấu tổ hợp NFD từ Windows), bỏ zero-width, gộp khoảng trắng.
+- Preview giữ nguyên vị trí câu/thời điểm khi iframe phải reload sau upload voiceover (`reloadPreviewKeepingState`).
 
 ## Cách phát hành / cài máy khác
 
@@ -113,6 +137,7 @@ fix triệt để lỗi "Upload PNG button không mở được picker" ở bả
 - ✅ Topic cũ sẽ auto-sync `poseAssets`/`poseLabels` theo manifest hiện tại của character khi load, nên thêm pose mới không còn bị kẹt trong snapshot cũ.
 - ✅ Riêng `bietchichomet` dùng chuỗi pose mặc định `1 2 3 1 2 4 1 2 5 1 2` cho các segment auto-select / project mới.
 - ✅ Thư viện dự án ở home page có thêm cột **Đăng social**, lấy từ `upload-metadata.json` và được cập nhật sau khi upload YouTube/Facebook thành công.
+- ✅ **Auto-comment nguồn Facebook**: sau khi bấm **Upload Facebook Reels** (trạng thái `Publish now`) thành công, nếu ô **Comment nguồn** có nội dung, app tự động chờ **30s** để Facebook tạo object rồi tự comment nguồn (retry sau 45s nếu lỗi). Trước đây auto-comment chỉ chạy ở nút gộp **Upload Facebook + YouTube + comment nguồn**; nay áp dụng cả cho nút upload Facebook đơn lẻ. Logic dùng `commentFacebookSourceWithDelay()` trong `engine/web/render_page.js`.
 - ⚠️ TTS vẫn là stage phụ thuộc bên thứ 3; tối ưu chính tập trung vào render video/frame export, không chạm vào chất lượng TTS.
 
 ## Custom character CSS (per-character override)

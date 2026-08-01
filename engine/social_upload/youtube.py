@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import read_social_config, social_config_hint, write_social_config
-from .metadata import build_upload_metadata, final_video_path_for_project, require_project
+from .metadata import build_upload_metadata, final_video_path_for_project, record_social_upload, require_project
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
@@ -266,6 +266,28 @@ def set_youtube_active_channel(channel_id: str) -> dict:
     return {"ok": True, "active_channel_id": channel_id}
 
 
+def disconnect_youtube_channel(channel_id: str = "") -> dict:
+    """Remove one connected channel, or every channel when no id is given."""
+    channel_id = str(channel_id or "").strip()
+    config = read_social_config()
+    youtube = youtube_config(config)
+    channels = youtube_channels(youtube)
+    if channel_id:
+        remaining = [channel for channel in channels if str(channel.get("id") or "") != channel_id]
+        if len(remaining) == len(channels):
+            raise ValueError("YouTube channel id is not connected.")
+    else:
+        remaining = []
+    youtube["channels"] = remaining
+    if str(youtube.get("active_channel_id") or "") not in {str(channel.get("id") or "") for channel in remaining}:
+        youtube["active_channel_id"] = str(remaining[0].get("id") or "") if remaining else ""
+    if not remaining:
+        youtube.pop("tokens", None)
+    config["youtube"] = youtube
+    write_social_config(config)
+    return {"ok": True, "removed": channel_id or "all", "channels": youtube_public_channels(youtube)}
+
+
 def youtube_fetch_channel(access_token: str) -> dict:
     request = Request(
         "https://www.googleapis.com/youtube/v3/channels?" + urlencode({"part": "snippet", "mine": "true"}),
@@ -458,6 +480,15 @@ def youtube_upload_video(payload: dict) -> dict:
     video_id = result.get("id")
     if not video_id:
         raise RuntimeError(f"YouTube upload response did not include a video id: {result}")
+    record_social_upload(
+        project,
+        "youtube",
+        {
+            "url": f"https://youtu.be/{video_id}",
+            "video_id": video_id,
+            "state": privacy_status,
+        },
+    )
     return {
         "ok": True,
         "platform": "youtube",

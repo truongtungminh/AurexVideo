@@ -13,6 +13,7 @@ from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
     first_url_from_source,
+    record_social_upload,
     require_project,
     upload_paragraphs,
 )
@@ -167,6 +168,26 @@ def set_facebook_active_page(page_id: str) -> dict:
     config["facebook"] = facebook
     write_social_config(config)
     return {"ok": True, "active_page_id": page_id}
+
+
+def disconnect_facebook_page(page_id: str = "") -> dict:
+    """Remove one configured page, or every page when no id is given."""
+    page_id = str(page_id or "").strip()
+    config = read_social_config()
+    facebook = facebook_config(config)
+    pages = facebook_pages(facebook)
+    if page_id:
+        remaining = [page for page in pages if str(page.get("id") or "") != page_id]
+        if len(remaining) == len(pages):
+            raise ValueError("Facebook page id is not configured in facebook.pages.")
+    else:
+        remaining = []
+    facebook["pages"] = remaining
+    if str(facebook.get("active_page_id") or "") not in {str(page.get("id") or "") for page in remaining}:
+        facebook["active_page_id"] = str(remaining[0].get("id") or "") if remaining else ""
+    config["facebook"] = facebook
+    write_social_config(config)
+    return {"ok": True, "removed": page_id or "all", "pages": [str(page.get("id") or "") for page in remaining]}
 
 
 def update_facebook_page_config(page_id: str, page_access_token: str) -> dict:
@@ -357,6 +378,16 @@ def facebook_upload_video(payload: dict) -> dict:
     permalink_url = str(finish_data.get("permalink_url") or "").strip()
 
     reel_url = permalink_url or (f"https://www.facebook.com/reel/{video_id}" if video_id and video_state == "PUBLISHED" else "")
+    record_social_upload(
+        project,
+        "facebook",
+        {
+            "url": reel_url,
+            "video_id": video_id,
+            "post_id": post_id,
+            "state": video_state,
+        },
+    )
     return {
         "ok": True,
         "platform": "facebook",

@@ -304,6 +304,7 @@ def align_topic(
             cjk=cjk,
         )
         aligned.append({
+            "sentenceIndex": index,
             "start": round(starts[index], 3),
             "end": round(min(duration, ends[index]), 3),
             "text": text,
@@ -315,13 +316,14 @@ def align_topic(
     for index, event in enumerate(pose_rows):
         pose = str(event.get("pose") or next(iter(topic.get("poseAssets", {}) or {"question": {}})))
         if index == 0 or pose != previous_pose:
-            next_event = {"time": round(starts[index], 3), "pose": pose}
+            next_event = {"time": round(starts[index], 3), "pose": pose, "sentenceIndex": index}
             sfx = event.get("sfx") or topic.get("poseSfx", {}).get(pose)
             if sfx and sfx in topic.get("sfx", {}):
                 next_event["sfx"] = sfx
             timeline.append(next_event)
         previous_pose = pose
     topic["duration"] = round(duration, 3)
+    topic["alignmentVersion"] = 2
     if language:
         topic["language"] = language
     topic["segments"] = aligned
@@ -346,7 +348,11 @@ def existing_alignment_is_compatible(path: Path, lines: list[str], duration: flo
         existing_duration = float(existing.get("duration") or 0)
     except (TypeError, ValueError):
         return False
-    return existing_lines == lines and abs(existing_duration - duration) <= 0.12
+    return (
+        existing.get("alignmentVersion") == 2
+        and existing_lines == lines
+        and abs(existing_duration - duration) <= 0.12
+    )
 
 
 def align_topic_without_whisper(
@@ -366,16 +372,30 @@ def align_topic_without_whisper(
     if not rows:
         raise ValueError("Topic không có script để căn.")
 
-    weights = [
-        max(1, len(normalize_text(str(segment.get("text") or "")).replace(" ", "")))
-        for segment in rows
-    ]
-    total_weight = sum(weights) or len(rows)
-    raw_starts = [0.0]
-    cursor = 0
-    for weight in weights[:-1]:
-        cursor += weight
-        raw_starts.append(duration * cursor / total_weight)
+    # The render topic has already been scaled to the final TTS duration.
+    # Preserve those sentence boundaries when Whisper is unavailable. Character
+    # weighting is only a last resort: it can move short opening lines several
+    # seconds later than their actual audio, which makes poses lag speech.
+    source_end = max((float(segment.get("end") or 0) for segment in rows), default=0.0)
+    source_starts = [max(0.0, float(segment.get("start") or 0)) for segment in rows]
+    use_source_timing = source_end > 0.12 and all(
+        source_starts[index] >= source_starts[index - 1]
+        for index in range(1, len(source_starts))
+    )
+    if use_source_timing:
+        scale = duration / source_end
+        raw_starts = [min(duration, start * scale) for start in source_starts]
+    else:
+        weights = [
+            max(1, len(normalize_text(str(segment.get("text") or "")).replace(" ", "")))
+            for segment in rows
+        ]
+        total_weight = sum(weights) or len(rows)
+        raw_starts = [0.0]
+        cursor = 0
+        for weight in weights[:-1]:
+            cursor += weight
+            raw_starts.append(duration * cursor / total_weight)
 
     silences = detect_silences(audio, silence_noise, silence_min_duration)
     interior_silences = [
@@ -415,6 +435,7 @@ def align_topic_without_whisper(
             for token_index, token in enumerate(tokens)
         ]
         aligned.append({
+            "sentenceIndex": index,
             "start": round(line_start, 3),
             "end": round(line_end, 3),
             "text": text,
@@ -427,7 +448,7 @@ def align_topic_without_whisper(
     for index, event in enumerate(pose_rows):
         pose = str(event.get("pose") or next(iter(topic.get("poseAssets", {}) or {"question": {}})))
         if index == 0 or pose != previous_pose:
-            next_event = {"time": aligned[index]["start"], "pose": pose}
+            next_event = {"time": aligned[index]["start"], "pose": pose, "sentenceIndex": index}
             sfx = event.get("sfx") or topic.get("poseSfx", {}).get(pose)
             if sfx and sfx in topic.get("sfx", {}):
                 next_event["sfx"] = sfx
@@ -435,11 +456,13 @@ def align_topic_without_whisper(
         previous_pose = pose
 
     topic["duration"] = round(duration, 3)
+    topic["alignmentVersion"] = 2
     topic["segments"] = aligned
     fallback = next(iter(topic.get("poseAssets", {}) or {"question": {}}))
     topic["poseTimeline"] = timeline or [{"time": 0.0, "pose": fallback}]
     topic["alignmentMethod"] = "script-silence-fallback"
-    print(f"Fallback căn {len(aligned)} dòng bằng độ dài câu và {len(silences)} khoảng lặng.")
+    method = "timing nháp đã scale" if use_source_timing else "độ dài câu"
+    print(f"Fallback căn {len(aligned)} dòng bằng {method} và {len(silences)} khoảng lặng.")
     return topic
 
 

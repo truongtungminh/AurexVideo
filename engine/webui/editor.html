@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Editor · Video so sánh</title>
     <script>document.documentElement.dataset.theme=localStorage.getItem('aurexvideo-theme')==='dark'?'dark':'light';</script>
-    <link rel="stylesheet" href="/webui/styles.css?v=20260726-bgm-no-toggle" />
+    <link rel="stylesheet" href="/webui/styles.css?v=20260801-fs144" />
   </head>
   <body class="editor-page">
     <script>
@@ -48,18 +48,13 @@
             <div class="content-layout">
               <div class="content-primary">
                 <section class="comparison-block comparison-block-primary">
-                  <div class="comparison-primary-heading"><strong>So sánh 1</strong></div>
+                  <div class="comparison-primary-heading"><strong>So sánh 1</strong><button class="button tiny danger comparison-remove" id="deleteBaseComparison" type="button">Xoá</button></div>
                   <div class="form-grid comparison-label-grid">
                     <div class="comparison-label-field"><label class="sr-only" for="leftLabelInput">Nhãn bên trái</label><div><input id="leftLabelInput" required /><input id="leftLabelColor" class="label-color-input" type="color" value="#090909" aria-label="Màu nhãn bên trái" title="Màu nhãn bên trái" /></div></div>
                     <div class="comparison-label-field"><label class="sr-only" for="rightLabelInput">Nhãn bên phải</label><div><input id="rightLabelInput" required /><input id="rightLabelColor" class="label-color-input" type="color" value="#090909" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>
                   </div>
                   <label class="comparison-font-field">Font nhãn
-                    <select id="labelFontFamily">
-                      <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'>Inter</option>
-                      <option value='Arial, sans-serif'>Arial</option>
-                      <option value='Georgia, serif'>Georgia</option>
-                      <option value='"Times New Roman", Times, serif'>Times New Roman</option>
-                    </select>
+                    <select id="labelFontFamily"></select>
                   </label>
                   <div class="form-grid comparison-label-grid comparison-sublabel-grid" id="primarySubLabelRow">
                     <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only" for="leftSubLabelInput">Phiên âm bên trái</label><div><input id="leftSubLabelInput" maxlength="40" placeholder="/lʊk/" autocomplete="off" spellcheck="false" /><input id="leftSubLabelColor" class="label-color-input" type="color" value="#808080" aria-label="Màu phiên âm bên trái" title="Màu phiên âm bên trái" /></div></div>
@@ -83,12 +78,12 @@
                       <div class="image-actions"><label class="replace-image">Thay ảnh<input id="rightImageFile" type="file" accept="image/png,image/jpeg,image/webp" /></label><button class="crop-image" data-action="crop-base-image" data-side="right" type="button">Crop/xoay</button><button class="remove-bg-image" data-action="remove-bg-base-image" data-side="right" type="button">Xóa nền</button><button class="delete-image" id="deleteRightImage" type="button">Xoá ảnh</button></div>
                     </div>
                   </div>
-                  <div class="comparison-list" id="comparisonList"></div>
-                  <div class="scene-add-actions">
-                    <button class="button secondary add-comparison-button" id="addComparisonButton" type="button">＋ Thêm so sánh</button>
-                    <button class="button secondary add-comparison-button add-single-image-button" id="addSingleImageButton" type="button">＋ Thêm ảnh đơn</button>
-                  </div>
                 </section>
+                <div class="comparison-list" id="comparisonList"></div>
+                <div class="scene-add-actions">
+                  <button class="button secondary add-comparison-button" id="addComparisonButton" type="button">＋ Thêm so sánh</button>
+                  <button class="button secondary add-comparison-button add-single-image-button" id="addSingleImageButton" type="button">＋ Thêm ảnh đơn</button>
+                </div>
               </div>
               <div class="content-rail">
                 <section class="editor-character-picker" aria-labelledby="editorCharacterTitle">
@@ -219,6 +214,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/webui/editor.js?v=20260731-crop-label-font-v2"></script>
+    <script src="/webui/editor.js?v=20260801-fs144"></script>
   </body>
 </html>

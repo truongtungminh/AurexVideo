@@ -20,7 +20,6 @@ import subprocess
 import sys
 from threading import Lock, Thread
 import time
-import unicodedata
 from urllib.parse import parse_qs, quote, unquote, urlparse
 import uuid
 import wave
@@ -49,8 +48,8 @@ AUREX_PYTHON = PYTHON_EXECUTABLE
 TTS_PYTHON = AUREX_PYTHON if AUREX_PYTHON.is_file() else Path(sys.executable)
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 DEFAULT_YOUTUBE_TITLE = "Sự khác nhau là gì?, Phần 1"
-DEFAULT_YOUTUBE_DESCRIPTION = "🎬 Sự khác nhau là gì?\n#Hieuhamhoc #sosanh #kienthuc"
-DEFAULT_FACEBOOK_CAPTION = "🎬 Sự khác nhau là gì?, Phần 1\n#Hieuhamhoc #sosanh #kienthuc"
+DEFAULT_YOUTUBE_DESCRIPTION = "🎬 Sự khác nhau là gì?\n#bietchichonhieu #sosanh #kienthuc"
+DEFAULT_FACEBOOK_CAPTION = "🎬 Sự khác nhau là gì?, Phần 1\n#bietchichonhieu #sosanh #kienthuc"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = Lock()
 PROJECT_DEFAULTS_LOCK = Lock()
@@ -84,6 +83,8 @@ DEFAULT_POSE_LABELS_EN = {
     "smile-left": "Point left · smile",
     "smile-right": "Point right · smile",
 }
+
+BIETCHICHOMET_DEFAULT_POSE_SEQUENCE = ("pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5", "pose-1", "pose-2")
 
 
 def normalize_ui_language(value: object) -> str:
@@ -229,7 +230,7 @@ def social_metadata(slug: str) -> dict:
         "facebookSourceComment": "",
         "source_url": "",
         "privacyStatus": "public",
-        "tags": ["Hieuhamhoc", "sosanh", "kienthuc"],
+        "tags": ["bietchichonhieu", "sosanh", "kienthuc"],
         "video_url": file_url(latest_output_video(slug)),
     }
 
@@ -310,6 +311,41 @@ def validate_character_id(value: object) -> str:
     return slug
 
 
+def normalize_focus_side(value: object, pose_id: str = "", label: object = "") -> str:
+    """Explicit left/right/center focus for a pose.
+
+    Older manifests have no focusSide, so fall back to reading the pose id and
+    label instead of guessing from the pose index.
+    """
+    raw = str(value or "").strip().lower()
+    if raw in {"left", "right", "center"}:
+        return raw
+    text = f"{pose_id} {label}".lower()
+    if "left" in text or "trái" in text:
+        return "left"
+    if "right" in text or "phải" in text:
+        return "right"
+    return "center"
+
+
+def characters_in_use() -> dict[str, list[str]]:
+    """Map characterId -> project slugs currently using it."""
+    used: dict[str, list[str]] = {}
+    if not PROJECTS_ROOT.is_dir():
+        return used
+    for topic_path in PROJECTS_ROOT.glob("*/topic.json"):
+        try:
+            topic = json.loads(topic_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(topic, dict):
+            continue
+        character_id = str(topic.get("characterId") or "").strip()
+        if character_id:
+            used.setdefault(character_id, []).append(topic_path.parent.name)
+    return {key: sorted(set(value)) for key, value in used.items()}
+
+
 def character_manifest(character_id: str) -> dict:
     character_id = validate_character_id(character_id)
     path = (CHARACTERS_ROOT / character_id / "manifest.json").resolve()
@@ -350,6 +386,7 @@ def character_pose_config(character_id: str, language: str = "vi") -> tuple[dict
         pose_assets[pose_id] = {
             "closed": f"../../assets/characters/{character_id}/{closed_filename}",
             "speaking": f"../../assets/characters/{character_id}/{speaking_filename}",
+            "focusSide": normalize_focus_side(item.get("focusSide"), pose_id, item.get("label")),
             "syncMode": sync_mode,
             "loop": item.get("loop") is not False,
             "loopStart": max(0.0, float(item.get("loopStart") or 0)),
@@ -360,6 +397,15 @@ def character_pose_config(character_id: str, language: str = "vi") -> tuple[dict
     if not pose_assets:
         raise ValueError(f"Nhân vật '{character_id}' chưa có pose.")
     return pose_assets, pose_labels
+
+
+def default_pose_sequence(character_id: str, pose_assets: dict[str, dict[str, str]]) -> list[str]:
+    ids = list(pose_assets)
+    if character_id == "bietchichomet":
+        sequence = [pose for pose in BIETCHICHOMET_DEFAULT_POSE_SEQUENCE if pose in pose_assets]
+        if sequence:
+            return sequence
+    return ids
 
 
 def enrich_character_poses(poses: list) -> list[dict]:
@@ -376,6 +422,7 @@ def enrich_character_poses(poses: list) -> list[dict]:
         next_item["id"] = pose_id
         next_item["label"] = label
         next_item["labelEn"] = label_en
+        next_item["focusSide"] = normalize_focus_side(item.get("focusSide"), pose_id, label)
         enriched.append(next_item)
     return enriched
 
@@ -404,6 +451,7 @@ def list_characters() -> list[dict]:
     # Seed default characters bundled with the engine on first launch
     # (studio data root starts empty; engine ships hieu-ham-hoc etc.).
     _seed_default_characters()
+    in_use = characters_in_use()
     result = []
     for path in sorted(CHARACTERS_ROOT.glob("*/manifest.json")):
         if path.parent.name.startswith("."):
@@ -418,6 +466,7 @@ def list_characters() -> list[dict]:
                 "name": str(item.get("name") or path.parent.name),
                 "poseCount": len(poses),
                 "poses": poses,
+                "usedBy": in_use.get(path.parent.name, []),
                 "coverUrl": f"/assets/characters/{path.parent.name}/{poses[0]['file']}",
             })
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
@@ -582,6 +631,16 @@ def update_character(current_id: str, payload: dict) -> dict:
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Không tìm thấy nhân vật: {current_id}")
 
+    # Editing a character rewrites pose ids/files, which would corrupt any
+    # project already bound to it. Guard it the same way deletion is guarded.
+    used_by = characters_in_use().get(current_id, [])
+    if used_by:
+        projects = ", ".join(used_by)
+        raise RuntimeError(
+            f"Nhân vật '{current_id}' đang được dùng trong project: {projects}. "
+            "Hãy đổi nhân vật của project trước khi chỉnh sửa."
+        )
+
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     poses = manifest.get("poses") if isinstance(manifest, dict) else None
     if not isinstance(poses, list) or not poses:
@@ -589,24 +648,53 @@ def update_character(current_id: str, payload: dict) -> dict:
     labels = payload.get("poseNames")
     if not isinstance(labels, list) or len(labels) != len(poses):
         raise ValueError("Cần đặt tên cho đủ tất cả dáng pose.")
+    focus_sides = payload.get("poseFocusSides")
+    if not isinstance(focus_sides, list) or len(focus_sides) != len(poses):
+        focus_sides = [None] * len(poses)
+    # Poses the user removed in the editor: indexes (0-based) or pose ids.
+    raw_removed = payload.get("removedPoses")
+    removed_indexes: set[int] = set()
+    removed_ids: set[str] = set()
+    if isinstance(raw_removed, list):
+        for entry in raw_removed:
+            if isinstance(entry, bool):
+                continue
+            if isinstance(entry, int):
+                removed_indexes.add(entry)
+            else:
+                text = str(entry or "").strip()
+                if text.isdigit():
+                    removed_indexes.add(int(text))
+                elif text:
+                    removed_ids.add(text)
 
     updated_poses = []
-    for index, (pose, raw_label) in enumerate(zip(poses, labels), 1):
+    removed_files: list[str] = []
+    for index, (pose, raw_label, raw_focus) in enumerate(zip(poses, labels, focus_sides), 1):
         if not isinstance(pose, dict):
             raise ValueError(f"Pose {index} trong manifest không hợp lệ.")
+        pose_id = normalize_custom_pose_id(pose.get("id"), f"pose-{index}")
+        filename = Path(str(pose.get("file") or "")).name
+        if (index - 1) in removed_indexes or pose_id in removed_ids:
+            if filename:
+                removed_files.append(filename)
+            continue
         label = str(raw_label or "").strip()[:80]
         if not label:
             raise ValueError(f"Pose {index} chưa có tên.")
-        pose_id = normalize_custom_pose_id(pose.get("id"), f"pose-{index}")
-        filename = Path(str(pose.get("file") or "")).name
         if not filename or not (source_dir / filename).is_file():
             raise FileNotFoundError(f"Không tìm thấy ảnh của pose '{pose_id}'.")
         updated_poses.append({
+            **{key: value for key, value in pose.items() if key not in {"id", "label", "labelEn", "file", "focusSide"}},
             "id": pose_id,
             "label": label,
             "labelEn": pose_label_for_language(pose_id, label, "en"),
+            "focusSide": normalize_focus_side(raw_focus if raw_focus is not None else pose.get("focusSide"), pose_id, label),
             "file": filename,
         })
+
+    if not updated_poses:
+        raise ValueError("Nhân vật phải giữ lại ít nhất một pose.")
 
     destination = (CHARACTERS_ROOT / next_id).resolve()
     destination.relative_to(CHARACTERS_ROOT.resolve())
@@ -626,10 +714,17 @@ def update_character(current_id: str, payload: dict) -> dict:
     }
     atomic_write_json(destination / "manifest.json", updated_manifest)
 
+    kept_files = {pose["file"] for pose in updated_poses}
+    for filename in removed_files:
+        if filename in kept_files:
+            continue
+        (destination / filename).unlink(missing_ok=True)
+
     pose_assets = {
         pose["id"]: {
             "closed": f"../../assets/characters/{next_id}/{pose.get('closedFile') or pose['file']}",
             "speaking": f"../../assets/characters/{next_id}/{pose.get('speakingFile') or pose['file']}",
+            "focusSide": normalize_focus_side(pose.get("focusSide"), pose["id"], pose.get("label")),
             "syncMode": pose.get("syncMode") or "scene",
             "loop": pose.get("loop") is not False,
             "loopStart": max(0.0, float(pose.get("loopStart") or 0)),
@@ -692,12 +787,31 @@ def read_topic(slug: str) -> dict:
         raise ValueError("topic.json phải là một JSON object.")
     current_sfx = value.get("sfx", {}) if isinstance(value.get("sfx"), dict) else {}
     value["sfx"] = {**DEFAULT_SFX, **current_sfx}
+
+    character_id = str(value.get("characterId") or "").strip()
+    synced_assets: dict[str, dict[str, str]] | None = None
+    synced_labels: dict[str, str] | None = None
+    if character_id and character_id != "human-presenter":
+        try:
+            synced_assets, synced_labels = character_pose_config(character_id)
+        except (FileNotFoundError, ValueError):
+            synced_assets = None
+            synced_labels = None
+
     pose_assets = value.get("poseAssets") if isinstance(value.get("poseAssets"), dict) else {}
-    if not pose_assets:
+    if synced_assets and list(pose_assets) != list(synced_assets):
+        pose_assets = synced_assets
+        value["poseAssets"] = pose_assets
+        value["poseLabels"] = synced_labels or {}
+    elif not pose_assets:
         pose_assets = dict(DEFAULT_POSE_ASSETS)
-    value["poseAssets"] = pose_assets
-    labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
-    value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+        value["poseAssets"] = pose_assets
+        labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
+        value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+    else:
+        labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
+        value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+
     valid_poses = list(pose_assets)
     fallback_pose = "question" if "question" in pose_assets else valid_poses[0]
     for event in value.get("poseTimeline", []):
@@ -711,6 +825,115 @@ def atomic_write_json(path: Path, value: dict) -> None:
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temp.replace(path)
+
+
+LABEL_FONT_CATALOG: list[dict[str, str]] = [
+    {"id": "inter", "name": "Inter", "stack": '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'},
+    {"id": "be-vietnam-pro", "name": "Be Vietnam Pro", "stack": '"Be Vietnam Pro", "Inter", sans-serif'},
+    {"id": "manrope", "name": "Manrope", "stack": '"Manrope", "Inter", sans-serif'},
+    {"id": "lexend", "name": "Lexend", "stack": '"Lexend", "Inter", sans-serif'},
+    {"id": "nunito", "name": "Nunito", "stack": '"Nunito", "Inter", sans-serif'},
+    {"id": "quicksand", "name": "Quicksand", "stack": '"Quicksand", "Inter", sans-serif'},
+    {"id": "saira", "name": "Saira", "stack": '"Saira", "Inter", sans-serif'},
+    {"id": "roboto", "name": "Roboto", "stack": '"Roboto", "Inter", sans-serif'},
+    {"id": "literata", "name": "Literata", "stack": '"Literata", Georgia, serif'},
+    {"id": "playfair-display", "name": "Playfair Display", "stack": '"Playfair Display", Georgia, serif'},
+]
+DEFAULT_LABEL_FONT_FAMILY = LABEL_FONT_CATALOG[0]["stack"]
+# Legacy stacks stored in older projects. They render Vietnamese diacritics
+# poorly on Windows, so they are migrated onto bundled equivalents.
+LEGACY_LABEL_FONT_MAP = {
+    "arial, sans-serif": '"Be Vietnam Pro", "Inter", sans-serif',
+    "georgia, serif": '"Literata", Georgia, serif',
+    '"times new roman", times, serif': '"Literata", Georgia, serif',
+}
+
+
+RENDER_PREFERENCE_KEYS = ("engine", "speed", "volume", "size", "voice", "branding", "force")
+
+
+def read_render_preferences() -> dict:
+    defaults = read_project_defaults()
+    value = defaults.get("renderPreferences")
+    return value if isinstance(value, dict) else {}
+
+
+def write_render_preferences(payload: dict) -> dict:
+    """Remember the last render options so the next render starts pre-filled."""
+    if not isinstance(payload, dict):
+        raise ValueError("Tuỳ chọn render không hợp lệ.")
+    cleaned: dict[str, object] = {}
+    for key in RENDER_PREFERENCE_KEYS:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if key in {"speed", "volume"}:
+            try:
+                cleaned[key] = round(max(0.1, min(4.0, float(value))), 2)
+            except (TypeError, ValueError):
+                continue
+        elif key in {"branding", "force"}:
+            cleaned[key] = bool(value)
+        else:
+            cleaned[key] = str(value or "").strip()[:80]
+    with PROJECT_DEFAULTS_LOCK:
+        previous = read_project_defaults()
+        defaults = json.loads(json.dumps(previous))
+        defaults["renderPreferences"] = {**read_render_preferences(), **cleaned}
+        if defaults != previous:
+            CONFIG_ROOT.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(PROJECT_DEFAULTS_PATH, defaults)
+    return defaults["renderPreferences"]
+
+
+def label_font_catalog() -> list[dict[str, str]]:
+    return [dict(item) for item in LABEL_FONT_CATALOG]
+
+
+def normalize_label_font_family(value: object, fallback: str = "") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback or DEFAULT_LABEL_FONT_FAMILY
+    for item in LABEL_FONT_CATALOG:
+        if raw == item["stack"] or raw.lower() == item["id"] or raw.lower() == item["name"].lower():
+            return item["stack"]
+    mapped = LEGACY_LABEL_FONT_MAP.get(raw.lower())
+    if mapped:
+        return mapped
+    return fallback or DEFAULT_LABEL_FONT_FAMILY
+
+
+def remembered_label_font(character_id: str) -> str:
+    defaults = read_project_defaults()
+    mappings = defaults.get("labelFontByCharacter")
+    if isinstance(mappings, dict):
+        remembered = mappings.get(str(character_id or "").strip())
+        if remembered:
+            return normalize_label_font_family(remembered)
+    return normalize_label_font_family(defaults.get("labelFontFamily"))
+
+
+def remembered_character_settings(character_id: str) -> dict:
+    defaults = read_project_defaults()
+    key = str(character_id or "").strip()
+    mapping = defaults.get("settingsByCharacter")
+    if isinstance(mapping, dict) and isinstance(mapping.get(key), dict):
+        return dict(mapping[key])
+    return {
+        "backgroundType": defaults.get("backgroundType", "default"),
+        "backgroundColor": defaults.get("backgroundColor", "#f5eee3"),
+        "backgroundImageZoom": defaults.get("backgroundImageZoom", 1.0),
+        "backgroundImageX": defaults.get("backgroundImageX", 0.0),
+        "backgroundImageY": defaults.get("backgroundImageY", 0.0),
+        "karaokeColor": defaults.get("karaokeColor", "#271f11"),
+        "karaokeActiveColor": defaults.get("karaokeActiveColor", "#de370d"),
+        "karaokeSize": defaults.get("karaokeSize", 1.2),
+        "labelColor": defaults.get("labelColor", "#090909"),
+        "leftLabelColor": defaults.get("leftLabelColor", "#090909"),
+        "rightLabelColor": defaults.get("rightLabelColor", "#090909"),
+        "leftSubLabelColor": defaults.get("leftSubLabelColor", "#808080"),
+        "rightSubLabelColor": defaults.get("rightSubLabelColor", "#808080"),
+    }
 
 
 def read_project_defaults() -> dict:
@@ -878,6 +1101,33 @@ def remember_project_defaults(slug: str, topic: dict) -> None:
             custom_catalog[sfx_key] = _copy_into_project_defaults(source, "sfx", sfx_key)
             portable[str(pose)] = sfx_key
 
+        label_font = normalize_label_font_family(topic.get("labelFontFamily"))
+        defaults["labelFontFamily"] = label_font
+        if character_id:
+            font_mappings = defaults.get("labelFontByCharacter")
+            if not isinstance(font_mappings, dict):
+                font_mappings = {}
+            font_mappings[character_id] = label_font
+            defaults["labelFontByCharacter"] = font_mappings
+            settings = defaults.get("settingsByCharacter")
+            if not isinstance(settings, dict):
+                settings = {}
+            settings[character_id] = {
+                "backgroundType": background_type,
+                "backgroundColor": defaults["backgroundColor"],
+                "backgroundImageZoom": defaults["backgroundImageZoom"],
+                "backgroundImageX": defaults["backgroundImageX"],
+                "backgroundImageY": defaults["backgroundImageY"],
+                "karaokeColor": defaults["karaokeColor"],
+                "karaokeActiveColor": defaults["karaokeActiveColor"],
+                "karaokeSize": defaults["karaokeSize"],
+                "labelColor": normalize_hex_color(topic.get("labelColor"), "#090909"),
+                "leftLabelColor": normalize_hex_color(topic.get("leftLabelColor"), "#090909"),
+                "rightLabelColor": normalize_hex_color(topic.get("rightLabelColor"), "#090909"),
+                "leftSubLabelColor": normalize_hex_color(topic.get("leftSubLabelColor"), "#808080"),
+                "rightSubLabelColor": normalize_hex_color(topic.get("rightSubLabelColor"), "#808080"),
+            }
+
         if character_id:
             mappings = defaults.get("poseSfxByCharacter")
             if not isinstance(mappings, dict):
@@ -926,10 +1176,10 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     topic = dict(current)
     topic["id"] = slug
     for field in ("brand", "leftLabel", "rightLabel"):
-        text = str(payload.get(field, current.get(field, ""))).strip()
+        text = normalize_display_text(payload.get(field, current.get(field, "")), "", 100)
         if not text:
             raise ValueError(f"Trường {field} không được để trống.")
-        topic[field] = text[:100]
+        topic[field] = text
     for field in ("leftImage", "rightImage", "voiceover"):
         topic[field] = safe_relative_asset(payload.get(field, current.get(field)), field)
 
@@ -982,6 +1232,10 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         payload.get("labelColor", current.get("labelColor", "#090909")),
         "#090909",
     )
+    topic["labelFontFamily"] = normalize_label_font_family(
+        payload.get("labelFontFamily", current.get("labelFontFamily")),
+        remembered_label_font(str(payload.get("characterId") or current.get("characterId") or "")),
+    )
     topic["leftLabelColor"] = normalize_hex_color(
         payload.get("leftLabelColor", current.get("leftLabelColor", topic["labelColor"])),
         topic["labelColor"],
@@ -1011,9 +1265,11 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     for index, item in enumerate(raw_comparisons[:20], 2):
         if not isinstance(item, dict):
             continue
-        left_label = str(item.get("leftLabel") or "").strip()
-        right_label = str(item.get("rightLabel") or "").strip()
-        if not left_label or not right_label:
+        raw_id = str(item.get("id") or f"comparison-{index}")
+        layout = "single" if str(item.get("layout") or "").lower() == "single" or raw_id.startswith("single-image-") else "pair"
+        left_label = normalize_display_text(item.get("leftLabel"), "", 100)
+        right_label = normalize_display_text(item.get("rightLabel"), "", 100)
+        if not left_label or (layout == "pair" and not right_label):
             raise ValueError(f"Cặp so sánh {index} cần đủ hai nhãn.")
         try:
             start_sentence = int(item.get("startSentence", 2))
@@ -1023,13 +1279,18 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         cmp_right_sub = str(item.get("rightSubLabel") or "").strip()[:40]
         cmp_show_sub = bool(item.get("showSubLabels", False)) or bool(cmp_left_sub or cmp_right_sub)
         comparison = {
-            "id": re.sub(r"[^a-zA-Z0-9_-]+", "-", str(item.get("id") or f"comparison-{index}")).strip("-")[:80] or f"comparison-{index}",
+            "id": re.sub(r"[^a-zA-Z0-9_-]+", "-", raw_id).strip("-")[:80] or f"comparison-{index}",
+            "layout": layout,
             "startSentence": max(1, min(len(cleaned_segments), start_sentence)),
             "leftLabel": left_label[:100],
-            "rightLabel": right_label[:100],
+            "rightLabel": right_label[:100] if layout == "pair" else "",
+            "labelFontFamily": normalize_label_font_family(
+                item.get("labelFontFamily"),
+                topic.get("labelFontFamily") or DEFAULT_LABEL_FONT_FAMILY,
+            ),
             "showSubLabels": cmp_show_sub,
             "leftSubLabel": cmp_left_sub if cmp_show_sub else "",
-            "rightSubLabel": cmp_right_sub if cmp_show_sub else "",
+            "rightSubLabel": cmp_right_sub if cmp_show_sub and layout == "pair" else "",
             "leftImage": safe_relative_asset(item.get("leftImage"), f"comparisons[{index}].leftImage"),
             "rightImage": safe_relative_asset(item.get("rightImage"), f"comparisons[{index}].rightImage"),
             "leftLabelColor": normalize_hex_color(
@@ -1062,6 +1323,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         cleaned_comparisons.append(comparison)
     cleaned_comparisons.sort(key=lambda item: item["startSentence"])
     topic["comparisons"] = cleaned_comparisons
+    topic["baseComparisonEnabled"] = bool(payload.get("baseComparisonEnabled", current.get("baseComparisonEnabled", True)))
 
     current_character_id = str(current.get("characterId") or "default-human")
     requested_character_id = str(payload.get("characterId", current_character_id) or "").strip()
@@ -1204,6 +1466,9 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     except (TypeError, ValueError) as exc:
         raise ValueError("backgroundMusicVolume phải là số.") from exc
     topic["backgroundMusicVolume"] = round(max(0.05, min(0.5, background_music_volume)), 2)
+    topic["pasteImageMode"] = str(payload.get("pasteImageMode", current.get("pasteImageMode", "square")) or "square")
+    if topic["pasteImageMode"] not in {"square", "original"}:
+        topic["pasteImageMode"] = "square"
     return topic
 
 
@@ -1283,6 +1548,21 @@ def dependency_status() -> dict:
     }
 
 
+def normalize_display_text(value: object, fallback: str = "", limit: int = 200) -> str:
+    """Normalise any user/seed text: NFC, no zero-width chars, single spaces.
+
+    Windows-pasted Vietnamese often arrives in NFD (combining diacritics) which
+    renders as broken accents in headless Chromium, so normalising to NFC here
+    keeps the editor, preview and render byte-identical.
+    """
+    text = unicodedata.normalize("NFC", str(value if value is not None else ""))
+    text = text.replace("\u200b", "").replace("\ufeff", "").replace("\u00a0", " ")
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    if not text:
+        return fallback
+    return text[:limit]
+
+
 def create_project(payload: dict) -> dict:
     slug = validate_slug(payload.get("id", ""))
     destination = project_dir(slug, must_exist=False)
@@ -1292,6 +1572,7 @@ def create_project(payload: dict) -> dict:
     is_en = language == "en"
     defaults = read_project_defaults()
     character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
+    character_settings = remembered_character_settings(character_id)
     try:
         character = character_manifest(character_id)
         character_poses = character["poses"]
@@ -1299,6 +1580,7 @@ def create_project(payload: dict) -> dict:
             item["id"]: {
                 "closed": f"../../assets/characters/{character_id}/{item.get('closedFile') or item['file']}",
                 "speaking": f"../../assets/characters/{character_id}/{item.get('speakingFile') or item['file']}",
+                "focusSide": normalize_focus_side(item.get("focusSide"), item["id"], item.get("label")),
                 "syncMode": item.get("syncMode") or "scene",
                 "loop": item.get("loop") is not False,
                 "loopStart": max(0.0, float(item.get("loopStart") or 0)),
@@ -1321,7 +1603,8 @@ def create_project(payload: dict) -> dict:
             pose_id: pose_label_for_language(pose_id, label, language)
             for pose_id, label in (DEFAULT_POSE_LABELS_EN if is_en else DEFAULT_POSE_LABELS).items()
         }
-    first_pose = "question" if "question" in pose_assets else next(iter(pose_assets))
+    pose_sequence = default_pose_sequence(character_id, pose_assets)
+    first_pose = pose_sequence[0] if pose_sequence else ("question" if "question" in pose_assets else next(iter(pose_assets)))
     destination.mkdir(parents=True)
     assets_dir = destination / "assets"
     audio_dir = destination / "audio"
@@ -1357,9 +1640,11 @@ def create_project(payload: dict) -> dict:
         wav.setframerate(48000)
         wav.writeframes(b"\x00\x00" * 48000)
 
-    starter_text = "Enter your first line here." if is_en else "Nhập nội dung đầu tiên tại đây."
-    default_left = "Content A" if is_en else "Nội dung A"
-    default_right = "Content B" if is_en else "Nội dung B"
+    starter_text = normalize_display_text(
+        "Enter your first line here." if is_en else "Nhập nội dung đầu tiên tại đây."
+    )
+    default_left = normalize_display_text("Content A" if is_en else "Nội dung A")
+    default_right = normalize_display_text("Content B" if is_en else "Nội dung B")
     custom_catalog = defaults.get("customSfx") if isinstance(defaults.get("customSfx"), dict) else {}
     default_pose_sfx = {
         pose: {
@@ -1393,14 +1678,14 @@ def create_project(payload: dict) -> dict:
             shutil.copy2(source, target)
             sfx_map[key] = target.relative_to(destination).as_posix()
 
-    background_type = str(defaults.get("backgroundType") or "default").strip().lower()
+    background_type = str(character_settings.get("backgroundType") or "default").strip().lower()
     if background_type not in {"default", "color", "image"}:
         background_type = "default"
-    background_color = normalize_hex_color(defaults.get("backgroundColor"), "#f5eee3")
+    background_color = normalize_hex_color(character_settings.get("backgroundColor"), "#f5eee3")
     try:
-        background_zoom = round(max(1.0, min(3.0, float(defaults.get("backgroundImageZoom", 1.0)))), 2)
-        background_x = round(max(-50.0, min(50.0, float(defaults.get("backgroundImageX", 0.0)))), 1)
-        background_y = round(max(-50.0, min(50.0, float(defaults.get("backgroundImageY", 0.0)))), 1)
+        background_zoom = round(max(1.0, min(3.0, float(character_settings.get("backgroundImageZoom", 1.0)))), 2)
+        background_x = round(max(-50.0, min(50.0, float(character_settings.get("backgroundImageX", 0.0)))), 1)
+        background_y = round(max(-50.0, min(50.0, float(character_settings.get("backgroundImageY", 0.0)))), 1)
     except (TypeError, ValueError):
         background_zoom, background_x, background_y = 1.0, 0.0, 0.0
     background_image = ""
@@ -1414,7 +1699,7 @@ def create_project(payload: dict) -> dict:
             background_type = "color" if background_color else "default"
 
     try:
-        karaoke_size = round(max(0.6, min(1.5, float(defaults.get("karaokeSize", 1.2)))), 2)
+        karaoke_size = round(max(0.6, min(1.5, float(character_settings.get("karaokeSize", 1.2)))), 2)
     except (TypeError, ValueError):
         karaoke_size = 1.2
 
@@ -1439,8 +1724,8 @@ def create_project(payload: dict) -> dict:
         "id": slug,
         "brand": "Aurex",
         "duration": 1.0,
-        "leftLabel": str(payload.get("leftLabel") or default_left).strip(),
-        "rightLabel": str(payload.get("rightLabel") or default_right).strip(),
+        "leftLabel": normalize_display_text(payload.get("leftLabel"), default_left, 80),
+        "rightLabel": normalize_display_text(payload.get("rightLabel"), default_right, 80),
         "leftImage": "assets/placeholder-left.svg",
         "rightImage": "assets/placeholder-right.svg",
         "voiceover": "audio/silence.wav",
@@ -1468,12 +1753,16 @@ def create_project(payload: dict) -> dict:
         "backgroundMusic": background_music,
         "backgroundMusicEnabled": background_music_enabled,
         "backgroundMusicVolume": background_music_volume,
-        "labelColor": "#090909",
-        "leftLabelColor": "#090909",
-        "rightLabelColor": "#090909",
+        "pasteImageMode": str(payload.get("pasteImageMode") or "square") if str(payload.get("pasteImageMode") or "square") in {"square", "original"} else "square",
+        "labelColor": normalize_hex_color(character_settings.get("labelColor"), "#090909"),
+        "labelFontFamily": remembered_label_font(character_id),
+        "leftLabelColor": normalize_hex_color(character_settings.get("leftLabelColor"), "#090909"),
+        "rightLabelColor": normalize_hex_color(character_settings.get("rightLabelColor"), "#090909"),
+        "leftSubLabelColor": normalize_hex_color(character_settings.get("leftSubLabelColor"), "#808080"),
+        "rightSubLabelColor": normalize_hex_color(character_settings.get("rightSubLabelColor"), "#808080"),
         "comparisons": [],
-        "karaokeColor": normalize_hex_color(defaults.get("karaokeColor"), "#271f11"),
-        "karaokeActiveColor": normalize_hex_color(defaults.get("karaokeActiveColor"), "#de370d"),
+        "karaokeColor": normalize_hex_color(character_settings.get("karaokeColor"), "#271f11"),
+        "karaokeActiveColor": normalize_hex_color(character_settings.get("karaokeActiveColor"), "#de370d"),
         "karaokeSize": karaoke_size,
     }
     atomic_write_json(destination / "topic.json", topic)
@@ -1801,6 +2090,10 @@ def run_job(job_id: str) -> None:
         ]
         if run_logged_command(job_id, align_command, progress_start=30, progress_end=43, estimate_seconds=22) != 0:
             raise RuntimeError("Whisper không căn được subtitle với voiceover.")
+        aligned_topic = json.loads(render_topic.read_text(encoding="utf-8"))
+        aligned_topic["renderedAt"] = now_iso()
+        atomic_write_json(project_dir(slug) / "topic.rendered.json", aligned_topic)
+        append_job_log(job_id, "Đã lưu manifest timing render theo audio cuối cùng.\n")
         if job_cancelled(job_id):
             raise InterruptedError("Đã dừng render.")
         command = [

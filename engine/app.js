@@ -112,9 +112,11 @@ function applyLabelFontFamily(fontFamily) {
 }
 
 function comparisonAt(time) {
-  if (previewComparisonId === "base") return baseComparison();
+  const comparisons = Array.isArray(topic.comparisons) ? topic.comparisons : [];
+  const baseEnabled = topic.baseComparisonEnabled !== false;
+  if (previewComparisonId === "base" && baseEnabled) return baseComparison();
   if (previewComparisonId) {
-    const locked = (Array.isArray(topic.comparisons) ? topic.comparisons : [])
+    const locked = comparisons
       .find((item) => String(item.id || "") === previewComparisonId);
     if (locked) return locked;
   }
@@ -122,8 +124,8 @@ function comparisonAt(time) {
   (topic.segments || []).forEach((segment, index) => {
     if (Number(segment.start) <= Number(time) + 0.001) sentence = index + 1;
   });
-  let selected = baseComparison();
-  [...(Array.isArray(topic.comparisons) ? topic.comparisons : [])]
+  let selected = baseEnabled ? baseComparison() : (comparisons[0] || baseComparison());
+  [...comparisons]
     .sort((a, b) => Number(a.startSentence) - Number(b.startSentence))
     .forEach((item) => {
       if (Number(item.startSentence) <= sentence) selected = item;
@@ -333,14 +335,28 @@ function buildGroups(words) {
   return groups;
 }
 
+// Audio is continuous while the rendered video is sampled at fixed frame
+// boundaries. Cue a new pose slightly before its sentence start so the first
+// audible syllable never lands on the previous pose (at 30fps, one frame is
+// already 33ms late). The timeline itself remains the authoritative sentence
+// timing; this only controls visual selection.
+const POSE_EDGE_LEAD_SECONDS = 0.05;
+
 function poseAt(time) {
   let index = 0;
   for (let i = 0; i < topic.poseTimeline.length; i += 1) {
-    if (topic.poseTimeline[i].time <= time) index = i;
+    if (topic.poseTimeline[i].time <= time + POSE_EDGE_LEAD_SECONDS) index = i;
     else break;
   }
   return { ...topic.poseTimeline[index], index };
 }
+
+// Frame timestamps land on 1/fps boundaries while word timings come from the
+// aligner, so a word can start a few milliseconds after the frame that should
+// already highlight it. This epsilon absorbs that edge and stops off-by-one
+// word drift at both ends of a word.
+const WORD_EDGE_EPSILON = 0.035;
+const WORD_TAIL_EPSILON = 0.08;
 
 function activeWordAt(time) {
   // Đồng bộ với renderer AurexVideo: trong khoảng trống giữa hai word timing,
@@ -348,9 +364,9 @@ function activeWordAt(time) {
   let candidate = -1;
   for (let index = 0; index < timedWords.length; index += 1) {
     const word = timedWords[index];
-    if (time >= word.start && time <= word.end + 0.08) return index;
-    if (word.start <= time) candidate = index;
-    if (word.start > time) break;
+    if (time >= word.start - WORD_EDGE_EPSILON && time <= word.end + WORD_TAIL_EPSILON) return index;
+    if (word.start - WORD_EDGE_EPSILON <= time) candidate = index;
+    if (word.start - WORD_EDGE_EPSILON > time) break;
   }
   const lastEnd = timedWords[timedWords.length - 1]?.end || 0;
   return candidate >= 0 && time <= lastEnd + 0.7 ? candidate : -1;
@@ -421,6 +437,7 @@ function isSingleImageScene(scene = currentComparisonScene) {
 }
 
 function singleImagePlaceholderUrl(scene) {
+  if (!isSingleImageScene(scene)) return "";
   if (!String(scene?.leftImage || "").endsWith("/placeholder-left.svg")
     && String(scene?.leftImage || "") !== "assets/placeholder-left.svg") return "";
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial, sans-serif" font-size="42" font-weight="700">Ảnh đơn</text></svg>';
@@ -515,13 +532,15 @@ function playPoseSfx(event, time) {
 }
 
 function focusSideForPose(poseName) {
+  // Explicit focusSide from the character manifest wins. Only legacy poses
+  // without it fall back to reading the id/label; never guess by pose index.
+  const explicit = String(topic.poseAssets?.[poseName]?.focusSide || "").toLowerCase();
+  if (explicit === "left" || explicit === "right") return explicit;
+  if (explicit === "center") return "";
   const id = String(poseName || "").toLowerCase();
   const label = String(topic.poseLabels?.[poseName] || "").toLowerCase();
   if (id.includes("left") || label.includes("trái") || label.includes("left")) return "left";
   if (id.includes("right") || label.includes("phải") || label.includes("right")) return "right";
-  const poseIndex = Object.keys(topic.poseAssets || {}).indexOf(poseName);
-  if (poseIndex === 0 || poseIndex === 3) return "left";
-  if (poseIndex === 1 || poseIndex === 4) return "right";
   return "";
 }
 

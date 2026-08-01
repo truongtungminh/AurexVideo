@@ -1,6 +1,6 @@
 const pathProject = window.location.pathname.match(/^\/project\/([^/]+)\/$/)?.[1] || "";
 const project = new URLSearchParams(window.location.search).get("project") || decodeURIComponent(pathProject);
-const state = { topic: null, characters: [], dirty: false, revision: 0, saving: false, previewTime: 0, previewSegmentIndex: -1, previewComparisonId: "", poseBySegment: [], activeJob: null, pendingUploads: {}, imageDrag: null, cropTarget: null, cropOriginalSrc: null, cropZoom: 1, cropPanX: 0, cropPanY: 0, cropSelection: null, cropDisplay: null, cropDrag: null, cropRotateMode: false, cropAspectLocked: true, cropFrameAspect: 1, activePoseSfx: "neutral-left" };
+const state = { topic: null, characters: [], dirty: false, revision: 0, saving: false, previewTime: 0, previewSegmentIndex: -1, previewComparisonId: "", poseBySegment: [], renderedSegments: [], activeJob: null, pendingUploads: {}, imageDrag: null, cropTarget: null, cropOriginalSrc: null, cropZoom: 1, cropPanX: 0, cropPanY: 0, cropSelection: null, cropDisplay: null, cropDrag: null, cropRotateMode: false, cropAspectLocked: true, cropFrameAspect: 1, activePoseSfx: "neutral-left" };
 
 function isEnglishUi() {
   return (window.__AUREX_LANGUAGE__ || document.documentElement.lang) === "en";
@@ -14,6 +14,7 @@ const DEFAULT_LABEL_A = () => tr("Nội dung A", "Content A");
 const DEFAULT_LABEL_B = () => tr("Nội dung B", "Content B");
 const DEFAULT_SUBLABEL_COLOR = "#808080";
 const DEFAULT_LABEL_FONT_FAMILY = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const DEFAULT_PASTE_IMAGE_MODE = "square";
 const STARTER_SCRIPT = () => tr("Nhập nội dung đầu tiên tại đây.", "Enter your first line here.");
 
 function hasSubLabelRow(source) {
@@ -22,15 +23,55 @@ function hasSubLabelRow(source) {
   return Boolean(String(source.leftSubLabel || "").trim() || String(source.rightSubLabel || "").trim());
 }
 
+// Bundled Vietnamese-capable catalog. Kept in sync with
+// m3_backend.LABEL_FONT_CATALOG so the editor, preview and render agree.
+const LABEL_FONT_CATALOG = [
+  { name: "Inter", stack: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
+  { name: "Be Vietnam Pro", stack: '"Be Vietnam Pro", "Inter", sans-serif' },
+  { name: "Manrope", stack: '"Manrope", "Inter", sans-serif' },
+  { name: "Lexend", stack: '"Lexend", "Inter", sans-serif' },
+  { name: "Nunito", stack: '"Nunito", "Inter", sans-serif' },
+  { name: "Quicksand", stack: '"Quicksand", "Inter", sans-serif' },
+  { name: "Saira", stack: '"Saira", "Inter", sans-serif' },
+  { name: "Roboto", stack: '"Roboto", "Inter", sans-serif' },
+  { name: "Literata", stack: '"Literata", Georgia, serif' },
+  { name: "Playfair Display", stack: '"Playfair Display", Georgia, serif' },
+];
+// Legacy stacks render Vietnamese diacritics badly on Windows.
+const LEGACY_LABEL_FONTS = {
+  'arial, sans-serif': '"Be Vietnam Pro", "Inter", sans-serif',
+  'georgia, serif': '"Literata", Georgia, serif',
+  '"times new roman", times, serif': '"Literata", Georgia, serif',
+};
+
 function normalizeLabelFontFamily(value) {
-  const fonts = new Set([
-    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    'Arial, sans-serif',
-    'Georgia, serif',
-    '"Times New Roman", Times, serif',
-  ]);
   const next = String(value || "").trim();
-  return fonts.has(next) ? next : DEFAULT_LABEL_FONT_FAMILY;
+  if (LABEL_FONT_CATALOG.some((item) => item.stack === next)) return next;
+  return LEGACY_LABEL_FONTS[next.toLowerCase()] || DEFAULT_LABEL_FONT_FAMILY;
+}
+
+function labelFontOptionsHtml(selected) {
+  const current = normalizeLabelFontFamily(selected);
+  return LABEL_FONT_CATALOG
+    .map((item) => `<option value='${item.stack.replace(/'/g, "&#39;")}' ${item.stack === current ? "selected" : ""}>${item.name}</option>`)
+    .join("");
+}
+
+function populateLabelFontSelect(select, selected) {
+  if (!select) return;
+  select.innerHTML = labelFontOptionsHtml(selected);
+  select.value = normalizeLabelFontFamily(selected);
+}
+
+async function rememberedLabelFontFor(characterId) {
+  try {
+    const response = await fetch(`/api/label-fonts?characterId=${encodeURIComponent(characterId || "")}`, { cache: "no-store" });
+    if (!response.ok) return "";
+    const data = await response.json();
+    return { font: normalizeLabelFontFamily(data?.default), settings: data?.settings || {} };
+  } catch (error) {
+    return { font: "", settings: {} };
+  }
 }
 
 const POSE_LABEL_EN = {
@@ -50,6 +91,34 @@ function localizedPoseLabel(id, label) {
   const raw = String(label || id || "").trim();
   if (!isEnglishUi()) return raw || id;
   return POSE_LABEL_EN[raw] || POSE_LABEL_EN[id] || raw || id;
+}
+
+function normalizePasteImageMode(value) {
+  return value === "original" ? "original" : DEFAULT_PASTE_IMAGE_MODE;
+}
+
+function currentPasteImageMode() {
+  return normalizePasteImageMode(state.topic?.pasteImageMode);
+}
+
+function syncPasteImageModeControls() {
+  const selected = currentPasteImageMode();
+  document.querySelectorAll("[data-paste-image-mode]").forEach((button) => {
+    const active = button.dataset.pasteImageMode === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setPasteImageMode(value) {
+  if (!state.topic) return;
+  state.topic.pasteImageMode = normalizePasteImageMode(value);
+  syncPasteImageModeControls();
+  markDirty();
+  scheduleAutoSave(120);
+  showToast(state.topic.pasteImageMode === "square"
+    ? tr("Ảnh dán mới sẽ tự căn khung vuông 1:1.", "New pasted images will use a 1:1 frame.")
+    : tr("Ảnh dán mới sẽ giữ ảnh gốc.", "New pasted images will keep the original image."));
 }
 
 function localizeStarterContent(topic) {
@@ -85,7 +154,7 @@ const elements = Object.fromEntries([
   "leftLabelColor", "rightLabelColor", "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
   "labelFontFamily",
   "primarySubLabelRow",
-  "comparisonList", "addComparisonButton", "addSingleImageButton",
+  "comparisonList", "addComparisonButton", "addSingleImageButton", "deleteBaseComparison",
   "backgroundType", "backgroundColor", "backgroundColorField", "backgroundImagePanel",
   "backgroundThumb", "backgroundViewport", "backgroundImageFile", "deleteBackgroundImage",
   "backgroundImageZoom", "backgroundZoomText",
@@ -280,6 +349,7 @@ function characterTopicData(character) {
     poseAssets: Object.fromEntries(poses.map((pose) => [pose.id, {
       closed: `../../assets/characters/${character.id}/${pose.closedFile || pose.file}`,
       speaking: `../../assets/characters/${character.id}/${pose.speakingFile || pose.file}`,
+      focusSide: ["left", "right", "center"].includes(pose.focusSide) ? pose.focusSide : "center",
       syncMode: ["scene", "timeline", "freeze"].includes(pose.syncMode) ? pose.syncMode : "scene",
       loop: pose.loop !== false,
       loopStart: Math.max(0, Number(pose.loopStart) || 0),
@@ -313,7 +383,7 @@ function renderCharacterPicker() {
   elements.characterPoseCount.textContent = poseCount ? tr(`${poseCount} dáng pose`, `${poseCount} poses`) : tr("Chưa có pose", "No poses yet");
 }
 
-function switchCharacter(characterId) {
+async function switchCharacter(characterId) {
   if (!state.topic || characterId === state.topic.characterId) return;
   const character = state.characters.find((item) => item.id === characterId);
   if (!character) { showToast("Không tìm thấy nhân vật đã chọn.", true); renderCharacterPicker(); return; }
@@ -328,6 +398,15 @@ function switchCharacter(characterId) {
     id,
     oldSfx[oldOptions[index]] || ["pose-hard-pop-click", "pose-hard-pop-click", "pose-bubble-pop", "pose-explainer-pop-whoosh", "pose-explainer-pop-whoosh"][index] || "",
   ]));
+  // Resolve the preset before scheduling the first save. Otherwise the
+  // autosave below can briefly persist the previous character's font under
+  // the new character id.
+  let remembered = { font: "", settings: {} };
+  try {
+    remembered = await rememberedLabelFontFor(character.id);
+  } catch (error) {
+    remembered = { font: "", settings: {} };
+  }
   state.poseBySegment = state.poseBySegment.map((item) => {
     const oldIndex = Math.max(0, oldOptions.indexOf(item.pose));
     return { pose: nextIds[oldIndex % nextIds.length] || nextIds[0] };
@@ -337,12 +416,25 @@ function switchCharacter(characterId) {
     poseAssets: next.poseAssets,
     poseLabels: next.poseLabels,
     poseSfx: nextSfx,
+    labelFontFamily: remembered.font || normalizeLabelFontFamily(state.topic.labelFontFamily),
   });
+  Object.entries(remembered.settings || {}).forEach(([key, value]) => {
+    if (key in state.topic) state.topic[key] = value;
+  });
+  elements.leftLabelColor.value = state.topic.leftLabelColor || "#090909";
+  elements.rightLabelColor.value = state.topic.rightLabelColor || "#090909";
+  elements.leftSubLabelColor.value = state.topic.leftSubLabelColor || "#808080";
+  elements.rightSubLabelColor.value = state.topic.rightSubLabelColor || "#808080";
+  elements.karaokeActiveColor.value = state.topic.karaokeActiveColor || "#de370d";
+  elements.karaokeColor.value = state.topic.karaokeColor || "#271f11";
+  elements.karaokeSize.value = String(state.topic.karaokeSize || 1.2);
+  syncBackgroundControls();
   configurePoseOptions(state.topic);
   state.topic.poseTimeline = timelineFromPoses(segmentsFromEditor(false));
   renderCharacterPicker();
   renderPoseSfxMap();
   renderPoseList();
+  populateLabelFontSelect(elements.labelFontFamily, state.topic.labelFontFamily);
   markDirty();
   sendDraftToPreview();
   scheduleAutoSave(100);
@@ -502,7 +594,7 @@ function bindImageViewport(side) {
       y: maxOffsetY ? clamp((top - centerTop) / maxOffsetY * 50, -50, 50) : 0,
     });
     applyImageFrameToThumb(side);
-    sendDraftToPreview();
+    schedulePreviewUpdate(null, 40);
   });
   const endDrag = (event) => {
     const drag = state.imageDrag;
@@ -533,15 +625,30 @@ function comparisonLayout(comparison) {
   return comparison?.layout === "single" ? "single" : "pair";
 }
 
+function baseComparisonEnabled() {
+  return state.topic?.baseComparisonEnabled !== false;
+}
+
+function syncBaseComparisonVisibility() {
+  const block = document.querySelector(".comparison-block-primary");
+  if (block) block.hidden = !baseComparisonEnabled();
+}
+
 function comparisonSides(comparison) {
   return comparisonLayout(comparison) === "single" ? ["left"] : ["left", "right"];
 }
 
+function comparisonFrameAspect(comparison) {
+  return comparisonLayout(comparison) === "single" ? 16 / 9 : 1;
+}
+
 function comparisonUploadCardHtml(comparison, side) {
+  const single = comparisonLayout(comparison) === "single";
+  const slotLabel = single ? "Ảnh đơn" : `Ảnh bên ${side === "left" ? "trái" : "phải"}`;
   return `<div class="upload-card" data-side="${side}">
-    <span class="sr-only">Ảnh bên ${side === "left" ? "trái" : "phải"}</span>
+    <span class="sr-only">${slotLabel}</span>
     <div class="image-viewport" data-comparison-viewport data-side="${side}" title="Kéo để di chuyển vị trí hiển thị">
-      <img data-comparison-thumb data-side="${side}" src="${assetUrl(comparison[`${side}Image`])}" alt="" draggable="false" />
+      <img data-comparison-thumb data-side="${side}" src="${comparisonThumbUrl(comparison, side)}" alt="" draggable="false" />
     </div>
     <label class="image-zoom"><span>Zoom <output data-zoom-text data-side="${side}">${Math.round(Number(comparison[`${side}ImageZoom`] || 1) * 100)}%</output></span><input data-field="${side}ImageZoom" data-side="${side}" type="range" min="1" max="3" step="0.01" value="${Number(comparison[`${side}ImageZoom`] || 1)}" /></label>
     <div class="image-actions"><label class="replace-image">Thay ảnh<input data-comparison-file data-side="${side}" type="file" accept="image/png,image/jpeg,image/webp" /></label><button class="crop-image" data-action="crop-comparison-image" data-side="${side}" type="button">Crop/xoay</button><button class="remove-bg-image" data-action="remove-bg-comparison-image" data-side="${side}" type="button">${tr("Xóa nền", "Remove BG")}</button><button class="delete-image" data-action="clear-comparison-image" data-side="${side}" type="button">Xoá ảnh</button></div>
@@ -549,8 +656,11 @@ function comparisonUploadCardHtml(comparison, side) {
 }
 
 function comparisonCardHtml(comparison, index) {
-  const number = index + 2;
   const layout = comparisonLayout(comparison);
+  const earlierScenes = (state.topic?.comparisons || []).slice(0, index + 1);
+  const number = layout === "single"
+    ? earlierScenes.filter((item) => comparisonLayout(item) === "single").length
+    : earlierScenes.filter((item) => comparisonLayout(item) === "pair").length + (baseComparisonEnabled() ? 1 : 0);
   const leftSub = escapeHtml(comparison.leftSubLabel || "");
   const rightSub = escapeHtml(comparison.rightSubLabel || "");
   const leftSubColor = escapeHtml(comparison.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR);
@@ -569,12 +679,7 @@ function comparisonCardHtml(comparison, index) {
         <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Nhãn phụ</label><div><input data-field="leftSubLabel" maxlength="40" placeholder="Nhãn phụ" autocomplete="off" spellcheck="false" value="${leftSub}" aria-label="Nhãn phụ" /><input class="label-color-input" data-field="leftSubLabelColor" type="color" value="${leftSubColor}" aria-label="Màu nhãn phụ" title="Màu nhãn phụ" /></div></div>
       </div>
       <label class="comparison-font-field">Font nhãn
-        <select data-field="labelFontFamily">
-          <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ${labelFontFamily === '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ? "selected" : ""}>Inter</option>
-          <option value='Arial, sans-serif' ${labelFontFamily === 'Arial, sans-serif' ? "selected" : ""}>Arial</option>
-          <option value='Georgia, serif' ${labelFontFamily === 'Georgia, serif' ? "selected" : ""}>Georgia</option>
-          <option value='"Times New Roman", Times, serif' ${labelFontFamily === '"Times New Roman", Times, serif' ? "selected" : ""}>Times New Roman</option>
-        </select>
+        <select data-field="labelFontFamily">${labelFontOptionsHtml(labelFontFamily)}</select>
       </label>
       <div class="upload-grid single-image-upload-grid">
         ${comparisonUploadCardHtml(comparison, "left")}
@@ -588,12 +693,7 @@ function comparisonCardHtml(comparison, index) {
       <div class="comparison-label-field"><label class="sr-only">Nhãn bên phải</label><div><input data-field="rightLabel" required value="${escapeHtml(comparison.rightLabel || "")}" aria-label="Nhãn bên phải" /><input class="label-color-input" data-field="rightLabelColor" type="color" value="${escapeHtml(comparison.rightLabelColor || comparison.labelColor || "#090909")}" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>
     </div>
     <label class="comparison-font-field">Font nhãn
-      <select data-field="labelFontFamily">
-        <option value='"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ${labelFontFamily === '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' ? "selected" : ""}>Inter</option>
-        <option value='Arial, sans-serif' ${labelFontFamily === 'Arial, sans-serif' ? "selected" : ""}>Arial</option>
-        <option value='Georgia, serif' ${labelFontFamily === 'Georgia, serif' ? "selected" : ""}>Georgia</option>
-        <option value='"Times New Roman", Times, serif' ${labelFontFamily === '"Times New Roman", Times, serif' ? "selected" : ""}>Times New Roman</option>
-      </select>
+    <select data-field="labelFontFamily">${labelFontOptionsHtml(labelFontFamily)}</select>
     </label>
     <div class="form-grid comparison-label-grid comparison-sublabel-grid" data-sublabel-row>
       <div class="comparison-label-field comparison-sublabel-field"><label class="sr-only">Phiên âm bên trái</label><div><input data-field="leftSubLabel" maxlength="40" placeholder="/lʊk/" autocomplete="off" spellcheck="false" value="${leftSub}" aria-label="Phiên âm bên trái" /><input class="label-color-input" data-field="leftSubLabelColor" type="color" value="${leftSubColor}" aria-label="Màu phiên âm bên trái" title="Màu phiên âm bên trái" /></div></div>
@@ -618,6 +718,7 @@ function renderComparisonList() {
   const previousScrollTop = scrollPane?.scrollTop || 0;
   const previousScrollLeft = scrollPane?.scrollLeft || 0;
   state.topic.comparisons = Array.isArray(state.topic.comparisons) ? state.topic.comparisons : [];
+  syncBaseComparisonVisibility();
   elements.comparisonList.innerHTML = state.topic.comparisons.map(comparisonCardHtml).join("");
   elements.comparisonList.querySelectorAll("[data-comparison-thumb]").forEach((thumb) => {
     thumb.addEventListener("load", () => applyComparisonThumb(thumb.closest("[data-comparison-id]")?.dataset.comparisonId, thumb.dataset.side));
@@ -672,11 +773,23 @@ function placeholderImage(side) {
   return `assets/placeholder-${side}.svg`;
 }
 
+function singleImagePlaceholderUrl() {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial, sans-serif" font-size="42" font-weight="700">Ảnh đơn</text></svg>';
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function isPlaceholderImage(value, side) {
   return String(value || "").endsWith(`/placeholder-${side}.svg`) || String(value || "") === placeholderImage(side);
 }
 
-function setBaseImageFile(side, file) {
+function comparisonThumbUrl(comparison, side) {
+  if (comparisonLayout(comparison) === "single" && side === "left" && isPlaceholderImage(comparison.leftImage, "left")) {
+    return singleImagePlaceholderUrl();
+  }
+  return assetUrl(comparison[`${side}Image`]);
+}
+
+function setBaseImageFile(side, file, frame = null) {
   const input = elements[side === "left" ? "leftImageFile" : "rightImageFile"];
   const thumb = elements[side === "left" ? "leftThumb" : "rightThumb"];
   state.pendingUploads[`${side}Image`] = file;
@@ -703,10 +816,10 @@ function clearBaseImage(side) {
   scheduleAutoSave(120);
 }
 
-function setComparisonImageFile(comparison, side, file) {
+function setComparisonImageFile(comparison, side, file, frame = null) {
   const key = `comparison:${comparison.id}:${side}`;
   state.pendingUploads[key] = file;
-  writeComparisonFrame(comparison, side, { zoom: 1, x: 0, y: 0 });
+  writeComparisonFrame(comparison, side, frame || { zoom: 1, x: 0, y: 0 });
   const card = elements.comparisonList.querySelector(`[data-comparison-id="${CSS.escape(comparison.id)}"]`);
   const thumb = card?.querySelector(`[data-comparison-thumb][data-side="${side}"]`);
   const input = card?.querySelector(`[data-comparison-file][data-side="${side}"]`);
@@ -726,7 +839,7 @@ function clearComparisonImage(comparison, side) {
   const input = card?.querySelector(`[data-comparison-file][data-side="${side}"]`);
   if (input) input.value = "";
   const thumb = card?.querySelector(`[data-comparison-thumb][data-side="${side}"]`);
-  if (thumb) thumb.src = assetUrl(comparison[`${side}Image`]);
+  if (thumb) thumb.src = comparisonThumbUrl(comparison, side);
   applyComparisonThumb(comparison.id, side);
   jumpPreviewToComparison(comparison);
   markDirty();
@@ -735,20 +848,44 @@ function clearComparisonImage(comparison, side) {
 }
 
 function nextEmptyImageSlot() {
-  for (const side of ["left", "right"]) {
-    if (isPlaceholderImage(state.topic?.[`${side}Image`], side) && !state.pendingUploads[`${side}Image`]) {
-      return { type: "base", side };
-    }
-  }
-  for (const comparison of state.topic?.comparisons || []) {
-    for (const side of ["left", "right"]) {
+  const firstEmptyComparisonSlot = (comparison) => {
+    if (!comparison) return null;
+    for (const side of comparisonSides(comparison)) {
       const key = `comparison:${comparison.id}:${side}`;
-      if (isPlaceholderImage(comparison[`${side}Image`], side) && !state.pendingUploads[key]) {
-        return { type: "comparison", comparison, side };
-      }
+      if (isPlaceholderImage(comparison[`${side}Image`], side) && !state.pendingUploads[key]) return { type: "comparison", comparison, side };
     }
+    return null;
+  };
+  const firstEmptyBaseSlot = () => {
+    if (!baseComparisonEnabled()) return null;
+    for (const side of ["left", "right"]) {
+      if (isPlaceholderImage(state.topic?.[`${side}Image`], side) && !state.pendingUploads[`${side}Image`]) return { type: "base", side };
+    }
+    return null;
+  };
+  const activeComparison = comparisonById(state.previewComparisonId);
+  const activeSlot = firstEmptyComparisonSlot(activeComparison);
+  if (activeSlot) return activeSlot;
+  if (state.previewComparisonId === "base") {
+    const baseSlot = firstEmptyBaseSlot();
+    if (baseSlot) return baseSlot;
+  }
+  const baseSlot = firstEmptyBaseSlot();
+  if (baseSlot) return baseSlot;
+  for (const comparison of state.topic?.comparisons || []) {
+    if (comparison.id === activeComparison?.id) continue;
+    const comparisonSlot = firstEmptyComparisonSlot(comparison);
+    if (comparisonSlot) return comparisonSlot;
   }
   return null;
+}
+
+function comparisonSceneName(comparison) {
+  const scenes = state.topic?.comparisons || [];
+  const index = scenes.findIndex((item) => item.id === comparison?.id);
+  const earlierScenes = scenes.slice(0, index + 1);
+  if (comparisonLayout(comparison) === "single") return `Ảnh đơn ${earlierScenes.filter((item) => comparisonLayout(item) === "single").length}`;
+  return `So sánh ${earlierScenes.filter((item) => comparisonLayout(item) === "pair").length + (baseComparisonEnabled() ? 1 : 0)}`;
 }
 
 function normalizedClipboardImage(file, index) {
@@ -759,29 +896,23 @@ function normalizedClipboardImage(file, index) {
   return new File([file], `clipboard-${Date.now()}-${index + 1}.${extension}`, { type: file.type });
 }
 
-async function squareCropFile(file, namePrefix = "clipboard-square") {
-  const url = URL.createObjectURL(file);
+async function frameForClipboardImage(file, frameAspect = 1) {
+  const sourceUrl = URL.createObjectURL(file);
+  const source = document.createElement("img");
   try {
-    const image = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(tr("Không đọc được ảnh clipboard.", "Could not read clipboard image.")));
-      img.src = url;
+    await new Promise((resolve, reject) => {
+      source.onload = resolve;
+      source.onerror = () => reject(new Error(tr("Không thể đọc ảnh clipboard.", "Could not read the clipboard image.")));
+      source.src = sourceUrl;
     });
-    const size = Math.max(1, Math.min(image.naturalWidth || image.width || 1, image.naturalHeight || image.height || 1));
-    const sourceX = Math.max(0, Math.floor(((image.naturalWidth || image.width || size) - size) / 2));
-    const sourceY = Math.max(0, Math.floor(((image.naturalHeight || image.height || size) - size) / 2));
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const context = canvas.getContext("2d");
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    context.drawImage(image, sourceX, sourceY, size, size, 0, 0, size, size);
-    const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error(tr("Không crop được ảnh clipboard.", "Could not crop clipboard image."))), "image/png"));
-    return new File([blob], `${namePrefix}-${Date.now()}.png`, { type: "image/png" });
+    const aspect = source.naturalWidth / Math.max(1, source.naturalHeight);
+    return {
+      zoom: Math.round(clamp(Math.max(aspect / frameAspect, frameAspect / aspect), 1, 3) * 100) / 100,
+      x: 0,
+      y: 0,
+    };
   } finally {
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(sourceUrl);
   }
 }
 
@@ -810,6 +941,19 @@ function markDirty() {
 function scheduleAutoSave(delay = 800) {
   clearTimeout(scheduleAutoSave.timer);
   scheduleAutoSave.timer = setTimeout(() => saveEditor(null, true), delay);
+}
+
+// Coalesce preview messages so desktop WebView layout/compositing does not
+// compete with the text field for every keystroke.
+function schedulePreviewUpdate(comparison = null, delay = 80) {
+  schedulePreviewUpdate.comparisonId = comparison?.id || null;
+  clearTimeout(schedulePreviewUpdate.timer);
+  schedulePreviewUpdate.timer = setTimeout(() => {
+    const comparisonId = schedulePreviewUpdate.comparisonId;
+    schedulePreviewUpdate.comparisonId = null;
+    if (comparisonId) jumpPreviewToComparison(comparisonById(comparisonId));
+    sendDraftToPreview();
+  }, delay);
 }
 
 function scriptLines() {
@@ -944,11 +1088,32 @@ function renderPoseList() {
   if (state.poseBySegment.length !== segments.length) {
     state.poseBySegment = segments.map((segment, index) => state.poseBySegment[index] || { pose: inferPose(segment.text, index) });
   }
-  elements.poseList.innerHTML = segments.map((segment, index) => `<div class="pose-row" data-index="${index}">
-    <span class="pose-row-time">${formatTime(segment.start)}<strong>${index + 1}.</strong></span>
+  elements.poseList.innerHTML = segments.map((segment, index) => {
+    const rendered = state.renderedSegments[index];
+    const start = rendered && String(rendered.text || "").trim() === String(segment.text || "").trim()
+      ? Number(rendered.start) : segment.start;
+    return `<div class="pose-row" data-index="${index}">
+    <span class="pose-row-time">${formatTime(start)}<strong>${index + 1}.</strong></span>
     <p title="${segment.text.replace(/"/g, "&quot;")}">${segment.text}</p>
     <select data-field="pose">${poseOptionsHtml(state.poseBySegment[index].pose)}</select>
-  </div>`).join("");
+  </div>`;
+  }).join("");
+}
+
+async function loadRenderedTiming() {
+  state.renderedSegments = [];
+  try {
+    const response = await fetch(`/project/${encodeURIComponent(project)}/topic.rendered.json`, { cache: "no-store" });
+    if (!response.ok) return;
+    const rendered = await response.json();
+    const source = state.topic?.segments || [];
+    const aligned = Array.isArray(rendered.segments) ? rendered.segments : [];
+    if (aligned.length === source.length && aligned.every((item, index) => String(item.text || "").trim() === String(source[index]?.text || "").trim())) {
+      state.renderedSegments = aligned;
+    }
+  } catch {
+    // Render timing is optional until a video has been rendered.
+  }
 }
 
 function timelineFromPoses(segments) {
@@ -978,6 +1143,7 @@ function draftTopic(forceRetime = false) {
   const backgroundType = elements.backgroundType?.value || state.topic.backgroundType || "default";
   return {
     ...state.topic,
+    pasteImageMode: normalizePasteImageMode(state.topic.pasteImageMode),
     brand: state.topic.brand || "Aurex",
     leftLabel: elements.leftLabelInput.value.trim(),
     rightLabel: elements.rightLabelInput.value.trim(),
@@ -1041,6 +1207,26 @@ function sendDraftToPreview() {
   if (state.previewSegmentIndex < 0) {
     elements.previewFrame.contentWindow.postMessage({ type: "tho-preview-blank" }, window.location.origin);
   }
+}
+
+function reloadPreviewKeepingState(src) {
+  // Reloading the iframe resets the preview to frame 0. Remember where the
+  // user was and restore it once the new document has booted.
+  const segmentIndex = state.previewSegmentIndex;
+  const time = state.previewTime;
+  const comparisonId = state.previewComparisonId;
+  const frame = elements.previewFrame;
+  const restore = () => {
+    frame.removeEventListener("load", restore);
+    state.previewSegmentIndex = segmentIndex;
+    state.previewTime = time;
+    state.previewComparisonId = comparisonId;
+    updatePreviewCounter(segmentIndex);
+    // The preview boots asynchronously, so give it a tick before seeking.
+    window.setTimeout(() => sendDraftToPreview(), 120);
+  };
+  frame.addEventListener("load", restore);
+  frame.src = src;
 }
 
 function seekPreview(delta = 0) {
@@ -1163,6 +1349,10 @@ function jumpPreviewToComparison(comparison) {
 }
 
 function jumpPreviewToBaseComparison() {
+  if (!baseComparisonEnabled()) {
+    jumpPreviewToComparison(state.topic?.comparisons?.[0]);
+    return;
+  }
   state.previewComparisonId = "base";
   jumpPreviewToSentence(1);
   elements.previewFrame.contentWindow?.postMessage({
@@ -1413,7 +1603,7 @@ function renderCropSelection() {
   }
   const outputWidth = Math.max(1, Math.round(elements.cropImage.naturalWidth * selection.width));
   const outputHeight = Math.max(1, Math.round(elements.cropImage.naturalHeight * selection.height));
-  elements.cropSizeText.textContent = `Ảnh đầu ra: ${outputWidth} × ${outputHeight}px`;
+  elements.cropSizeText.textContent = `${Math.round(state.cropZoom * 100)}% · Ảnh đầu ra: ${outputWidth} × ${outputHeight}px`;
 }
 
 function openCropDialog(target) {
@@ -1670,10 +1860,12 @@ async function saveEditor(event, quiet = false) {
     }
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`, { method: "PUT", body: JSON.stringify(draftTopic(false)) });
     state.topic = result.topic;
+    state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);
+    syncPasteImageModeControls();
     configurePoseOptions(state.topic);
     state.dirty = savingRevision !== state.revision;
     elements.saveState.textContent = state.dirty ? "Có thay đổi mới, đang lưu tiếp..." : "Đã tự động lưu";
-    if (uploadedVoice) elements.previewFrame.src = `/index.html?topic=${encodeURIComponent(`project/${project}/topic.json`)}&render=1&preview=1&v=${Date.now()}`;
+    if (uploadedVoice) reloadPreviewKeepingState(`/index.html?topic=${encodeURIComponent(`project/${project}/topic.json`)}&render=1&preview=1&v=${Date.now()}`);
     else sendDraftToPreview();
     elements.leftThumb.src = assetUrl(state.topic.leftImage);
     elements.rightThumb.src = assetUrl(state.topic.rightImage);
@@ -1742,6 +1934,9 @@ async function loadProject() {
     await Promise.all([loadSfxLibrary(), loadCharacters()]);
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`);
     state.topic = result.topic;
+    await loadRenderedTiming();
+    state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);
+    syncPasteImageModeControls();
     if (localizeStarterContent(state.topic)) {
       markDirty();
       scheduleAutoSave(120);
@@ -1760,12 +1955,13 @@ async function loadProject() {
     elements.rightLabelInput.value = state.topic.rightLabel;
     elements.leftLabelColor.value = state.topic.leftLabelColor || state.topic.labelColor || "#090909";
     elements.rightLabelColor.value = state.topic.rightLabelColor || state.topic.labelColor || "#090909";
-    if (elements.labelFontFamily) elements.labelFontFamily.value = normalizeLabelFontFamily(state.topic.labelFontFamily);
+    populateLabelFontSelect(elements.labelFontFamily, state.topic.labelFontFamily);
     if (elements.leftSubLabelInput) elements.leftSubLabelInput.value = state.topic.leftSubLabel || "";
     if (elements.rightSubLabelInput) elements.rightSubLabelInput.value = state.topic.rightSubLabel || "";
     if (elements.leftSubLabelColor) elements.leftSubLabelColor.value = state.topic.leftSubLabelColor || DEFAULT_SUBLABEL_COLOR;
     if (elements.rightSubLabelColor) elements.rightSubLabelColor.value = state.topic.rightSubLabelColor || DEFAULT_SUBLABEL_COLOR;
     state.topic.comparisons = Array.isArray(state.topic.comparisons) ? state.topic.comparisons : [];
+    syncBaseComparisonVisibility();
     elements.leftThumb.src = assetUrl(state.topic.leftImage);
     elements.rightThumb.src = assetUrl(state.topic.rightImage);
     applyImageFrameToThumb("left");
@@ -1840,14 +2036,14 @@ elements.cropStage.addEventListener("pointerdown", (event) => {
     };
     return;
   }
-  const handle = event.target.closest("[data-crop-handle]")?.dataset.cropHandle || "move";
-  if (handle === "move" && !event.target.closest("#cropSelection")) return;
+  const isCropSurface = event.target.closest("#cropSelection") || event.target.closest("#cropImage");
+  if (!isCropSurface) return;
   event.preventDefault();
   elements.cropStage.setPointerCapture(event.pointerId);
   state.cropDrag = {
     type: "crop",
     pointerId: event.pointerId,
-    handle,
+    handle: "move",
     start: cropPoint(event),
     selection: { ...state.cropSelection },
   };
@@ -1894,43 +2090,6 @@ elements.cropStage.addEventListener("pointermove", (event) => {
       x: clamp(original.x + dx, 0, 1 - original.width),
       y: clamp(original.y + dy, 0, 1 - original.height),
     };
-  } else if (state.cropAspectLocked) {
-    const minSize = Math.max(minWidth, minHeight);
-    const anchor = (() => {
-      switch (drag.handle) {
-        case "nw": return { x: original.x + original.width, y: original.y + original.height, maxSize: Math.min(original.x + original.width, original.y + original.height) };
-        case "ne": return { x: original.x, y: original.y + original.height, maxSize: Math.min(1 - original.x, original.y + original.height) };
-        case "sw": return { x: original.x + original.width, y: original.y, maxSize: Math.min(original.x + original.width, 1 - original.y) };
-        case "se":
-        default:
-          return { x: original.x, y: original.y, maxSize: Math.min(1 - original.x, 1 - original.y) };
-      }
-    })();
-    const size = (() => {
-      switch (drag.handle) {
-        case "nw": return clamp(Math.max(anchor.x - point.x, anchor.y - point.y), minSize, anchor.maxSize);
-        case "ne": return clamp(Math.max(point.x - anchor.x, anchor.y - point.y), minSize, anchor.maxSize);
-        case "sw": return clamp(Math.max(anchor.x - point.x, point.y - anchor.y), minSize, anchor.maxSize);
-        case "se":
-        default:
-          return clamp(Math.max(point.x - anchor.x, point.y - anchor.y), minSize, anchor.maxSize);
-      }
-    })();
-    switch (drag.handle) {
-      case "nw":
-        state.cropSelection = { x: anchor.x - size, y: anchor.y - size, width: size, height: size };
-        break;
-      case "ne":
-        state.cropSelection = { x: anchor.x, y: anchor.y - size, width: size, height: size };
-        break;
-      case "sw":
-        state.cropSelection = { x: anchor.x - size, y: anchor.y, width: size, height: size };
-        break;
-      case "se":
-      default:
-        state.cropSelection = { x: anchor.x, y: anchor.y, width: size, height: size };
-        break;
-    }
   } else {
     let left = original.x;
     let top = original.y;
@@ -1971,7 +2130,7 @@ function handleEditorInput(event) {
     "scriptInput", "karaokeActiveColor", "karaokeColor", "karaokeSize",
     "backgroundType", "backgroundColor",
     "backgroundMusicVolume",
-  ].includes(event.target.id)) sendDraftToPreview();
+  ].includes(event.target.id)) schedulePreviewUpdate();
   if (event.target.id === "sfxVolumeInput") elements.sfxVolumeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "karaokeSize") elements.karaokeSizeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "backgroundMusicVolume") {
@@ -2058,6 +2217,17 @@ function addComparisonScene(layout) {
 
 elements.addComparisonButton.addEventListener("click", () => addComparisonScene("pair"));
 elements.addSingleImageButton?.addEventListener("click", () => addComparisonScene("single"));
+elements.deleteBaseComparison?.addEventListener("click", () => {
+  if (!state.topic || !baseComparisonEnabled()) return;
+  state.topic.baseComparisonEnabled = false;
+  state.previewComparisonId = "";
+  syncBaseComparisonVisibility();
+  renderComparisonList();
+  jumpPreviewToComparison(state.topic.comparisons?.[0]);
+  markDirty();
+  sendDraftToPreview();
+  scheduleAutoSave(200);
+});
 const primaryComparisonBlock = document.querySelector(".comparison-block-primary");
 primaryComparisonBlock?.addEventListener("pointerdown", jumpPreviewToBaseComparison);
 primaryComparisonBlock?.addEventListener("focusin", jumpPreviewToBaseComparison);
@@ -2110,9 +2280,8 @@ elements.comparisonList.addEventListener("input", (event) => {
     writeComparisonFrame(comparison, side, { ...frame, zoom: Number(event.target.value) });
     applyComparisonThumb(comparison.id, side);
   } else comparison[field] = event.target.value;
-  jumpPreviewToComparison(comparison);
+  schedulePreviewUpdate(comparison);
   markDirty();
-  sendDraftToPreview();
   scheduleAutoSave(field.endsWith("ImageZoom") ? 200 : 500);
 });
 elements.comparisonList.addEventListener("change", (event) => {
@@ -2180,7 +2349,7 @@ elements.comparisonList.addEventListener("pointercancel", endComparisonDrag);
     writeImageFrame(side, { zoom: Number(elements[keys.zoomInput].value), x: frame.x, y: frame.y });
     applyImageFrameToThumb(side);
     markDirty();
-    sendDraftToPreview();
+    schedulePreviewUpdate(null, 40);
     scheduleAutoSave(200);
   });
   bindImageViewport(side);
@@ -2239,26 +2408,40 @@ window.addEventListener("paste", async (event) => {
     showToast("Ảnh clipboard cần ở định dạng PNG, JPG hoặc WebP.", true);
     return;
   }
+  const pasteMode = currentPasteImageMode();
+  const cropMode = pasteMode === "square";
   let placed = 0;
   const destinations = [];
+  const usedAspects = new Set();
   for (const file of images) {
     const slot = nextEmptyImageSlot();
     if (!slot) break;
-    const squareFile = await squareCropFile(file, "clipboard-square");
-    if (slot.type === "base") setBaseImageFile(slot.side, squareFile);
-    else setComparisonImageFile(slot.comparison, slot.side, squareFile);
+    const frameAspect = slot.type === "comparison" ? comparisonFrameAspect(slot.comparison) : 1;
+    let frame = null;
+    try {
+      frame = cropMode ? await frameForClipboardImage(file, frameAspect) : null;
+    } catch (error) {
+      showToast(error.message, true);
+      return;
+    }
+    if (slot.type === "base") setBaseImageFile(slot.side, file, frame);
+    else setComparisonImageFile(slot.comparison, slot.side, file, frame);
+    if (cropMode) usedAspects.add(frameAspect === 1 ? "1:1" : "16:9");
     placed += 1;
     const comparisonName = slot.type === "base"
       ? (slot.side === "left" ? "Ảnh bên trái" : "Ảnh bên phải")
-      : `So sánh ${(state.topic.comparisons || []).indexOf(slot.comparison) + 2}`;
-    destinations.push(`${comparisonName} · bên ${slot.side === "left" ? "trái" : "phải"}`);
+      : comparisonSceneName(slot.comparison);
+    destinations.push(slot.type === "comparison" && comparisonLayout(slot.comparison) === "single"
+      ? comparisonName
+      : `${comparisonName} · bên ${slot.side === "left" ? "trái" : "phải"}`);
   }
   if (!placed) {
     showToast("Không còn ô ảnh trống. Hãy xoá một ảnh trước khi dán.", true);
     return;
   }
   const remaining = images.length - placed;
-  showToast(`Đã dán ${placed} ảnh và crop vuông 1:1 vào ${destinations.join(", ")}${remaining ? `; còn ${remaining} ảnh chưa có ô trống` : ""}.`);
+  const cropLabel = usedAspects.size ? `${tr("Đã căn khung", "Framed")} ${[...usedAspects].join(" / ")} ${tr("và dán", "and pasted")}` : tr("Đã dán", "Pasted");
+  showToast(`${cropLabel} ${placed} ${tr("ảnh vào", "image(s) into")} ${destinations.join(", ")}${remaining ? `; ${tr("còn", "")} ${remaining} ${tr("ảnh chưa có ô trống", "image(s) had no empty slot")}` : ""}.`);
 });
 
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
