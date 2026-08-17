@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Backup folders created during app updates (transient copies of tracked files)
+.backup-*/
+
+# Generated render outputs / project data
+output/
+project/
+
+# Logs
+*.log

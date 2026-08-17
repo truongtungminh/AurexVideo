@@ -1,0 +1,44 @@
+{
+  "characterId": "engzy",
+  "karaokeColor": "#ffffff",
+  "karaokeActiveColor": "#fffb00",
+  "karaokeSize": 1.2,
+  "backgroundType": "image",
+  "backgroundColor": "#0d0d0c",
+  "backgroundImageZoom": 1.0,
+  "backgroundImageX": 0.0,
+  "backgroundImageY": 0.0,
+  "backgroundImage": "backgrounds/background.png",
+  "backgroundMusic": "",
+  "backgroundMusicEnabled": false,
+  "backgroundMusicVolume": 0.18,
+  "poseSfxByCharacter": {
+    "hieu-ham-hoc": {
+      "neutral-left": "pose-hard-pop-click",
+      "neutral-right": "pose-hard-pop-click",
+      "question": "pose-bubble-pop",
+      "smile-left": "pose-explainer-pop-whoosh",
+      "smile-right": "pose-explainer-pop-whoosh"
+    },
+    "engzy": {
+      "pose-1": "follow-ding",
+      "pose-2": "follow-ding",
+      "pose-3": "follow-ding",
+      "pose-4": "follow-ding",
+      "pose-5": "follow-ding",
+      "pose-6": ""
+    }
+  },
+  "customSfx": {},
+  "ttsVoiceByCharacter": {
+    "july": "Huyền V2"
+  },
+  "labelFontFamily": "\"Be Vietnam Pro\", \"Inter\", sans-serif",
+  "labelColor": "#00f900",
+  "labelFontByCharacter": {
+    "engzy": "\"Be Vietnam Pro\", \"Inter\", sans-serif"
+  },
+  "labelColorByCharacter": {
+    "engzy": "#00f900"
+  }
+}

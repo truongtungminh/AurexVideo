@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Upload Center · AurexVideo</title>
+    <link rel="stylesheet" href="/webui/styles.css?v=20260730-job-live-sizefix" />
+  </head>
+  <body class="upload-page">
+    <header class="topbar">
+      <a class="brand" href="/"><img src="/assets/generated/channel-avatar.png" alt="" /><span><strong>Aurex</strong><small>Upload Center</small></span></a>
+      <a class="button secondary" href="/" target="_self">← Quay lại render</a>
+    </header>
+    <main class="upload-shell">
+      <section class="upload-video-panel panel">
+        <p class="eyebrow">Video cuối</p>
+        <label>Chọn dự án<select id="uploadProject"></select></label>
+        <video id="uploadVideo" controls playsinline></video>
+        <p class="form-note" id="videoState">Đang tải video...</p>
+      </section>
+      <section class="upload-form-panel panel">
+        <div><p class="eyebrow">Nội dung đăng</p><h1>Đăng video</h1></div>
+        <label>Tiêu đề YouTube<input id="uploadTitle" maxlength="90" /></label>
+        <label>Mô tả YouTube<textarea id="youtubeDescription" rows="8"></textarea></label>
+        <label>Caption Facebook<textarea id="facebookCaption" rows="7"></textarea></label>
+        <div class="upload-platform-grid">
+          <section class="platform-card youtube-card">
+            <strong>YouTube</strong>
+            <select id="uploadYoutubeChannel"></select>
+            <label>Quyền riêng tư<select id="youtubePrivacy"><option value="private">Riêng tư</option><option value="unlisted">Không công khai</option><option value="public" selected>Công khai</option></select></label>
+            <label class="schedule-toggle"><input type="checkbox" id="youtubeScheduleToggle" /> Hẹn giờ đăng</label>
+            <div class="schedule-row" id="youtubeScheduleRow" hidden>
+              <input type="datetime-local" id="youtubeScheduleTime" />
+              <p class="form-note">YouTube giữ video ở chế độ riêng tư đến đúng giờ hẹn rồi tự động công khai.</p>
+            </div>
+            <button class="button primary wide" id="uploadYoutubeButton" type="button">Upload YouTube</button>
+          </section>
+          <section class="platform-card facebook-card">
+            <strong>Facebook Reels</strong>
+            <select id="uploadFacebookPage"></select>
+            <label class="schedule-toggle"><input type="checkbox" id="facebookScheduleToggle" /> Hẹn giờ đăng</label>
+            <div class="schedule-row" id="facebookScheduleRow" hidden>
+              <input type="datetime-local" id="facebookScheduleTime" />
+              <p class="form-note">Facebook cho hẹn từ 10 phút đến 75 ngày trước. Reels sẽ tự đăng đúng giờ.</p>
+            </div>
+            <button class="button primary wide" id="uploadFacebookButton" type="button">Upload Facebook</button>
+          </section>
+          <section class="platform-card binance-card">
+            <strong>Binance Square</strong>
+            <button class="button tiny secondary" id="configureBinanceButton" type="button">Cấu hình OpenAPI key</button>
+            <label>Thời lượng (giây)<input id="binanceDuration" type="number" min="0.1" step="0.1" value="10" /></label>
+            <label>Caption Binance<textarea id="binanceCaption" rows="4" placeholder="Nội dung tự nhập, giống Facebook Caption"></textarea></label>
+            <button class="button primary wide" id="uploadBinanceButton" type="button">Đăng Binance</button>
+          </section>
+        </div>
+        <div class="upload-result" id="uploadResult">Chọn nền tảng để upload.</div>
+      </section>
+    </main>
+    <div class="modal-backdrop" id="binanceConfigModal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="binanceConfigTitle">
+        <div class="modal-head">
+          <h2 id="binanceConfigTitle">Cấu hình Binance Square</h2>
+          <button class="modal-close" id="binanceConfigClose" type="button" aria-label="Đóng">×</button>
+        </div>
+        <p class="form-note" id="binanceConfigState">Đang tải cấu hình...</p>
+        <label>OpenAPI key<input id="binanceApiKey" type="password" autocomplete="off" placeholder="Dán OpenAPI key Binance Square vào đây" /></label>
+        <div class="modal-actions">
+          <button class="button tiny danger" id="binanceDisconnectButton" type="button">Gỡ cấu hình</button>
+          <button class="button tiny primary" id="binanceSaveConfigButton" type="button">Lưu cấu hình</button>
+        </div>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/webui/upload.js"></script>
+  </body>
+</html>

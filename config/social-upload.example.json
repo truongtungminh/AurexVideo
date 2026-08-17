@@ -1,0 +1,59 @@
+{
+  "youtube": {
+    "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID",
+    "client_secret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8765/api/social/youtube/callback",
+    "active_channel_id": "",
+    "channels": []
+  },
+  "facebook": {
+    "graph_version": "v25.0",
+    "active_page_id": "YOUR_FACEBOOK_PAGE_ID",
+    "video_state": "PUBLISHED",
+    "pages": [
+      {
+        "id": "YOUR_FACEBOOK_PAGE_ID",
+        "page_access_token": "YOUR_FACEBOOK_PAGE_ACCESS_TOKEN"
+      }
+    ]
+  },
+  "brand_routes_version": 1,
+  "brand_routes": {
+    "bietchichomet": {
+      "facebook": {"page_id": "YOUR_BIETCHICHOMET_PAGE_ID", "name": "Biết Chi Cho Mệt"},
+      "youtube": {"channel_id": "YOUR_BIETCHICHOMET_CHANNEL_ID", "name": "Biết Chi Cho Mệt"}
+    },
+    "tintucbitcoin": {
+      "facebook": {"page_id": "YOUR_TINTUCBITCOIN_PAGE_ID", "name": "Tin Tức Bitcoin"},
+      "youtube": {"channel_id": "YOUR_TINTUCBITCOIN_CHANNEL_ID", "name": "Tin Tức Bitcoin"}
+    },
+    "popsy": {
+      "facebook": {"page_id": "YOUR_POPSY_PAGE_ID", "name": "Popsy"},
+      "youtube": {"channel_id": "YOUR_POPSY_CHANNEL_ID", "name": "Popsy Hub"}
+    },
+    "engzy": {
+      "youtube": {"channel_id": "YOUR_ENGZY_CHANNEL_ID", "name": "ENGZY"}
+    }
+  },
+  "instagram": {
+    "api_mode": "instagram_login",
+    "graph_version": "v25.0",
+    "ig_user_id": "YOUR_INSTAGRAM_IG_USER_ID",
+    "access_token": "YOUR_INSTAGRAM_ACCESS_TOKEN"
+  },
+  "threads": {
+    "graph_version": "v1.0",
+    "threads_user_id": "YOUR_THREADS_USER_ID",
+    "access_token": "YOUR_THREADS_ACCESS_TOKEN"
+  },
+  "r2": {
+    "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
+    "bucket": "instagram-media",
+    "access_key_id": "YOUR_R2_ACCESS_KEY_ID",
+    "secret_access_key": "YOUR_R2_SECRET_ACCESS_KEY",
+    "public_base_url": "https://media.example.com",
+    "region": "auto",
+    "object_prefix": "instagram",
+    "retain_media": false
+  }
+}

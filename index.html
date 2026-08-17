@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Người dẫn chuyện - One Scene Video</title>
+    <link rel="stylesheet" href="style.css?v=20260817-anhtinhbiettuot-vintage" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="stage" id="stage" aria-label="Video so sánh một cảnh">
+        <div class="stage-background" id="stageBackground" aria-hidden="true">
+          <img id="stageBackgroundImage" alt="" hidden />
+        </div>
+        <div class="topic-label-stack topic-label-left">
+          <div class="topic-label" id="leftLabel">Inox 304</div>
+          <div class="topic-sub-label" id="leftSubLabel" hidden></div>
+        </div>
+        <div class="topic-label-stack topic-label-right">
+          <div class="topic-label" id="rightLabel">Inox 316</div>
+          <div class="topic-sub-label" id="rightSubLabel" hidden></div>
+        </div>
+
+        <div class="media-slot media-slot-left">
+          <img id="leftImage" alt="Hình minh họa đối tượng bên trái" />
+        </div>
+        <div class="media-slot media-slot-right">
+          <img id="rightImage" alt="Hình minh họa đối tượng bên phải" />
+        </div>
+
+        <div class="karaoke" id="karaoke" aria-live="polite"></div>
+
+        <div class="teacher-wrap" id="teacherWrap">
+          <img class="teacher" id="teacher" alt="Nhân vật đang trình bày" />
+        </div>
+
+        <div class="loading" id="loading">Đang chuẩn bị bài giảng...</div>
+        <div class="sync-marker" id="syncMarker" aria-hidden="true"></div>
+      </section>
+
+      <div class="controls" id="controls">
+        <button type="button" id="playButton">Phát</button>
+        <button type="button" id="restartButton">Xem lại</button>
+        <span id="timeText">00:00 / 00:00</span>
+        <input id="progress" type="range" min="0" max="1000" value="0" aria-label="Tiến trình video" />
+      </div>
+    </main>
+
+    <audio id="voiceover" preload="auto"></audio>
+    <audio id="backgroundMusic" preload="auto" loop></audio>
+    <script src="app.js?v=20260811-engzy-sticker-11"></script>
+  </body>
+</html>
