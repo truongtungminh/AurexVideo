@@ -2844,27 +2844,6 @@
     return Boolean($('#youtubeScheduleToggle')?.checked || $('#facebookScheduleToggle')?.checked);
   }
 
-  function setupScheduleToggle(toggleId, rowId, timeId, onEnable) {
-    const toggle = $(toggleId);
-    const row = $(rowId);
-    const time = $(timeId);
-    if (!toggle || !row || !time) return;
-    toggle.addEventListener('change', () => {
-      if (toggle.checked) {
-        time.min = scheduleLocalValue(new Date(Date.now() + 15 * 60 * 1000));
-        time.value = '';
-        row.hidden = false;
-        if (onEnable) onEnable(true);
-      } else {
-        row.hidden = true;
-        time.value = '';
-        if (onEnable) onEnable(false);
-      }
-      updateUploadBothButton();
-      updateMetaAllButton();
-    });
-  }
-
   async function uploadYoutubeVideo(project) {
     const scheduleEnabled = Boolean($('#youtubeScheduleToggle')?.checked);
     const scheduledPublishAt = scheduleEnabled ? scheduleIsoValue($('#youtubeScheduleTime'), 'YouTube') : '';
@@ -3569,21 +3548,40 @@
       updateMetaAllButton();
     });
   });
-  function wireScheduleToggles() {
-    setupScheduleToggle('youtubeScheduleToggle', 'youtubeScheduleRow', 'youtubeScheduleTime', (enabled) => {
+  function applyScheduleToggle(toggleId, rowId, timeId, isYoutube) {
+    const toggle = $('#' + toggleId);
+    const row = $('#' + rowId);
+    const time = $('#' + timeId);
+    if (!toggle || !row || !time) return;
+    const enabled = toggle.checked;
+    if (enabled) {
+      time.min = scheduleLocalValue(new Date(Date.now() + 15 * 60 * 1000));
+    } else {
+      time.value = '';
+    }
+    row.hidden = !enabled;
+    if (isYoutube) {
       const privacy = $('#youtubePrivacy');
       if (privacy) {
         privacy.disabled = enabled;
         if (enabled) privacy.value = 'private';
       }
-    });
-    setupScheduleToggle('facebookScheduleToggle', 'facebookScheduleRow', 'facebookScheduleTime');
+    }
+    updateUploadBothButton();
+    updateMetaAllButton();
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', wireScheduleToggles);
-  } else {
-    wireScheduleToggles();
-  }
+
+  // Delegated listener: works regardless of when/where the toggle elements
+  // appear in the DOM (the upload page re-renders platform cards).
+  document.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target || typeof target.id !== 'string') return;
+    if (target.id === 'youtubeScheduleToggle') {
+      applyScheduleToggle('youtubeScheduleToggle', 'youtubeScheduleRow', 'youtubeScheduleTime', true);
+    } else if (target.id === 'facebookScheduleToggle') {
+      applyScheduleToggle('facebookScheduleToggle', 'facebookScheduleRow', 'facebookScheduleTime', false);
+    }
+  });
   const facebookSourceComment = $('#facebookSourceComment');
   if (facebookSourceComment) facebookSourceComment.addEventListener('input', updateFacebookCommentButton);
   $all('[data-copy-target]').forEach((button) => {
