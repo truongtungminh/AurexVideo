@@ -15,6 +15,7 @@ from .metadata import (
     final_video_path_for_project,
     first_url_from_source,
     read_expected_video_bytes,
+    read_project_upload_metadata,
     record_social_upload,
     project_brand_from_topic,
     require_project,
@@ -360,6 +361,9 @@ def facebook_upload_video(payload: dict) -> dict:
     if video_state not in {"DRAFT", "PUBLISHED", "SCHEDULED"}:
         raise ValueError("facebook.video_state must be DRAFT, PUBLISHED, or SCHEDULED.")
     scheduled_publish_at = parse_scheduled_publish_at(payload)
+    if not scheduled_publish_at:
+        stored = read_project_upload_metadata(project)
+        scheduled_publish_at = parse_scheduled_publish_at(stored.get('facebook', {}) if isinstance(stored, dict) else {})
     if scheduled_publish_at:
         # Facebook Graph API schedules Reels via video_state=SCHEDULED plus
         # scheduled_publish_time; the window is 10 minutes to 75 days ahead.

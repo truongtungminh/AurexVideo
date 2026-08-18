@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import read_social_config, social_brand_route, social_config_hint, write_social_config
-from .metadata import build_upload_metadata, final_video_path_for_project, project_brand_from_topic, read_expected_video_bytes, record_social_upload, require_project
+from .metadata import build_upload_metadata, final_video_path_for_project, project_brand_from_topic, read_expected_video_bytes, read_project_upload_metadata, record_social_upload, require_project
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -448,6 +448,9 @@ def youtube_upload_video(payload: dict) -> dict:
     if privacy_status not in {"private", "unlisted", "public"}:
         raise ValueError("privacyStatus must be private, unlisted, or public.")
     scheduled_publish_at = parse_scheduled_publish_at(payload)
+    if not scheduled_publish_at:
+        stored = read_project_upload_metadata(project)
+        scheduled_publish_at = parse_scheduled_publish_at(stored.get('youtube', {}) if isinstance(stored, dict) else {})
     if scheduled_publish_at:
         # The YouTube API only accepts publishAt on a private video; the
         # video flips to public automatically when the clock hits the time.
