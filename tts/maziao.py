@@ -139,7 +139,13 @@ VN_VOICES: dict[str, dict] = {
         "modelId": "vieten_speech",
     },
 
-    # ── Synced from GET /api/voices/favourites (2026-08-17) ────────────
+    # ── Synced from GET /api/voices/favourites (2026-08-18) ────────────
+    "ctt": {
+        "id": "clone_zfhXmEcQRQEwDlNARZUYA",
+        "name": "CTT",
+        "gender": "male",
+        "modelId": "vieten_speech",
+    },
     "chautinhtri": {
         "id": "clone_spQY5cN4d4lSSNSYACWD8",
         "name": "ChauTinhTri",
