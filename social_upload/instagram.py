@@ -4,6 +4,7 @@ import os
 import re
 import secrets
 import time
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -18,6 +19,8 @@ from .r2 import (
     resolve_r2_config,
     upload_file,
 )
+from .schedule import parse_scheduled_publish_at, validate_schedule_window
+from .scheduler import schedule_upload
 
 
 DEFAULT_INSTAGRAM_GRAPH_VERSION = "v25.0"
@@ -213,6 +216,11 @@ def instagram_media_metadata(instagram: dict, media_id: str, access_token: str) 
 
 def instagram_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
+    scheduled = parse_scheduled_publish_at(payload)
+    if scheduled:
+        validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
+        queued = schedule_upload("instagram", payload, scheduled)
+        return {"ok": True, "platform": "instagram", "project": project, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Instagram; worker sẽ publish đúng giờ."}
     video_path = final_video_path_for_project(project)
     if video_path.stat().st_size > MAX_INSTAGRAM_REEL_BYTES:
         raise ValueError("Instagram Reels chỉ nhận video tối đa 1 GB.")
