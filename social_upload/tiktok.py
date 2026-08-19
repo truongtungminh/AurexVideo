@@ -157,9 +157,9 @@ def tiktok_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="TikTok")
     video_bytes = read_expected_video_bytes(video_path, payload)
     presign = _json_request(f"{zernio['base_url']}/media/presign", "POST", {
-        "fileName": video_path.name,
+        "filename": video_path.name,
         "contentType": "video/mp4",
-        "fileSize": len(video_bytes),
+        "size": len(video_bytes),
     }, zernio)
     upload_url = str(_unwrap(presign, "uploadUrl") or "").strip()
     public_url = str(_unwrap(presign, "publicUrl") or "").strip()
