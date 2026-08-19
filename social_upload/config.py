@@ -7,8 +7,9 @@ from pathlib import Path
 from aurexvideo_paths import CONFIG_ROOT, RESOURCE_ROOT
 
 REPO_ROOT = RESOURCE_ROOT
-SOCIAL_UPLOAD_CONFIG = CONFIG_ROOT / "social-upload.json"
-SOCIAL_UPLOAD_EXAMPLE = REPO_ROOT / "config" / "social-upload.example.json"
+# Native startup may rebind path roots as strings; normalize them once here.
+SOCIAL_UPLOAD_CONFIG = Path(CONFIG_ROOT).expanduser().resolve() / "social-upload.json"
+SOCIAL_UPLOAD_EXAMPLE = Path(REPO_ROOT).expanduser().resolve() / "config" / "social-upload.example.json"
 SOCIAL_ROUTE_ID_KEYS = {"facebook": "page_id", "youtube": "channel_id"}
 SOCIAL_BRAND_ROUTES_VERSION = 1
 
