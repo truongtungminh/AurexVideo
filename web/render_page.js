@@ -1442,9 +1442,6 @@
       if (stateEl) stateEl.textContent = error.message || 'Lỗi kiểm tra VieNeu-TTS.';
     }
   }
-      if (stateEl) stateEl.textContent = error.message || String(error);
-    }
-  }
 
   function currentMaziaoVoice() {
     collectMaziaoSpeakerValues();
