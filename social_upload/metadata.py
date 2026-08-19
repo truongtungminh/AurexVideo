@@ -299,7 +299,12 @@ def limit_youtube_title(value: str) -> str:
     return cut.rstrip(" .,;:-")
 
 
-def read_project_upload_metadata(project_dir: Path) -> dict:
+def read_project_upload_metadata(project_dir: Path | str) -> dict:
+    # Upload callers pass either a project slug or an already-resolved Path.
+    if isinstance(project_dir, (str, bytes)):
+        project_dir = require_project(str(project_dir))
+    else:
+        project_dir = Path(project_dir)
     metadata_path = upload_metadata_path(project_dir)
     if not metadata_path.exists():
         return {}
