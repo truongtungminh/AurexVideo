@@ -204,6 +204,33 @@ def topic_tts_config(topic: dict) -> dict:
     return config
 
 
+def latest_cached_voiceover(project: Path) -> Path | None:
+    metadata = project / "audio" / "cache" / "latest.json"
+    try:
+        value = json.loads(metadata.read_text(encoding="utf-8")).get("path")
+        path = (project / str(value or "")).resolve()
+        path.relative_to(project.resolve())
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        path = None
+    if path and path.is_file() and path.stat().st_size > 0:
+        return path
+    try:
+        candidates = [item for item in (project / "audio" / "cache").glob("*.mp3") if item.is_file() and item.stat().st_size > 0]
+    except OSError:
+        return None
+    return max(candidates, key=lambda item: item.stat().st_mtime_ns, default=None)
+
+
+def remember_cached_voiceover(project: Path, path: Path) -> None:
+    cache_dir = project / "audio" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    metadata = cache_dir / "latest.json"
+    temporary = cache_dir / f".latest-{uuid.uuid4().hex}.tmp"
+    relative_path = path.resolve().relative_to(project.resolve()).as_posix()
+    temporary.write_text(json.dumps({"path": relative_path}, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(metadata)
+
+
 def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, token: str) -> Path:
     if args.engine == "project":
         topic = json.loads(topic_path.read_text(encoding="utf-8"))
@@ -247,8 +274,14 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
     ).hexdigest()[:20]
     output = project / "audio" / "cache" / f"{args.engine}-{cache_key}.mp3"
     output.parent.mkdir(parents=True, exist_ok=True)
+    if not args.force_tts:
+        latest = latest_cached_voiceover(project)
+        if latest:
+            print(f"TTS latest cache hit: dùng lại audio gần nhất {latest}", flush=True)
+            return latest
     if output.is_file() and output.stat().st_size > 0 and not args.force_tts:
         print(f"TTS cache hit: dùng lại {output}", flush=True)
+        remember_cached_voiceover(project, output)
         return output
     if not args.force_tts:
         # Older projects stored the generated voice directly in topic.json.
@@ -282,6 +315,7 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
         if args.tts_config_json:
             command.extend(["--tts-config-json", args.tts_config_json])
     run(command)
+    remember_cached_voiceover(project, output)
     return output
 
 

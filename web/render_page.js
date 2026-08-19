@@ -553,6 +553,7 @@
     const youtubeDescription = $('#youtubeDescription');
     const facebookCaption = $('#facebookCaption');
     const instagramCaption = $('#instagramCaption');
+    const tiktokCaption = $('#tiktokCaption');
     const binanceCaption = $('#binanceCaption');
     const facebookSourceComment = $('#facebookSourceComment');
     const privacy = $('#youtubePrivacy');
@@ -562,10 +563,14 @@
     const ytScheduleRow = $('#youtubeScheduleRow');
     const fbScheduleToggle = $('#facebookScheduleToggle');
     const fbScheduleRow = $('#facebookScheduleRow');
+    const ttScheduleToggle = $('#tiktokScheduleToggle');
+    const ttScheduleRow = $('#tiktokScheduleRow');
     if (ytScheduleToggle) ytScheduleToggle.checked = false;
     if (ytScheduleRow) ytScheduleRow.hidden = true;
     if (fbScheduleToggle) fbScheduleToggle.checked = false;
     if (fbScheduleRow) fbScheduleRow.hidden = true;
+    if (ttScheduleToggle) ttScheduleToggle.checked = false;
+    if (ttScheduleRow) ttScheduleRow.hidden = true;
     if (privacy) privacy.disabled = false;
     try {
       const response = await fetch(`/api/social/upload-metadata?project=${encodeURIComponent(projectName)}`, { cache: 'no-store' });
@@ -575,7 +580,8 @@
       youtubeDescription.value = data.youtubeDescription || data.description || '';
       facebookCaption.value = data.facebookCaption || '';
       if (instagramCaption) instagramCaption.value = data.instagramCaption || data.facebookCaption || '';
-      if (binanceCaption) binanceCaption.value = data.binanceCaption || '';
+      if (tiktokCaption) tiktokCaption.value = data.tiktokCaption || data.instagramCaption || data.facebookCaption || '';
+       if (binanceCaption) binanceCaption.value = data.binanceCaption || '';
       if (facebookSourceComment) facebookSourceComment.value = data.facebookSourceComment || '';
       if (privacy && data.privacyStatus) privacy.value = data.privacyStatus;
       if (facebookVideoState && data.facebookVideoState) facebookVideoState.value = data.facebookVideoState === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
@@ -1146,6 +1152,8 @@
     const uploadYoutube = $('#uploadYoutube');
     const uploadFacebook = $('#uploadFacebook');
     const uploadInstagram = $('#uploadInstagram');
+    const uploadTiktok = $('#uploadTiktok');
+    const tiktokConfigState = $('#tiktokConfigState');
     const uploadThreads = $('#uploadThreads');
     const uploadMetaAll = $('#uploadMetaAll');
     const instagramConfigState = $('#instagramConfigState');
@@ -1161,13 +1169,15 @@
       const facebook = data.platforms?.facebook || {};
       const instagram = data.platforms?.instagram || {};
       const threads = data.platforms?.threads || {};
+      const tiktok = data.platforms?.tiktok || {};
       const canYoutube = Boolean(youtube.configured && youtube.connected);
       const canFacebook = Boolean(facebook.available);
       const canInstagram = Boolean(instagram.available);
       const canThreads = Boolean(threads.available);
+      const canTiktok = Boolean(tiktok.connected);
       state.instagramConfig = instagram;
       state.threadsConfig = threads;
-      state.socialReady = { youtube: canYoutube, facebook: canFacebook, instagram: canInstagram, threads: canThreads };
+      state.socialReady = { youtube: canYoutube, facebook: canFacebook, instagram: canInstagram, threads: canThreads, tiktok: canTiktok };
       state.socialConfigured = { youtube: Boolean(youtube.configured), facebook: Boolean(facebook.configured), instagram: Boolean(instagram.configured), threads: Boolean(threads.configured) };
       syncYoutubeChannels(youtube);
       syncFacebookPages(facebook);
@@ -1175,11 +1185,16 @@
       syncFacebookConfigUi(facebook);
       syncInstagramConfigUi(instagram);
       syncThreadsConfigUi(threads);
+      if (tiktokConfigState) tiktokConfigState.textContent = tiktok.message || (canTiktok ? 'Zernio đã kết nối.' : 'Cần cấu hình Zernio API key và TikTok account ID.');
       setButtonLabel(connectYoutube, 'Thêm channel');
       uploadYoutube.disabled = !canYoutube;
       if (uploadFacebook) {
         uploadFacebook.disabled = !canFacebook;
         setButtonLabel(uploadFacebook, canFacebook ? 'Upload Facebook Reels' : 'Cấu hình Facebook');
+      }
+      if (uploadTiktok) {
+        uploadTiktok.disabled = !canTiktok;
+        setButtonLabel(uploadTiktok, canTiktok ? 'Đăng TikTok' : 'Cấu hình Zernio');
       }
       if (uploadInstagram) {
         uploadInstagram.disabled = !canInstagram;
@@ -2968,6 +2983,14 @@
     return data;
   }
 
+  async function uploadTiktokVideo(project) {
+    const scheduledPublishAt = $('#tiktokScheduleToggle')?.checked ? scheduleIsoValue($('#tiktokScheduleTime'), 'TikTok') : '';
+    const response = await fetch('/api/social/tiktok/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, tiktokCaption: $('#tiktokCaption')?.value || '', ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+
   async function uploadInstagramReel(project) {
     const response = await fetch('/api/social/instagram/upload', {
       method: 'POST',
@@ -3236,6 +3259,23 @@
   if (saveFacebookConfigButton) {
     saveFacebookConfigButton.addEventListener('click', saveFacebookConfig);
   }
+
+  const uploadTiktok = $('#uploadTiktok');
+  if (uploadTiktok) {
+    uploadTiktok.addEventListener('click', async () => {
+      const project = state.uploadProject || state.project;
+      if (!project) return setUploadStatus('Vui lòng render project trước.', 'bad');
+      uploadTiktok.disabled = true; setUploadStatus('Đang upload TikTok qua Zernio...', 'warn');
+      try { const data = await uploadTiktokVideo(project); setUploadStatus(data.message || 'Đăng TikTok xong.', 'good'); setUploadResult(data.message || 'Uploaded.', 'good', data.url ? [{ label: 'Mở TikTok', href: data.url }] : []); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); } finally { await refreshSocialStatus(); }
+    });
+  }
+
+  const openTiktokConfig = $('#openTiktokConfig');
+  if (openTiktokConfig) openTiktokConfig.addEventListener('click', async () => {
+    const apiKey = window.prompt('Zernio API key:'); if (!apiKey) return;
+    const accountId = window.prompt('TikTok account ID trong Zernio:'); if (!accountId) return;
+    try { const response = await fetch('/api/social/tiktok/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, accountId }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setUploadStatus('Đã lưu cấu hình Zernio TikTok.', 'good'); await refreshSocialStatus(); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); }
+  });
 
   const uploadInstagram = $('#uploadInstagram');
   if (uploadInstagram) {
@@ -3580,6 +3620,8 @@
       applyScheduleToggle('youtubeScheduleToggle', 'youtubeScheduleRow', 'youtubeScheduleTime', true);
     } else if (target.id === 'facebookScheduleToggle') {
       applyScheduleToggle('facebookScheduleToggle', 'facebookScheduleRow', 'facebookScheduleTime', false);
+    } else if (target.id === 'tiktokScheduleToggle') {
+      applyScheduleToggle('tiktokScheduleToggle', 'tiktokScheduleRow', 'tiktokScheduleTime', false);
     }
   });
   const facebookSourceComment = $('#facebookSourceComment');

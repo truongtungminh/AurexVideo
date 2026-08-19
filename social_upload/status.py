@@ -27,6 +27,7 @@ from .instagram import (
     instagram_status,
 )
 from .threads import threads_config, threads_status
+from .tiktok import zernio_config, zernio_status
 from .r2 import r2_config, r2_status
 from .youtube import (
     youtube_active_channel_id,
@@ -45,6 +46,7 @@ def social_status() -> dict:
     facebook = facebook_config(config)
     instagram = instagram_config(config)
     threads = threads_config(config)
+    tiktok = zernio_config(config)
     r2 = r2_config(config)
     youtube_channels = youtube_channels_status(config, youtube)
     youtube_channel = next((channel for channel in youtube_channels if channel.get("active")), None)
@@ -81,6 +83,7 @@ def social_status() -> dict:
             },
             "instagram": instagram_status(instagram, r2),
             "threads": threads_status(threads),
+            "tiktok": zernio_status(tiktok),
             "r2": r2_status(r2),
             "binance": {
                 "configured": binance_is_configured(binance),

@@ -45,6 +45,17 @@
             </div>
             <button class="button primary wide" id="uploadFacebookButton" type="button">Upload Facebook</button>
           </section>
+          <section class="platform-card tiktok-card">
+            <strong>TikTok · Zernio</strong>
+            <button class="button tiny secondary" id="configureTiktokButton" type="button">Cấu hình Zernio</button>
+            <label>Caption TikTok<textarea id="tiktokCaption" rows="4" maxlength="2200"></textarea></label>
+            <label class="schedule-toggle"><input type="checkbox" id="tiktokScheduleToggle" /> Hẹn giờ đăng</label>
+            <div class="schedule-row" id="tiktokScheduleRow" hidden>
+              <input type="datetime-local" id="tiktokScheduleTime" />
+              <p class="form-note">Zernio sẽ đăng TikTok đúng thời gian UTC đã chọn.</p>
+            </div>
+            <button class="button primary wide" id="uploadTiktokButton" type="button">Đăng TikTok</button>
+          </section>
           <section class="platform-card binance-card">
             <strong>Binance Square</strong>
             <button class="button tiny secondary" id="configureBinanceButton" type="button">Cấu hình OpenAPI key</button>
@@ -68,6 +79,15 @@
           <button class="button tiny danger" id="binanceDisconnectButton" type="button">Gỡ cấu hình</button>
           <button class="button tiny primary" id="binanceSaveConfigButton" type="button">Lưu cấu hình</button>
         </div>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="tiktokConfigModal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="tiktokConfigTitle">
+        <div class="modal-head"><h2 id="tiktokConfigTitle">Cấu hình Zernio TikTok</h2><button class="modal-close" id="tiktokConfigClose" type="button" aria-label="Đóng">×</button></div>
+        <p class="form-note" id="tiktokConfigState">Zernio dùng API key để upload video và TikTok account ID để chọn tài khoản.</p>
+        <label>Zernio API key<input id="zernioApiKey" type="password" autocomplete="off" placeholder="sk_..." /></label>
+        <label>TikTok account ID<input id="zernioAccountId" type="text" autocomplete="off" placeholder="accountId từ Zernio" /></label>
+        <div class="modal-actions"><button class="button tiny danger" id="tiktokDisconnectButton" type="button">Gỡ cấu hình</button><button class="button tiny primary" id="tiktokSaveButton" type="button">Lưu cấu hình</button></div>
       </div>
     </div>
     <div class="toast" id="toast" role="status"></div>

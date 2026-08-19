@@ -415,13 +415,14 @@ def social_modules() -> dict[str, object]:
     import social_upload.instagram as instagram_module
     import social_upload.r2 as r2_module
     import social_upload.status as status_module
+    import social_upload.tiktok as tiktok_module
     import social_upload.youtube as youtube_module
 
     social_config_module.SOCIAL_UPLOAD_CONFIG = SOCIAL_CONFIG_PATH
     status_module.SOCIAL_UPLOAD_CONFIG = SOCIAL_CONFIG_PATH
-    for module in (facebook_module, youtube_module, instagram_module, r2_module):
+    for module in (facebook_module, youtube_module, instagram_module, r2_module, tiktok_module):
         module.SOCIAL_UPLOAD_CONFIG = SOCIAL_CONFIG_PATH
-    for module in (facebook_module, youtube_module, instagram_module):
+    for module in (facebook_module, youtube_module, instagram_module, tiktok_module):
         module.final_video_path_for_project = latest_output_video
         module.build_upload_metadata = social_metadata
         module.require_project = project_dir
@@ -431,6 +432,7 @@ def social_modules() -> dict[str, object]:
         "youtube": youtube_module,
         "facebook": facebook_module,
         "instagram": instagram_module,
+        "tiktok": tiktok_module,
     }
     return SOCIAL_MODULES
 
@@ -447,6 +449,8 @@ def social_upload(platform: str, payload: dict) -> dict:
         return modules["facebook"].facebook_upload_video(payload)
     if platform == "instagram":
         return modules["instagram"].instagram_upload_video(payload)
+    if platform == "tiktok":
+        return modules["tiktok"].tiktok_upload_video(payload)
     raise ValueError("Nền tảng upload không hợp lệ.")
 
 
@@ -2658,9 +2662,15 @@ class Handler(SimpleHTTPRequestHandler):
                 key = "channelId" if match.group(1) == "youtube" else "pageId"
                 self.send_json(200, set_social_active(match.group(1), str(payload.get(key) or "")))
                 return
-            match = re.fullmatch(r"/api/social/(youtube|facebook)/upload", path)
+            match = re.fullmatch(r"/api/social/(youtube|facebook|tiktok)/upload", path)
             if match:
                 self.send_json(200, social_upload(match.group(1), payload))
+                return
+            if path == "/api/social/tiktok/config":
+                self.send_json(200, social_modules()["tiktok"].update_zernio_config(str(payload.get("apiKey") or ""), str(payload.get("accountId") or ""), base_url=str(payload.get("baseUrl") or "https://zernio.com/api/v1")))
+                return
+            if path == "/api/social/tiktok/disconnect":
+                self.send_json(200, social_modules()["tiktok"].disconnect_zernio())
                 return
             match = re.fullmatch(r"/api/jobs/([a-f0-9]+)/cancel", path)
             if match:

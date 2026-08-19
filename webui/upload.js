@@ -1,7 +1,7 @@
 const state = { projects: [], selected: new URLSearchParams(location.search).get("project") || "", status: null };
 const elements = Object.fromEntries([
   "uploadProject", "uploadVideo", "videoState", "uploadTitle", "youtubeDescription", "facebookCaption",
-  "uploadYoutubeChannel", "youtubePrivacy", "youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", "uploadYoutubeButton", "uploadFacebookPage", "facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", "uploadFacebookButton", "uploadBinanceButton", "binanceDuration", "binanceCaption",
+  "uploadYoutubeChannel", "youtubePrivacy", "youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", "uploadYoutubeButton", "uploadFacebookPage", "facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", "uploadFacebookButton", "tiktokCaption", "tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime", "uploadTiktokButton", "configureTiktokButton", "tiktokConfigModal", "tiktokConfigClose", "tiktokConfigState", "zernioApiKey", "zernioAccountId", "tiktokSaveButton", "tiktokDisconnectButton", "uploadBinanceButton", "binanceDuration", "binanceCaption",
   "configureBinanceButton", "binanceConfigModal", "binanceConfigClose", "binanceConfigState", "binanceApiKey", "binanceSaveConfigButton", "binanceDisconnectButton",
   "uploadResult", "toast",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -59,6 +59,7 @@ function readScheduleTime(input, label) {
   return date.toISOString();
 }
 
+setupScheduleToggle("tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime");
 setupScheduleToggle("youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", (enabled) => {
   if (enabled) {
     elements.youtubePrivacy.value = "private";
@@ -84,6 +85,7 @@ async function loadProject() {
   elements.youtubeDescription.value = metadata.youtubeDescription;
   elements.facebookCaption.value = metadata.facebookCaption;
   elements.youtubePrivacy.value = metadata.privacyStatus || "public";
+  elements.tiktokCaption.value = metadata.tiktokCaption || metadata.instagramCaption || metadata.facebookCaption || "";
 }
 
 async function load() {
@@ -95,10 +97,13 @@ async function load() {
     elements.uploadProject.replaceChildren(...state.projects.map((project) => option(project.id, `${project.leftLabel} · ${project.rightLabel}`, project.id === state.selected)));
     const youtube = status.platforms?.youtube || {};
     const facebook = status.platforms?.facebook || {};
+    const tiktok = status.platforms?.tiktok || {};
     elements.uploadYoutubeChannel.replaceChildren(...(youtube.channels || []).map((channel) => option(channel.id, channel.title || channel.id, channel.active)));
     elements.uploadFacebookPage.replaceChildren(...(facebook.pages || []).map((page) => option(page.id, page.name || page.id, page.active)));
     elements.uploadYoutubeButton.disabled = !youtube.connected;
     elements.uploadFacebookButton.disabled = !facebook.connected;
+    elements.uploadTiktokButton.disabled = !tiktok.connected;
+    elements.configureTiktokButton.textContent = tiktok.connected ? `Đổi Zernio (${tiktok.masked_api_key || "đã cấu hình"})` : "Cấu hình Zernio";
     elements.uploadBinanceButton.disabled = !(status.platforms?.binance?.connected);
     elements.configureBinanceButton.textContent = status.platforms?.binance?.connected ? "Đổi OpenAPI key" : "Cấu hình OpenAPI key";
     await loadProject();
@@ -112,7 +117,7 @@ async function setActive(platform, value) {
 
 async function upload(platform) {
   if (!state.selected) return showToast("Chưa chọn dự án.", true);
-  const button = platform === "youtube" ? elements.uploadYoutubeButton : platform === "facebook" ? elements.uploadFacebookButton : elements.uploadBinanceButton;
+  const button = platform === "youtube" ? elements.uploadYoutubeButton : platform === "facebook" ? elements.uploadFacebookButton : platform === "tiktok" ? elements.uploadTiktokButton : elements.uploadBinanceButton;
   button.disabled = true;
   elements.uploadResult.textContent = `Đang upload ${platform}... Giữ tab này mở.`;
   try {
@@ -123,13 +128,17 @@ async function upload(platform) {
         ? (elements.youtubeScheduleToggle.checked ? readScheduleTime(elements.youtubeScheduleTime, "YouTube") : "")
         : platform === "facebook"
           ? (elements.facebookScheduleToggle.checked ? readScheduleTime(elements.facebookScheduleTime, "Facebook") : "")
-          : "";
+          : platform === "tiktok"
+            ? (elements.tiktokScheduleToggle.checked ? readScheduleTime(elements.tiktokScheduleTime, "TikTok") : "")
+            : "";
     const payload =
       platform === "youtube"
         ? { project: state.selected, title: elements.uploadTitle.value, description: elements.youtubeDescription.value, privacyStatus: elements.youtubePrivacy.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
         : platform === "facebook"
           ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
-          : { project: state.selected, duration: Number(elements.binanceDuration.value), text: elements.binanceCaption.value };
+          : platform === "tiktok"
+            ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+            : { project: state.selected, duration: Number(elements.binanceDuration.value), text: elements.binanceCaption.value };
     const result = await api(`/api/social/${platform}/upload`, { method: "POST", body: JSON.stringify(payload) });
     elements.uploadResult.replaceChildren(document.createTextNode("Upload hoàn tất. "));
     if (result.url) {
@@ -204,5 +213,28 @@ elements.uploadYoutubeChannel.addEventListener("change", () => setActive("youtub
 elements.uploadFacebookPage.addEventListener("change", () => setActive("facebook", elements.uploadFacebookPage.value).catch((error) => showToast(error.message, true)));
 elements.uploadYoutubeButton.addEventListener("click", () => upload("youtube"));
 elements.uploadFacebookButton.addEventListener("click", () => upload("facebook"));
+elements.uploadTiktokButton.addEventListener("click", () => upload("tiktok"));
+function openTiktokConfig() {
+  const current = state.status?.platforms?.tiktok || {};
+  elements.tiktokConfigState.textContent = current.connected ? `Đã cấu hình Zernio: ${current.masked_api_key || "đã lưu"}` : "Nhập API key và TikTok account ID từ Zernio.";
+  elements.zernioApiKey.value = "";
+  elements.zernioAccountId.value = current.account_id || "";
+  elements.tiktokConfigModal.hidden = false;
+  elements.zernioApiKey.focus();
+}
+function closeTiktokConfig() { elements.tiktokConfigModal.hidden = true; }
+elements.configureTiktokButton.addEventListener("click", openTiktokConfig);
+elements.tiktokConfigClose.addEventListener("click", closeTiktokConfig);
+elements.tiktokConfigModal.addEventListener("click", (event) => { if (event.target === elements.tiktokConfigModal) closeTiktokConfig(); });
+elements.tiktokSaveButton.addEventListener("click", async () => {
+  const apiKey = elements.zernioApiKey.value.trim(); const accountId = elements.zernioAccountId.value.trim();
+  if (!apiKey || !accountId) return showToast("Nhập đủ Zernio API key và TikTok account ID.", true);
+  elements.tiktokSaveButton.disabled = true;
+  try { await api("/api/social/tiktok/config", { method: "POST", body: JSON.stringify({ apiKey, accountId }) }); closeTiktokConfig(); showToast("Đã lưu cấu hình Zernio TikTok."); await load(); } catch (error) { showToast(error.message, true); } finally { elements.tiktokSaveButton.disabled = false; }
+});
+elements.tiktokDisconnectButton.addEventListener("click", async () => {
+  elements.tiktokDisconnectButton.disabled = true;
+  try { await api("/api/social/tiktok/disconnect", { method: "POST" }); closeTiktokConfig(); showToast("Đã gỡ cấu hình Zernio."); await load(); } catch (error) { showToast(error.message, true); } finally { elements.tiktokDisconnectButton.disabled = false; }
+});
 elements.uploadBinanceButton.addEventListener("click", () => upload("binance"));
 load();

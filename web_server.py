@@ -39,6 +39,9 @@ from social_upload import (
     instagram_upload_video,
     publish_instagram_facebook_threads,
     threads_upload_video,
+    tiktok_upload_video,
+    update_zernio_config,
+    disconnect_zernio,
     set_facebook_active_page,
     set_youtube_active_channel,
     social_status,
@@ -6505,6 +6508,14 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
               <button class="upload-btn facebook" id="uploadFacebook" type="button">{ui_icon("upload")}<span>Upload Facebook Reels</span></button>
             </div>
           </section>
+          <section class="platform-card platform-tiktok">
+            <div class="platform-card-head"><div class="platform-title"><span>♪</span><span>TikTok · Zernio</span></div><button class="small-link icon-btn" id="openTiktokConfig" type="button">{ui_icon("key")}<span>Cấu hình Zernio</span></button></div>
+            <div class="field upload-field field-description"><span class="field-label field-label-between"><span class="field-label-main">{ui_icon("list", "field-icon")}<span>Caption TikTok</span></span><button class="copy-field-btn" data-copy-target="tiktokCaption" type="button" aria-label="Copy Caption TikTok" title="Copy Caption TikTok">{ui_icon("copy")}</button></span><textarea id="tiktokCaption" rows="7" maxlength="2200" placeholder="Caption TikTok, tối đa 2.200 ký tự"></textarea></div>
+            <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="tiktokScheduleToggle" /><span>Hẹn giờ đăng</span></span></label>
+            <div class="field upload-field compact schedule-row" id="tiktokScheduleRow" hidden><input type="datetime-local" id="tiktokScheduleTime" /><p class="form-note">Zernio đăng TikTok đúng thời gian đã chọn.</p></div>
+            <p class="form-note platform-config-note" id="tiktokConfigState">Cần cấu hình Zernio API key và TikTok account ID.</p>
+            <div class="platform-actions"><button class="upload-btn tiktok" id="uploadTiktok" type="button">{ui_icon("upload")}<span>Đăng TikTok</span></button></div>
+          </section>
           <section class="platform-card platform-instagram">
             <div class="platform-card-head">
               <div class="platform-title">{brand_icon("instagram")}<span>Instagram Reels</span></div>
@@ -9473,6 +9484,42 @@ class WebHandler(SimpleHTTPRequestHandler):
                     payload = self.read_json_body()
                     require_payload_project(payload)
                     result = facebook_upload_video(payload)
+                except FileNotFoundError as exc:
+                    self.send_json(404, {"error": str(exc)})
+                    return
+                except RuntimeError as exc:
+                    self.send_json(409, {"error": str(exc)})
+                    return
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/social/tiktok/config":
+                try:
+                    payload = self.read_json_body()
+                    result = update_zernio_config(str(payload.get("apiKey") or ""), str(payload.get("accountId") or ""), base_url=str(payload.get("baseUrl") or "https://zernio.com/api/v1"))
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/social/tiktok/disconnect":
+                try:
+                    result = disconnect_zernio()
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/social/tiktok/upload":
+                try:
+                    payload = self.read_json_body()
+                    require_payload_project(payload)
+                    result = tiktok_upload_video(payload)
                 except FileNotFoundError as exc:
                     self.send_json(404, {"error": str(exc)})
                     return

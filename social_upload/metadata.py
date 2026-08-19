@@ -369,7 +369,7 @@ def merge_upload_metadata(defaults: dict, custom: dict) -> dict:
     if not custom:
         return defaults
     result = json.loads(json.dumps(defaults, ensure_ascii=False))
-    for section in ("youtube", "facebook", "instagram"):
+    for section in ("youtube", "facebook", "instagram", "tiktok"): 
         if isinstance(custom.get(section), dict):
             result.setdefault(section, {}).update(custom[section])
     for key, value in custom.items():
@@ -384,6 +384,7 @@ def generated_upload_metadata(project_dir: Path, script_lines: list[str], existi
     existing_youtube = existing.get("youtube", {}) if isinstance(existing.get("youtube"), dict) else {}
     existing_facebook = existing.get("facebook", {}) if isinstance(existing.get("facebook"), dict) else {}
     existing_instagram = existing.get("instagram", {}) if isinstance(existing.get("instagram"), dict) else {}
+    existing_tiktok = existing.get("tiktok", {}) if isinstance(existing.get("tiktok"), dict) else {}
     existing_social = existing.get("social", {}) if isinstance(existing.get("social"), dict) else {}
     copy = default_upload_copy(language)
     binance_tags = list(DEFAULT_BINANCE_TAGS)
@@ -402,6 +403,9 @@ def generated_upload_metadata(project_dir: Path, script_lines: list[str], existi
         },
         "instagram": {
             "caption": str(existing_instagram.get("caption") or copy["instagramCaption"]),
+        },
+        "tiktok": {
+            "caption": str(existing_tiktok.get("caption") or copy["instagramCaption"]),
         },
         "binance": {
             "caption": copy["binanceCaption"],
@@ -443,7 +447,7 @@ def project_social_status(project_dir: Path) -> dict:
     metadata = read_project_upload_metadata(project_dir)
     social = metadata.get("social", {}) if isinstance(metadata.get("social"), dict) else {}
     platforms: list[str] = []
-    for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("binance", "Binance Square")):
+    for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("binance", "Binance Square")):
         entry = social.get(platform)
         if isinstance(entry, dict) and any(str(entry.get(key) or "").strip() for key in ("url", "videoId", "postId")):
             platforms.append(label if not str(entry.get("scheduledAt") or "").strip() else f"{label} (hẹn giờ)")
@@ -481,11 +485,13 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
     youtube = metadata.get("youtube", {}) if isinstance(metadata.get("youtube"), dict) else {}
     facebook = metadata.get("facebook", {}) if isinstance(metadata.get("facebook"), dict) else {}
     instagram = metadata.get("instagram", {}) if isinstance(metadata.get("instagram"), dict) else {}
+    tiktok = metadata.get("tiktok", {}) if isinstance(metadata.get("tiktok"), dict) else {}
     binance = metadata.get("binance", {}) if isinstance(metadata.get("binance"), dict) else {}
     title = str(youtube.get("title") or "").strip()
     description = str(youtube.get("description") or "").strip()
     caption = str(facebook.get("caption") or "").strip()
     instagram_caption = str(instagram.get("caption") or "").strip()
+    tiktok_caption = str(tiktok.get("caption") or "").strip()
     binance_caption = str(binance.get("caption") or "").strip()
     # Prefer language-aware starter copy when the stored values are still the other-language defaults.
     vi = default_upload_copy("vi")
@@ -499,6 +505,8 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
             caption = en["facebookCaption"]
         if not instagram_caption or instagram_caption in {vi["instagramCaption"], en["instagramCaption"]}:
             instagram_caption = en["instagramCaption"]
+        if not tiktok_caption or tiktok_caption in {vi["instagramCaption"], en["instagramCaption"]}:
+            tiktok_caption = en["instagramCaption"]
         if not binance_caption or binance_caption in {vi["binanceCaption"], en["binanceCaption"]}:
             binance_caption = en["binanceCaption"]
         tags = en["tags"]
@@ -512,6 +520,8 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
             caption = vi["facebookCaption"]
         if not instagram_caption or instagram_caption in {vi["instagramCaption"], en["instagramCaption"]}:
             instagram_caption = vi["instagramCaption"]
+        if not tiktok_caption or tiktok_caption in {vi["instagramCaption"], en["instagramCaption"]}:
+            tiktok_caption = vi["instagramCaption"]
         if not binance_caption or binance_caption in {vi["binanceCaption"], en["binanceCaption"]}:
             binance_caption = vi["binanceCaption"]
         tags = vi["tags"]
@@ -524,6 +534,7 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
         "youtubeDescription": description,
         "facebookCaption": caption,
         "instagramCaption": instagram_caption,
+        "tiktokCaption": tiktok_caption,
         "binanceCaption": binance_caption,
         "binanceTags": binance_tags,
         "facebookVideoState": str(facebook.get("videoState") or "PUBLISHED").upper(),

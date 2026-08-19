@@ -41,6 +41,11 @@
     "ig_user_id": "YOUR_INSTAGRAM_IG_USER_ID",
     "access_token": "YOUR_INSTAGRAM_ACCESS_TOKEN"
   },
+  "zernio": {
+    "api_key": "YOUR_ZERNIO_API_KEY",
+    "account_id": "YOUR_TIKTOK_ACCOUNT_ID",
+    "base_url": "https://zernio.com/api/v1"
+  },
   "threads": {
     "graph_version": "v1.0",
     "threads_user_id": "YOUR_THREADS_USER_ID",

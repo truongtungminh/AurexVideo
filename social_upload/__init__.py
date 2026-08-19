@@ -34,6 +34,15 @@ from .threads import (
     update_threads_config,
 )
 from .metadata import build_upload_metadata
+from .tiktok import (
+    disconnect_zernio,
+    tiktok_upload_video,
+    update_zernio_config,
+    zernio_config,
+    zernio_config_hint,
+    zernio_is_configured,
+    zernio_status,
+)
 from .r2 import (
     disconnect_r2,
     r2_config,
@@ -94,4 +103,11 @@ __all__ = [
     "update_r2_config",
     "update_youtube_oauth_config",
     "youtube_upload_video",
+    "disconnect_zernio",
+    "tiktok_upload_video",
+    "update_zernio_config",
+    "zernio_config",
+    "zernio_config_hint",
+    "zernio_is_configured",
+    "zernio_status",
 ]
