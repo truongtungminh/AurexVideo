@@ -1709,32 +1709,24 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "edgetts"
 
-    if engine in {"aurextts"}:
-        ensure_status = m3.ensure_aurextts_server()
-        if not ensure_status.get("ok"):
-            raise ValueError(ensure_status.get("error") or "Không kết nối được AurexTTS.")
-        config = m3.aurextts_public_config()
-        voice = str(payload.get("voice") or config["voice"] or "omnivoice-auto").strip()
-        provider = str(payload.get("provider") or config["provider"] or "omnivoice").strip()
-        if provider not in {"omnivoice", "vieneu"}:
-            raise ValueError("AurexTTS provider phải là omnivoice hoặc vieneu")
-        style = str(payload.get("style") or config["style"] or "tu_nhien").strip()
-        try:
-            tts_speed = float(payload.get("ttsSpeed", config["speed"] or 1.0))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("AurexTTS tốc độ TTS phải là số") from exc
-        cmd.extend(["--engine", "aurextts", "--voice", voice])
+    if engine in {"vieneu", "aurextts"}:
+        config = m3.vieneu_public_config()
+        voice = str(payload.get("voice") or config.get("voice") or "chautinhtri").strip()
+        mode = str(payload.get("mode") or config.get("mode") or "v3turbo").strip()
+        device = str(payload.get("device") or config.get("device") or "cpu").strip()
+        ref_audio = str(payload.get("refAudio") or payload.get("ref_audio") or config.get("refAudio") or "").strip()
+        cmd.extend(["--engine", "vieneu", "--voice", voice])
         cmd.extend([
             "--tts-config-json",
             json.dumps(
-                {"provider": provider, "style": style, "speed": tts_speed},
+                {"mode": mode, "device": device, "refAudio": ref_audio},
                 ensure_ascii=False,
             ),
         ])
         if rebuild_audio_cache:
             cmd.append("--force-tts")
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
-        return cmd, "aurextts"
+        return cmd, "vieneu"
 
     if engine in {"project", "local"}:
         cmd.extend(["--engine", "project"])
@@ -3344,7 +3336,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div class="tabs">
         <button class="tab active" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
         <button class="tab" data-engine="edgetts" type="button">{ui_icon("audio-lines", "tab-icon")}<span>Edge TTS</span></button>
-        <button class="tab" data-engine="aurextts" type="button">{ui_icon("mic", "tab-icon")}<span>AurexTTS</span></button>
+        <button class="tab" data-engine="vieneu" type="button">{ui_icon("mic", "tab-icon")}<span>VieNeu TTS</span></button>
       </div>
 
       <div data-pane="maziao">
@@ -3378,21 +3370,14 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div data-pane="edgetts" hidden>
       </div>
 
-      <div data-pane="aurextts" hidden>
+      <div data-pane="vieneu" hidden>
         <div class="field">
-          <span class="field-label">{ui_icon("message", "field-icon")}<span>Provider</span></span>
-          <select id="aurexttsProvider">
-            <option value="omnivoice">OmniVoice · clone giọng, 600+ ngôn ngữ</option>
-            <option value="vieneu">VieNeu v3 Turbo · preset tiếng Việt</option>
-          </select>
-        </div>
-        <div class="field">
-          <span class="field-label">{ui_icon("message", "field-icon")}<span>Giọng</span></span>
-          <select id="aurexttsVoice"><option value="">Đang tải giọng...</option></select>
+          <span class="field-label">{ui_icon("message", "field-icon")}<span>Giọng VieNeu</span></span>
+          <select id="vieneuVoice"><option value="">Đang tải giọng...</option></select>
         </div>
         <div class="advanced-check-grid">
           <label class="check">
-            <input id="aurexttsForce" type="checkbox" />
+            <input id="vieneuForce" type="checkbox" />
             Tạo lại audio cache
           </label>
         </div>
@@ -3461,36 +3446,32 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             </div>
           </div>
 
-          <div data-advanced-engine="aurextts" hidden>
-            <label class="field">
-              <span class="field-label">
-                {ui_icon("settings", "field-icon advanced-field-icon")}
-                <span>AurexTTS server</span>
-              </span>
-              <input id="aurexttsBaseUrl" type="text" value="http://127.0.0.1:8787" autocomplete="off" spellcheck="false" />
-            </label>
+          <div data-advanced-engine="vieneu" hidden>
             <label class="field">
               <span class="field-label">
                 {ui_icon("message", "field-icon advanced-field-icon")}
-                <span>Style</span>
+                <span>Model Mode</span>
               </span>
-              <select id="aurexttsStyle">
-                <option value="tu_nhien">Tự nhiên</option>
-                <option value="tin_tuc">Tin tức</option>
-                <option value="doc_truyen">Đọc truyện</option>
+              <select id="vieneuMode">
+                <option value="v3turbo" selected>VieNeu-TTS-v3-Turbo (Khuyên dùng, 48kHz)</option>
+                <option value="0.3b">VieNeu-TTS-0.3B</option>
               </select>
             </label>
             <label class="field">
               <span class="field-label">
                 {ui_icon("gauge", "field-icon advanced-field-icon")}
-                <span>Tốc độ TTS</span>
+                <span>Device</span>
               </span>
-              <input id="aurexttsTtsSpeed" type="number" min="0.5" max="2" step="0.05" value="1.0" />
+              <select id="vieneuDevice">
+                <option value="cpu" selected>CPU (Ổn định)</option>
+                <option value="mps">Apple Silicon GPU (MPS)</option>
+                <option value="cuda">NVIDIA GPU (CUDA)</option>
+              </select>
             </label>
             <div class="advanced-check-grid">
-              <button class="start" id="checkAurextts" type="button">Kiểm tra kết nối</button>
+              <button class="start" id="checkVieneu" type="button">Kiểm tra VieNeu-TTS</button>
             </div>
-            <p class="engine-note" id="aurexttsConfigState">Server chưa chạy sẽ được tự khởi động khi bấm "Kiểm tra kết nối".</p>
+            <p class="engine-note" id="vieneuConfigState">VieNeu-TTS chạy trực tiếp trong máy.</p>
           </div>
 
           <div class="render-speed-block">
@@ -8770,16 +8751,16 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
-        if path == "/api/tts/aurextts/config":
+        if path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
             try:
-                self.send_json(200, m3.aurextts_public_config())
+                self.send_json(200, m3.vieneu_public_config())
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
 
-        if path == "/api/tts/aurextts/health":
+        if path in {"/api/tts/vieneu/health", "/api/tts/aurextts/health"}:
             try:
-                self.send_json(200, m3.aurextts_health())
+                self.send_json(200, m3.vieneu_health())
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -9130,9 +9111,9 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
-        if parsed.path == "/api/tts/aurextts/config":
+        if parsed.path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
             try:
-                self.send_json(200, m3.update_aurextts_config(self.read_json_body()))
+                self.send_json(200, m3.update_vieneu_config(self.read_json_body()))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return

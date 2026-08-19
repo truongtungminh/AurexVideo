@@ -71,81 +71,30 @@ async def generate_edge(text: str, output: Path, voice: str) -> None:
                 file.write(chunk["data"])
 
 
-def _aurextts_ffmpeg() -> str:
-    try:
-        from aurexvideo_paths import ffmpeg_executable
-
-        return str(ffmpeg_executable())
-    except Exception:
-        return "ffmpeg"
-
-
-def generate_aurextts(
+def generate_vieneu(
     text: str, output: Path, config: dict, voice: str, tts_config: dict
 ) -> None:
-    """Synthesize through the local AurexTTS service (127.0.0.1:8787)."""
+    """Synthesize voiceover using VieNeu-TTS directly."""
+    from tts.vieneu import generate_vieneu_voiceover
 
-    import subprocess
-    import tempfile
-    import urllib.request
+    vieneu_cfg = config.get("vieneu") if isinstance(config.get("vieneu"), dict) else {}
+    mode = str(tts_config.get("mode") or vieneu_cfg.get("mode") or "v3turbo").strip()
+    device = str(tts_config.get("device") or vieneu_cfg.get("device") or "cpu").strip()
+    ref_audio = str(
+        tts_config.get("refAudio")
+        or tts_config.get("ref_audio")
+        or vieneu_cfg.get("ref_audio")
+        or ""
+    ).strip()
 
-    aurextts = config.get("aurextts") if isinstance(config.get("aurextts"), dict) else {}
-    base_url = str(
-        tts_config.get("baseUrl")
-        or tts_config.get("base_url")
-        or aurextts.get("base_url")
-        or "http://127.0.0.1:8787",
-    ).rstrip("/")
-    provider = str(tts_config.get("provider") or aurextts.get("provider") or "omnivoice").strip()
-    style = str(tts_config.get("style") or aurextts.get("style") or "tu_nhien").strip()
-    try:
-        speed = float(tts_config.get("speed") or aurextts.get("speed") or 1.0)
-    except (TypeError, ValueError):
-        speed = 1.0
-    payload: dict[str, object] = {
-        "voice": voice,
-        "input": text,
-        "style": style,
-        "speed": speed,
-        "response_format": "wav",
-    }
-    if provider:
-        payload["provider"] = provider
-    request = urllib.request.Request(
-        f"{base_url}/v1/audio/speech",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    generate_vieneu_voiceover(
+        text=text,
+        output_mp3=output,
+        voice_id=voice,
+        mode=mode,
+        device=device,
+        ref_audio=ref_audio or None,
     )
-    try:
-        with urllib.request.urlopen(request, timeout=600) as response:
-            wav_bytes = response.read()
-    except Exception as exc:
-        raise ValueError(
-            f"Không kết nối được AurexTTS ({base_url}). Hãy khởi động server: aurextts serve"
-        ) from exc
-    if not wav_bytes:
-        raise ValueError("AurexTTS trả về file rỗng.")
-    with tempfile.TemporaryDirectory(prefix="aurextts-") as tmp:
-        wav_path = Path(tmp) / "voiceover.wav"
-        wav_path.write_bytes(wav_bytes)
-        command = [
-            _aurextts_ffmpeg(),
-            "-y",
-            "-i",
-            str(wav_path),
-            "-vn",
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            "2",
-            str(output),
-        ]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode != 0 or not output.is_file():
-            raise ValueError(
-                "FFmpeg chuyển đổi audio AurexTTS thất bại: " + (result.stderr or "")[-300:]
-            )
 
 
 def generate_elevenlabs(text: str, output: Path, config: dict, voice: str, model_id: str) -> None:
@@ -186,7 +135,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("topic", type=Path)
     parser.add_argument(
-        "--engine", choices=["maziao", "elevenlabs", "edge", "aurextts"], required=True
+        "--engine", choices=["maziao", "elevenlabs", "edge", "vieneu", "aurextts"], required=True
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
@@ -259,7 +208,7 @@ async def main() -> None:
             )
         if output.exists() is False and generated.exists():
             generated.replace(output)
-    elif args.engine == "aurextts":
+    elif args.engine in {"vieneu", "aurextts"}:
         tts_config = topic_tts_config(topic)
         if args.tts_config_json.strip():
             try:
@@ -270,7 +219,7 @@ async def main() -> None:
                 raise ValueError("--tts-config-json phải là một JSON object.")
             tts_config = {**tts_config, **override}
         await asyncio.to_thread(
-            generate_aurextts,
+            generate_vieneu,
             text,
             output,
             read_config(args.config.resolve()),
