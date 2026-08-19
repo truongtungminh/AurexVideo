@@ -137,7 +137,7 @@ async function upload(platform) {
         : platform === "facebook"
           ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
           : platform === "tiktok"
-            ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+            ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }
             : { project: state.selected, duration: Number(elements.binanceDuration.value), text: elements.binanceCaption.value };
     const result = await api(`/api/social/${platform}/upload`, { method: "POST", body: JSON.stringify(payload) });
     elements.uploadResult.replaceChildren(document.createTextNode("Upload hoàn tất. "));
