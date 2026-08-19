@@ -19,6 +19,7 @@ import sys
 import tarfile
 import threading
 import time
+import traceback
 import urllib.request
 import uuid
 import webbrowser
@@ -9416,7 +9417,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                     self.send_json(409, {"error": str(exc)})
                     return
                 except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
+                    self.send_json(400, {"error": str(exc), "traceback": traceback.format_exc()})
                     return
                 self.send_json(200, result)
                 return
@@ -9480,7 +9481,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                     self.send_json(409, {"error": str(exc)})
                     return
                 except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
+                    self.send_json(400, {"error": str(exc), "traceback": traceback.format_exc()})
                     return
                 self.send_json(200, result)
                 return
