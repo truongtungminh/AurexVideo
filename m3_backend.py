@@ -45,7 +45,8 @@ AUREX_ROOT = ROOT
 AUREX_TTS_CONFIG_PATH = TTS_CONFIG_PATH
 AUREX_SOCIAL_CONFIG_PATH = SOCIAL_CONFIG_PATH
 AUREX_PYTHON = PYTHON_EXECUTABLE
-TTS_PYTHON = AUREX_PYTHON if AUREX_PYTHON.is_file() else Path(sys.executable)
+VIENEU_PYTHON = Path("/Users/truongminh/VieNeu-TTS/.venv/bin/python")
+TTS_PYTHON = VIENEU_PYTHON if VIENEU_PYTHON.is_file() else (AUREX_PYTHON if AUREX_PYTHON.is_file() else Path(sys.executable))
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 DEFAULT_YOUTUBE_TITLE = "Sự khác nhau là gì?, Phần 1"
 DEFAULT_YOUTUBE_DESCRIPTION = "🎬 Sự khác nhau là gì?\n#Hieuhamhoc #sosanh #kienthuc"
@@ -206,171 +207,48 @@ def update_elevenlabs_config(payload: dict) -> dict:
     return elevenlabs_public_config()
 
 
-def aurextts_config() -> dict:
-    value = read_tts_config().get("aurextts", {})
+def vieneu_config() -> dict:
+    value = read_tts_config().get("vieneu", {})
     return value if isinstance(value, dict) else {}
 
 
-def aurextts_public_config() -> dict:
-    config = aurextts_config()
+def vieneu_public_config() -> dict:
+    config = vieneu_config()
     return {
-        "baseUrl": str(config.get("base_url") or "http://127.0.0.1:8787"),
-        "provider": str(config.get("provider") or "omnivoice"),
-        "voice": str(config.get("voice") or "omnivoice-auto"),
-        "style": str(config.get("style") or "tu_nhien"),
-        "speed": float(config.get("speed") or 1.0),
+        "voice": str(config.get("voice") or "chautinhtri"),
+        "mode": str(config.get("mode") or "v3turbo"),
+        "device": str(config.get("device") or "cpu"),
+        "refAudio": str(config.get("ref_audio") or ""),
     }
 
 
-def update_aurextts_config(payload: dict) -> dict:
+def update_vieneu_config(payload: dict) -> dict:
     config = read_tts_config()
-    current = config.get("aurextts", {})
+    current = config.get("vieneu", {})
     if not isinstance(current, dict):
         current = {}
-    base_url = str(payload.get("baseUrl") or current.get("base_url") or "http://127.0.0.1:8787").strip()
-    if not base_url.startswith("http://") and not base_url.startswith("https://"):
-        raise ValueError("AurexTTS base URL phải bắt đầu bằng http:// hoặc https://")
-    provider = str(payload.get("provider") or current.get("provider") or "omnivoice").strip()
-    if provider not in {"omnivoice", "vieneu"}:
-        raise ValueError("AurexTTS provider phải là omnivoice hoặc vieneu")
-    voice = str(payload.get("voice") or current.get("voice") or "omnivoice-auto").strip()
-    if not voice or len(voice) > 200:
-        raise ValueError("AurexTTS giọng không hợp lệ")
-    style = str(payload.get("style") or current.get("style") or "tu_nhien").strip()
-    try:
-        speed = float(payload.get("speed", current.get("speed") or 1.0))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("AurexTTS speed phải là số") from exc
-    if not (0.5 <= speed <= 2.0):
-        raise ValueError("AurexTTS speed phải nằm trong khoảng 0.5-2.0")
+    voice = str(payload.get("voice") or current.get("voice") or "chautinhtri").strip()
+    mode = str(payload.get("mode") or current.get("mode") or "v3turbo").strip()
+    device = str(payload.get("device") or current.get("device") or "cpu").strip()
+    ref_audio = str(payload.get("refAudio") or payload.get("ref_audio") or current.get("ref_audio") or "").strip()
     current.update(
-        base_url=base_url,
-        provider=provider,
         voice=voice,
-        style=style,
-        speed=speed,
+        mode=mode,
+        device=device,
+        ref_audio=ref_audio,
     )
-    config["aurextts"] = current
+    config["vieneu"] = current
     write_tts_config(config)
-    return aurextts_public_config()
+    return vieneu_public_config()
 
 
-_AUREXTTS_START_LOCK = Lock()
-
-
-def _aurextts_base_url() -> str:
-    return str(aurextts_public_config()["baseUrl"]).rstrip("/")
-
-
-def _aurextts_port(base_url: str) -> int:
+def vieneu_health() -> dict:
+    """Check local VieNeu-TTS availability and list voices."""
     try:
-        return urlparse(base_url).port or 8787
-    except Exception:
-        return 8787
-
-
-def _probe_aurextts(base_url: str, timeout: float = 3.0) -> bool:
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(f"{base_url}/health", timeout=timeout) as response:
-            return response.status == 200
-    except Exception:
-        return False
-
-
-def ensure_aurextts_server() -> dict:
-    """Probe the local AurexTTS service; auto-start it when it is down."""
-
-    base_url = _aurextts_base_url()
-    if _probe_aurextts(base_url):
-        return {"ok": True, "started": False}
-    with _AUREXTTS_START_LOCK:
-        if _probe_aurextts(base_url):
-            return {"ok": True, "started": False}
-        import subprocess
-
-        home = Path(os.environ.get("AUREXTTS_HOME") or Path.home() / "AurexTTS").expanduser()
-        python = home / ".venv" / "bin" / "python"
-        if not python.is_file():
-            return {
-                "ok": False,
-                "error": f"Chưa tìm thấy AurexTTS tại {home}. Hãy cài đặt hoặc đặt biến AUREXTTS_HOME.",
-            }
-        log_dir = Path.home() / ".local" / "share" / "aurextts"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / "server.log"
-        command = [
-            str(python),
-            "-m",
-            "uvicorn",
-            "aurextts.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(_aurextts_port(base_url)),
-        ]
-        try:
-            with open(log_path, "ab") as log:
-                subprocess.Popen(
-                    command,
-                    cwd=str(home),
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-        except Exception as exc:
-            return {"ok": False, "error": f"Không khởi động được AurexTTS: {exc}"}
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline:
-            if _probe_aurextts(base_url, timeout=1.0):
-                return {"ok": True, "started": True}
-            time.sleep(1.0)
-        return {
-            "ok": False,
-            "error": f"AurexTTS không khởi động được trong 30s. Xem log: {log_path}",
-        }
-
-
-def aurextts_health() -> dict:
-    """Probe the local AurexTTS service (auto-starting it) and list voices."""
-
-    import urllib.request
-
-    base_url = _aurextts_base_url()
-    ensure = ensure_aurextts_server()
-    if not ensure["ok"]:
-        return {"ok": False, "error": ensure.get("error") or f"Không kết nối được {base_url}"}
-    try:
-        with urllib.request.urlopen(f"{base_url}/health", timeout=5) as response:
-            health = json.loads(response.read().decode("utf-8"))
+        from tts.vieneu import check_vieneu_health
+        return check_vieneu_health()
     except Exception as exc:
-        return {"ok": False, "error": f"Không kết nối được {base_url}"}
-    voices: list[dict[str, str]] = []
-    try:
-        with urllib.request.urlopen(f"{base_url}/v1/voices", timeout=5) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        voices = sorted(
-            (
-                {
-                    "id": str(item.get("id") or ""),
-                    "provider": str(item.get("provider") or ""),
-                }
-                for item in payload.get("data", [])
-                if isinstance(item, dict) and item.get("id")
-            ),
-            key=lambda item: (item["id"].casefold(), item["provider"]),
-        )
-    except Exception:
-        pass
-    return {
-        "ok": bool(health.get("status") == "ok"),
-        "started": bool(ensure.get("started")),
-        "provider": health.get("active_provider"),
-        "providerAvailable": bool(health.get("provider_available")),
-        "voices": voices,
-    }
+        return {"ok": False, "installed": False, "error": str(exc), "voices": []}
 
 
 def migrate_shared_configs() -> None:
@@ -2364,11 +2242,11 @@ def audio_source_for_job(job_id: str, slug: str, options: dict) -> Path:
     ]
     if source == "elevenlabs":
         command.extend(["--voice", options["voiceId"], "--model-id", options["modelId"]])
-    elif source == "aurextts":
-        command.extend(["--voice", options["voice"]])
+    elif source == "vieneu":
+        command.extend(["--voice", options.get("voice", "chautinhtri")])
         tts_extra = {
             key: options[key]
-            for key in ("provider", "style", "ttsSpeed")
+            for key in ("mode", "device", "refAudio")
             if key in options
         }
         if tts_extra:
@@ -2601,11 +2479,11 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/tts/elevenlabs/config":
             self.send_json(200, elevenlabs_public_config())
             return
-        if path == "/api/tts/aurextts/config":
-            self.send_json(200, aurextts_public_config())
+        if path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
+            self.send_json(200, vieneu_public_config())
             return
-        if path == "/api/tts/aurextts/health":
-            self.send_json(200, aurextts_health())
+        if path in {"/api/tts/vieneu/health", "/api/tts/aurextts/health"}:
+            self.send_json(200, vieneu_health())
             return
         if path == "/api/social/status":
             try:
@@ -2654,8 +2532,8 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/tts/elevenlabs/config":
                 self.send_json(200, update_elevenlabs_config(payload))
                 return
-            if path == "/api/tts/aurextts/config":
-                self.send_json(200, update_aurextts_config(payload))
+            if path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
+                self.send_json(200, update_vieneu_config(payload))
                 return
             match = re.fullmatch(r"/api/social/(youtube|facebook)/active", path)
             if match:

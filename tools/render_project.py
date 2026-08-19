@@ -311,7 +311,7 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
         command.extend(["--tts-mode", args.tts_mode])
         if args.tts_config_json:
             command.extend(["--tts-config-json", args.tts_config_json])
-    elif args.engine == "aurextts":
+    elif args.engine in {"vieneu", "aurextts"}:
         if args.tts_config_json:
             command.extend(["--tts-config-json", args.tts_config_json])
     run(command)
@@ -393,7 +393,7 @@ def main() -> None:
     parser.add_argument("project", type=Path)
     parser.add_argument(
         "--engine",
-        choices=["project", "upload", "maziao", "elevenlabs", "edge", "aurextts"],
+        choices=["project", "upload", "maziao", "elevenlabs", "edge", "vieneu", "aurextts"],
         required=True,
     )
     parser.add_argument("--audio", type=Path)

@@ -1383,7 +1383,7 @@
       pane.hidden = pane.dataset.pane !== engine;
     });
     syncAdvancedSettings();
-    if (engine === 'aurextts') loadAurexttsVoices();
+    if (engine === 'vieneu' || engine === 'aurextts') loadVieneuVoices();
   }
 
   function syncAdvancedSettings() {
@@ -1400,63 +1400,48 @@
     return customVoice;
   }
 
-  function currentAurexttsVoice() {
-    return String($('#aurexttsVoice')?.value || '').trim() || 'omnivoice-auto';
+  function currentVieneuVoice() {
+    return String($('#vieneuVoice')?.value || $('#aurexttsVoice')?.value || '').trim() || 'chautinhtri';
   }
 
-  async function loadAurexttsConfig() {
+  async function loadVieneuConfig() {
     try {
-      const response = await fetch('/api/tts/aurextts/config', { cache: 'no-store' });
+      const response = await fetch('/api/tts/vieneu/config', { cache: 'no-store' });
       if (!response.ok) return;
       const config = await response.json();
-      const provider = $('#aurexttsProvider');
-      if (provider && config.provider) provider.value = config.provider;
-      const style = $('#aurexttsStyle');
-      if (style && config.style) style.value = config.style;
-      const speed = $('#aurexttsTtsSpeed');
-      if (speed && config.speed) speed.value = String(config.speed);
-      const base = $('#aurexttsBaseUrl');
-      if (base && config.baseUrl) base.value = config.baseUrl;
+      const mode = $('#vieneuMode');
+      if (mode && config.mode) mode.value = config.mode;
+      const device = $('#vieneuDevice');
+      if (device && config.device) device.value = config.device;
     } catch (error) { /* keep defaults */ }
   }
 
-  async function loadAurexttsVoices() {
-    const select = $('#aurexttsVoice');
+  async function loadVieneuVoices() {
+    const select = $('#vieneuVoice') || $('#aurexttsVoice');
     if (!select) return;
-    const stateEl = $('#aurexttsConfigState');
-    const provider = $('#aurexttsProvider')?.value || 'omnivoice';
+    const stateEl = $('#vieneuConfigState') || $('#aurexttsConfigState');
     try {
-      const response = await fetch('/api/tts/aurextts/health', { cache: 'no-store' });
+      const response = await fetch('/api/tts/vieneu/health', { cache: 'no-store' });
       const health = await response.json();
       if (!health.ok) {
-        select.innerHTML = '<option value="omnivoice-auto">omnivoice-auto</option>';
-        if (stateEl) stateEl.textContent = health.error || 'Không kết nối được AurexTTS.';
+        select.innerHTML = '<option value="chautinhtri">Châu Tinh Trì (Clone)</option>';
+        if (stateEl) stateEl.textContent = health.error || 'VieNeu-TTS chưa sẵn sàng.';
         return;
       }
       const voices = Array.isArray(health.voices) ? health.voices : [];
-      const usable = voices.filter((voice) => {
-        const id = String(voice?.id ?? voice ?? '');
-        const voiceProvider = String(voice?.provider ?? '');
-        return voiceProvider === provider
-          && !id.startsWith('mock-')
-          && !id.startsWith('styletts2-');
-      });
-      const providerName = { omnivoice: 'OmniVoice', vieneu: 'VieNeu' };
-      const ordered = [...usable];
-      if (!ordered.some((voice) => String(voice?.id ?? '') === 'omnivoice-auto')) {
-        ordered.unshift({ id: 'omnivoice-auto', provider });
-      }
-      select.innerHTML = ordered
+      select.innerHTML = voices
         .map((voice) => {
           const id = String(voice?.id ?? voice ?? '');
-          const voiceProvider = String(voice?.provider ?? '');
-          const label = voiceProvider ? `${id} · ${providerName[voiceProvider] || voiceProvider}` : id;
-          return `<option value="${escapeHtml(id)}" data-provider="${escapeHtml(voiceProvider)}">${escapeHtml(label)}</option>`;
+          const label = String(voice?.name ?? id);
+          return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
         })
         .join('');
-      if (stateEl) stateEl.textContent = `Server OK · ${ordered.length} giọng (${providerName[provider] || provider}).`;
+      if (stateEl) stateEl.textContent = `VieNeu-TTS OK · ${voices.length} giọng sẵn sàng.`;
     } catch (error) {
-      select.innerHTML = '<option value="omnivoice-auto">omnivoice-auto</option>';
+      select.innerHTML = '<option value="chautinhtri">Châu Tinh Trì (Clone)</option>';
+      if (stateEl) stateEl.textContent = error.message || 'Lỗi kiểm tra VieNeu-TTS.';
+    }
+  }
       if (stateEl) stateEl.textContent = error.message || String(error);
     }
   }
@@ -2470,18 +2455,17 @@
               'OncoinX generates a voiceover from the current script; the system then realigns each sentence and word.',
             )],
         );
-      } else if (state.engine === 'aurextts') {
-        payload.voice = currentAurexttsVoice();
-        payload.provider = $('#aurexttsProvider')?.value || 'omnivoice';
-        payload.style = $('#aurexttsStyle')?.value || 'tu_nhien';
-        payload.ttsSpeed = Number($('#aurexttsTtsSpeed')?.value || 1);
-        payload.force = $('#aurexttsForce')?.checked;
+      } else if (state.engine === 'vieneu' || state.engine === 'aurextts') {
+        payload.voice = currentVieneuVoice();
+        payload.mode = $('#vieneuMode')?.value || 'v3turbo';
+        payload.device = $('#vieneuDevice')?.value || 'cpu';
+        payload.force = $('#vieneuForce')?.checked || $('#aurexttsForce')?.checked;
         payload.rebuildAudioCache = payload.force;
         setRenderState(
           tr('Đang chuẩn bị render', 'Preparing to render'),
           [tr(
-            'AurexTTS tạo voiceover bằng giọng clone hoặc preset; Whisper sẽ căn lại từng câu và từng từ.',
-            'AurexTTS creates the voiceover with a cloned or preset voice; Whisper will realign each sentence and word.',
+            'VieNeu-TTS v3 Turbo tạo voiceover chất lượng cao (48kHz); Whisper sẽ căn lại từng câu và từng từ.',
+            'VieNeu-TTS v3 Turbo creates high-quality 48kHz voiceover; Whisper will realign each sentence and word.',
           )],
         );
       } else {
@@ -2662,33 +2646,25 @@
   const maziaoTtsModeInput = $('#maziaoTtsMode');
   if (maziaoTtsModeInput) maziaoTtsModeInput.addEventListener('change', syncMaziaoTtsMode);
   loadMaziaoFavourites();
-  loadAurexttsConfig().then(() => loadAurexttsVoices());
-  const aurexttsProviderSelect = $('#aurexttsProvider');
-  if (aurexttsProviderSelect) aurexttsProviderSelect.addEventListener('change', () => loadAurexttsVoices());
-  const aurexttsVoiceSelect = $('#aurexttsVoice');
-  if (aurexttsVoiceSelect) aurexttsVoiceSelect.addEventListener('change', () => {
-    const provider = aurexttsVoiceSelect.selectedOptions?.[0]?.dataset?.provider || '';
-    if (provider) {
-      const providerSelect = $('#aurexttsProvider');
-      if (providerSelect && providerSelect.querySelector(`option[value="${CSS.escape(provider)}"]`)) {
-        providerSelect.value = provider;
-      }
-    }
+  loadVieneuConfig().then(() => loadVieneuVoices());
+  const vieneuVoiceSelect = $('#vieneuVoice') || $('#aurexttsVoice');
+  if (vieneuVoiceSelect) vieneuVoiceSelect.addEventListener('change', () => {
+    saveRememberedTtsVoice();
   });
-  const checkAurexttsButton = $('#checkAurextts');
-  if (checkAurexttsButton) checkAurexttsButton.addEventListener('click', async () => {
+  const checkVieneuButton = $('#checkVieneu') || $('#checkAurextts');
+  if (checkVieneuButton) checkVieneuButton.addEventListener('click', async () => {
     try {
-      const response = await fetch('/api/tts/aurextts/health', { cache: 'no-store' });
+      const response = await fetch('/api/tts/vieneu/health', { cache: 'no-store' });
       const health = await response.json();
-      const stateEl = $('#aurexttsConfigState');
+      const stateEl = $('#vieneuConfigState') || $('#aurexttsConfigState');
       if (health.ok) {
-        if (stateEl) stateEl.textContent = `Server OK · ${(health.voices || []).length} giọng.`;
-        loadAurexttsVoices();
+        if (stateEl) stateEl.textContent = `VieNeu-TTS OK · ${(health.voices || []).length} giọng.`;
+        loadVieneuVoices();
       } else if (stateEl) {
-        stateEl.textContent = health.error || 'Không kết nối được AurexTTS.';
+        stateEl.textContent = health.error || 'VieNeu-TTS chưa sẵn sàng.';
       }
     } catch (error) {
-      const stateEl = $('#aurexttsConfigState');
+      const stateEl = $('#vieneuConfigState') || $('#aurexttsConfigState');
       if (stateEl) stateEl.textContent = error.message || String(error);
     }
   });

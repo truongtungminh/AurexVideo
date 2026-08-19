@@ -1,9 +1,8 @@
 {
-  "aurextts": {
-    "base_url": "http://127.0.0.1:8787",
-    "provider": "omnivoice",
-    "voice": "omnivoice-auto",
-    "style": "tu_nhien",
-    "speed": 1.0
+  "vieneu": {
+    "voice": "chautinhtri",
+    "mode": "v3turbo",
+    "device": "cpu",
+    "ref_audio": ""
   }
 }
