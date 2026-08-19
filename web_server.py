@@ -57,6 +57,7 @@ from social_upload import (
 )
 import social_upload.metadata as social_metadata
 from social_upload.config import read_social_config, write_social_config
+from social_upload.scheduler import start_scheduler
 import m3_backend as m3
 from tts.elevenlabs import (
     elevenlabs_api_key,
@@ -10020,6 +10021,7 @@ def main() -> None:
     except Exception as exc:
         parser.error(str(exc))
 
+    start_scheduler()
     server = ThreadingHTTPServer((args.host, args.port), WebHandler)
     actual_port = int(server.server_address[1])
     url = f"http://localhost:{actual_port}"

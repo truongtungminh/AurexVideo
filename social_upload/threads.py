@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import time
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlsplit
 
@@ -12,6 +13,8 @@ from .config import read_social_config, write_social_config
 from .http import http_form_request, http_get_request
 from .metadata import build_upload_metadata, final_video_path_for_project, record_social_upload, require_project
 from .r2 import delete_file, r2_config, r2_config_hint, r2_is_configured, resolve_r2_config, upload_file
+from .schedule import parse_scheduled_publish_at, validate_schedule_window
+from .scheduler import schedule_upload
 
 
 THREADS_API_HOST = "https://graph.threads.net"
@@ -306,6 +309,11 @@ def threads_upload_video(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise TypeError("Threads upload payload must be an object.")
     project = str(payload.get("project") or "").strip()
+    scheduled = parse_scheduled_publish_at(payload)
+    if scheduled:
+        validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
+        queued = schedule_upload("threads", payload, scheduled)
+        return {"ok": True, "platform": "threads", "project": project, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Threads; worker sẽ publish đúng giờ."}
     supplied_text = str(payload.get("threadsText") or payload.get("threadsCaption") or "")
     text = threads_text_for_project(project, supplied_text)
 
