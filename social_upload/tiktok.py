@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -172,7 +173,13 @@ def tiktok_upload_video(payload: dict) -> dict:
         "platforms": [{"platform": "tiktok", "accountId": zernio["account_id"]}],
     }
     if scheduled:
-        post_body.update({"scheduledFor": scheduled, "timezone": "UTC"})
+        timezone_name = str(payload.get("scheduleTimezone") or "UTC").strip() or "UTC"
+        try:
+            local_zone = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            raise ValueError(f"Timezone không hợp lệ: {timezone_name}")
+        local_scheduled = datetime.fromisoformat(scheduled.replace("Z", "+00:00")).astimezone(local_zone).replace(tzinfo=None).isoformat(timespec="seconds")
+        post_body.update({"scheduledFor": local_scheduled, "timezone": timezone_name})
     else:
         post_body["publishNow"] = True
     response = _json_request(f"{zernio['base_url']}/posts", "POST", post_body, zernio, {"X-Request-ID": str(uuid.uuid4())})

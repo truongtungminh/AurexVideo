@@ -2985,7 +2985,7 @@
 
   async function uploadTiktokVideo(project) {
     const scheduledPublishAt = $('#tiktokScheduleToggle')?.checked ? scheduleIsoValue($('#tiktokScheduleTime'), 'TikTok') : '';
-    const response = await fetch('/api/social/tiktok/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, tiktokCaption: $('#tiktokCaption')?.value || '', ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }) });
+    const response = await fetch('/api/social/tiktok/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, tiktokCaption: $('#tiktokCaption')?.value || '', ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
