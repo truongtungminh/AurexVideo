@@ -62,9 +62,12 @@ def validate_project_name(project: str) -> str:
 
 def require_project(project: str) -> Path:
     project = validate_project_name(project)
-    project_dir = (PROJECT_ROOT / project).resolve()
+    # The web server may rebind PROJECT_ROOT during source-root setup;
+    # normalize it here so upload paths always use pathlib semantics.
+    project_root = Path(PROJECT_ROOT).expanduser().resolve()
+    project_dir = (project_root / project).resolve()
     try:
-        project_dir.relative_to(PROJECT_ROOT.resolve())
+        project_dir.relative_to(project_root)
     except ValueError as exc:
         raise ValueError("Invalid project path.") from exc
     if not project_dir.is_dir():
