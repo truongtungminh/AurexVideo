@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
 from pathlib import Path
 
 from aurexvideo_paths import CONFIG_ROOT, RESOURCE_ROOT
@@ -14,6 +15,39 @@ SOCIAL_UPLOAD_EXAMPLE = Path(REPO_ROOT).expanduser().resolve() / "config" / "soc
 SOCIAL_ROUTE_ID_KEYS = {"facebook": "page_id", "youtube": "channel_id"}
 SOCIAL_ROUTE_PLATFORMS = ("youtube", "facebook", "instagram", "tiktok", "threads", "binance")
 SOCIAL_BRAND_ROUTES_VERSION = 1
+SOCIAL_BRAND_CONNECTIONS_VERSION = 1
+LEGACY_SOCIAL_BRAND = "popsy"
+SOCIAL_CONNECTION_CONFIG_KEYS = {
+    "instagram": "instagram",
+    "tiktok": "zernio",
+    "threads": "threads",
+}
+SOCIAL_CONNECTION_PUBLIC_ID_KEYS = {
+    "instagram": "ig_user_id",
+    "tiktok": "account_id",
+    "threads": "threads_user_id",
+}
+SOCIAL_CONNECTION_REQUIRED_KEYS = {
+    "instagram": ("ig_user_id", "access_token"),
+    "tiktok": ("account_id", "api_key"),
+    "threads": ("threads_user_id", "access_token"),
+}
+SOCIAL_CONNECTION_COPY_KEYS = {
+    "instagram": (
+        "ig_user_id", "access_token", "api_mode", "graph_version", "display_name",
+        "poll_attempts", "poll_interval_seconds",
+    ),
+    "tiktok": ("account_id", "api_key", "base_url", "display_name"),
+    "threads": (
+        "threads_user_id", "access_token", "graph_version", "display_name",
+        "poll_attempts", "poll_interval_seconds",
+    ),
+}
+SOCIAL_CONNECTION_DEFAULT_NAMES = {
+    "instagram": "Popsy Instagram",
+    "tiktok": "Popsy TikTok",
+    "threads": "Popsy Threads",
+}
 
 
 def read_social_config() -> dict:
@@ -23,7 +57,11 @@ def read_social_config() -> dict:
         data = json.loads(SOCIAL_UPLOAD_CONFIG.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Social upload config is invalid JSON: {SOCIAL_UPLOAD_CONFIG}") from exc
-    return data if isinstance(data, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    data, changed = migrate_legacy_social_connections(data)
+    if changed:
+        write_social_config(data)
+    return data
 
 
 def write_social_config(data: dict) -> None:
@@ -51,14 +89,20 @@ def social_brand_routes(config: dict | None = None) -> dict[str, dict[str, dict[
         brand = str(raw_brand or "").strip().casefold()
         if not brand or not isinstance(raw_platforms, dict):
             continue
-        for platform, identity_key in SOCIAL_ROUTE_ID_KEYS.items():
+        for platform in SOCIAL_ROUTE_PLATFORMS:
             raw_route = raw_platforms.get(platform)
             if not isinstance(raw_route, dict):
                 continue
-            identity = str(raw_route.get(identity_key) or "").strip()
+            identity_key = SOCIAL_ROUTE_ID_KEYS.get(platform)
+            identity = str(
+                raw_route.get(identity_key)
+                if identity_key
+                else raw_route.get("connection_id") or raw_route.get("account_id") or raw_route.get("id")
+                or ""
+            ).strip()
             if not identity:
                 continue
-            route = {identity_key: identity}
+            route = {identity_key or "connection_id": identity}
             name = str(raw_route.get("name") or "").strip()
             if name:
                 route["name"] = name
@@ -75,6 +119,8 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
     multiple accounts without changing the upload UI contract.
     """
     config = read_social_config() if config is None else config
+    if isinstance(config, dict):
+        migrate_legacy_social_connections(config)
     raw_routes = config.get("brand_routes") if isinstance(config, dict) else None
     if not isinstance(raw_routes, dict):
         return {}
@@ -97,14 +143,236 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
             identity = str(raw_identity or "").strip()
             if not identity:
                 continue
-            route = {"connection_id": identity}
+            route: dict[str, object] = {"connection_id": identity}
             if identity_key:
                 route[identity_key] = identity
-            name = str(raw_route.get("name") or raw_route.get("display_name") or "").strip()
+            connection = {}
+            if platform in SOCIAL_CONNECTION_CONFIG_KEYS:
+                connection = social_platform_connections(config, platform).get(identity, {})
+                if not isinstance(connection, dict):
+                    connection = {}
+                owner = str(connection.get("brand") or "").strip().casefold()
+                required = SOCIAL_CONNECTION_REQUIRED_KEYS[platform]
+                configured = bool(connection) and (not owner or owner == brand) and all(
+                    str(connection.get(key) or "").strip() for key in required
+                )
+                route["configured"] = configured
+                route["connected"] = configured
+                route["available"] = configured
+                public_id_key = SOCIAL_CONNECTION_PUBLIC_ID_KEYS[platform]
+                public_id = str(connection.get(public_id_key) or "").strip()
+                if public_id:
+                    route[public_id_key] = public_id
+            name = str(
+                raw_route.get("name")
+                or raw_route.get("display_name")
+                or connection.get("display_name")
+                or connection.get("name")
+                or ""
+            ).strip()
             if name:
                 route["name"] = name
             result.setdefault(brand, {})[platform] = route
     return result
+
+
+def social_platform_connections(config: dict, platform: str) -> dict[str, dict]:
+    """Return the secret-bearing connection collection for one platform."""
+    platform = str(platform or "").strip().casefold()
+    section_key = SOCIAL_CONNECTION_CONFIG_KEYS.get(platform)
+    if not section_key or not isinstance(config, dict):
+        return {}
+    section = config.get(section_key)
+    connections = section.get("connections") if isinstance(section, dict) else None
+    return connections if isinstance(connections, dict) else {}
+
+
+def _brand_route_connection_id(config: dict, brand: str, platform: str) -> str:
+    routes = config.get("brand_routes") if isinstance(config, dict) else None
+    brand_routes = routes.get(brand) if isinstance(routes, dict) else None
+    route = brand_routes.get(platform) if isinstance(brand_routes, dict) else None
+    if not isinstance(route, dict):
+        return ""
+    return str(route.get("connection_id") or route.get("account_id") or route.get("id") or "").strip()
+
+
+def _legacy_connection_payload(section: dict, platform: str) -> dict:
+    return {
+        key: section.get(key)
+        for key in SOCIAL_CONNECTION_COPY_KEYS[platform]
+        if section.get(key) not in (None, "")
+    }
+
+
+def migrate_legacy_social_connections(config: dict) -> tuple[dict, bool]:
+    """Idempotently bind legacy global accounts to Popsy only.
+
+    Legacy fields remain in place for old settings screens. Their credentials
+    are copied into the platform's named ``connections`` collection and never
+    used as a fallback for another Brand.
+    """
+    if not isinstance(config, dict):
+        return {}, False
+    changed = False
+    routes = config.get("brand_routes")
+    if not isinstance(routes, dict):
+        routes = {}
+    popsy_routes = routes.get(LEGACY_SOCIAL_BRAND)
+    if not isinstance(popsy_routes, dict):
+        popsy_routes = {}
+
+    for platform, section_key in SOCIAL_CONNECTION_CONFIG_KEYS.items():
+        section = config.get(section_key)
+        if not isinstance(section, dict):
+            continue
+        legacy = _legacy_connection_payload(section, platform)
+        if not all(str(legacy.get(key) or "").strip() for key in SOCIAL_CONNECTION_REQUIRED_KEYS[platform]):
+            continue
+        connections = section.get("connections")
+        if not isinstance(connections, dict):
+            connections = {}
+        connection_id = _brand_route_connection_id(config, LEGACY_SOCIAL_BRAND, platform)
+        if not connection_id or connection_id == "global":
+            connection_id = "popsy-legacy"
+        existing = connections.get(connection_id)
+        if not isinstance(existing, dict) or existing.get("_legacy_top_level"):
+            migrated = dict(legacy)
+            migrated["brand"] = LEGACY_SOCIAL_BRAND
+            migrated["display_name"] = str(
+                migrated.get("display_name") or SOCIAL_CONNECTION_DEFAULT_NAMES[platform]
+            ).strip()
+            migrated["_legacy_top_level"] = True
+            if existing != migrated:
+                connections[connection_id] = migrated
+                changed = True
+        section["connections"] = connections
+        config[section_key] = section
+        route = {
+            "connection_id": connection_id,
+            "name": str(
+                connections.get(connection_id, {}).get("display_name")
+                or SOCIAL_CONNECTION_DEFAULT_NAMES[platform]
+            ).strip(),
+        }
+        if popsy_routes.get(platform) != route:
+            popsy_routes[platform] = route
+            changed = True
+
+    if changed:
+        routes[LEGACY_SOCIAL_BRAND] = popsy_routes
+        config["brand_routes"] = routes
+        try:
+            config["brand_routes_version"] = int(config.get("brand_routes_version") or 0) + 1
+        except (TypeError, ValueError):
+            config["brand_routes_version"] = SOCIAL_BRAND_ROUTES_VERSION + 1
+        config["brand_connections_version"] = SOCIAL_BRAND_CONNECTIONS_VERSION
+    return config, changed
+
+
+def store_social_brand_connection(
+    config: dict,
+    brand: str,
+    platform: str,
+    connection: dict,
+    *,
+    connection_id: str = "",
+    name: str = "",
+) -> str:
+    """Store credentials in platform config and only the connection id in routes."""
+    brand = str(brand or "").strip().casefold()
+    platform = str(platform or "").strip().casefold()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+        raise ValueError("Brand chỉ được dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.")
+    if platform not in SOCIAL_CONNECTION_CONFIG_KEYS:
+        raise ValueError(f"Unsupported Brand social platform: {platform or '<empty>'}.")
+    public_id_key = SOCIAL_CONNECTION_PUBLIC_ID_KEYS[platform]
+    public_id = str(connection.get(public_id_key) or "").strip()
+    requested_id = str(connection_id or "").strip()
+    if requested_id and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", requested_id):
+        raise ValueError("Social connection ID không hợp lệ.")
+
+    connections = social_platform_connections(config, platform)
+    if not requested_id:
+        requested_id = next(
+            (
+                key for key, value in connections.items()
+                if isinstance(value, dict)
+                and str(value.get("brand") or "").strip().casefold() == brand
+                and str(value.get(public_id_key) or "").strip() == public_id
+            ),
+            "",
+        )
+    if not requested_id:
+        digest = hashlib.sha256(f"{platform}:{brand}:{public_id}".encode("utf-8")).hexdigest()[:12]
+        requested_id = f"{platform}-{digest}"
+
+    existing = connections.get(requested_id)
+    existing_owner = str(existing.get("brand") or "").strip().casefold() if isinstance(existing, dict) else ""
+    if existing_owner and existing_owner != brand:
+        raise ValueError(f"Social connection {requested_id} đang thuộc brand {existing_owner}.")
+
+    value = dict(connection)
+    value.pop("_brand_connection", None)
+    value.pop("_connection_id", None)
+    value.pop("_legacy_top_level", None)
+    value["brand"] = brand
+    display_name = str(name or value.get("display_name") or public_id or requested_id).strip()[:160]
+    value["display_name"] = display_name
+    connections[requested_id] = value
+    section_key = SOCIAL_CONNECTION_CONFIG_KEYS[platform]
+    section = config.get(section_key)
+    section = dict(section) if isinstance(section, dict) else {}
+    section["connections"] = connections
+    config[section_key] = section
+
+    routes = config.get("brand_routes")
+    routes = dict(routes) if isinstance(routes, dict) else {}
+    brand_routes = routes.get(brand)
+    brand_routes = dict(brand_routes) if isinstance(brand_routes, dict) else {}
+    brand_routes[platform] = {"connection_id": requested_id, "name": display_name}
+    routes[brand] = brand_routes
+    config["brand_routes"] = routes
+    try:
+        config["brand_routes_version"] = int(config.get("brand_routes_version") or 0) + 1
+    except (TypeError, ValueError):
+        config["brand_routes_version"] = SOCIAL_BRAND_ROUTES_VERSION + 1
+    config["brand_connections_version"] = SOCIAL_BRAND_CONNECTIONS_VERSION
+    return requested_id
+
+
+def resolve_social_brand_connection(
+    config: dict,
+    brand: str,
+    platform: str,
+    *,
+    requested_connection_id: str = "",
+) -> tuple[str, dict]:
+    """Resolve one explicit Brand route with no global/active fallback."""
+    brand = str(brand or "").strip().casefold()
+    platform = str(platform or "").strip().casefold()
+    if not brand:
+        raise ValueError(f"{platform.capitalize()} upload thiếu Brand.")
+    if platform not in SOCIAL_CONNECTION_CONFIG_KEYS:
+        raise ValueError(f"Unsupported Brand social platform: {platform or '<empty>'}.")
+    migrate_legacy_social_connections(config)
+    connection_id = _brand_route_connection_id(config, brand, platform)
+    if not connection_id:
+        raise ValueError(f"Social route chưa cấu hình cho brand {brand} trên {platform}.")
+    requested = str(requested_connection_id or "").strip()
+    if requested and requested != connection_id:
+        raise ValueError(f"Social connection không khớp route của brand {brand} trên {platform}.")
+    connection = social_platform_connections(config, platform).get(connection_id)
+    if not isinstance(connection, dict):
+        raise ValueError(f"Social connection {connection_id} không tồn tại cho {platform}.")
+    owner = str(connection.get("brand") or "").strip().casefold()
+    if owner and owner != brand:
+        raise ValueError(f"Social connection {connection_id} không thuộc brand {brand}.")
+    if not all(str(connection.get(key) or "").strip() for key in SOCIAL_CONNECTION_REQUIRED_KEYS[platform]):
+        raise ValueError(f"Social connection {connection_id} chưa cấu hình đầy đủ cho {platform}.")
+    resolved = dict(connection)
+    resolved["_brand_connection"] = True
+    resolved["_connection_id"] = connection_id
+    return connection_id, resolved
 
 
 def save_social_brand_route(

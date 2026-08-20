@@ -8,9 +8,20 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote
 
-from .config import read_social_config, write_social_config
+from .config import (
+    read_social_config,
+    resolve_social_brand_connection,
+    store_social_brand_connection,
+    write_social_config,
+)
 from .http import http_form_request, http_get_request
-from .metadata import build_upload_metadata, final_video_path_for_project, record_social_upload, require_project
+from .metadata import (
+    build_upload_metadata,
+    final_video_path_for_project,
+    record_social_upload,
+    require_project,
+    upload_brand_for_project,
+)
 from .r2 import (
     delete_file,
     r2_config,
@@ -52,11 +63,13 @@ def instagram_api_mode(instagram: dict) -> str:
 
 
 def instagram_user_id(instagram: dict) -> str:
-    return str(os.environ.get("INSTAGRAM_IG_USER_ID") or instagram.get("ig_user_id") or "").strip()
+    env_value = "" if instagram.get("_brand_connection") else os.environ.get("INSTAGRAM_IG_USER_ID")
+    return str(env_value or instagram.get("ig_user_id") or "").strip()
 
 
 def instagram_access_token(instagram: dict) -> str:
-    return str(os.environ.get("INSTAGRAM_ACCESS_TOKEN") or instagram.get("access_token") or "").strip()
+    env_value = "" if instagram.get("_brand_connection") else os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+    return str(env_value or instagram.get("access_token") or "").strip()
 
 
 def instagram_is_configured(instagram: dict | None = None) -> bool:
@@ -85,6 +98,8 @@ def update_instagram_config(
     *,
     config: dict | None = None,
     persist: bool = True,
+    brand: str = "",
+    connection_id: str = "",
 ) -> dict:
     ig_user_id = str(ig_user_id or "").strip()
     access_token = str(access_token or "").strip()
@@ -102,14 +117,30 @@ def update_instagram_config(
         raise ValueError("Instagram Graph API version phải có dạng v25.0.")
 
     config = read_social_config() if config is None else config
-    instagram = instagram_config(config)
-    instagram.update({
+    value = {
         "ig_user_id": ig_user_id,
         "access_token": access_token,
         "api_mode": api_mode,
         "graph_version": graph_version if graph_version.startswith("v") else f"v{graph_version}",
         "display_name": str(display_name or "").strip(),
-    })
+    }
+    brand = str(brand or "").strip().casefold()
+    if brand:
+        saved_id = store_social_brand_connection(
+            config,
+            brand,
+            "instagram",
+            value,
+            connection_id=connection_id,
+            name=display_name,
+        )
+        if persist:
+            write_social_config(config)
+        result = instagram_status({**value, "_brand_connection": True}, r2_config(config))
+        result.update({"brand": brand, "connection_id": saved_id})
+        return result
+    instagram = instagram_config(config)
+    instagram.update(value)
     config["instagram"] = instagram
     if persist:
         write_social_config(config)
@@ -118,7 +149,12 @@ def update_instagram_config(
 
 def disconnect_instagram() -> dict:
     config = read_social_config()
-    config.pop("instagram", None)
+    section = config.get("instagram")
+    connections = section.get("connections") if isinstance(section, dict) else None
+    if isinstance(connections, dict) and connections:
+        config["instagram"] = {"connections": connections}
+    else:
+        config.pop("instagram", None)
     write_social_config(config)
     return {"ok": True, "configured": False, "connected": False}
 
@@ -135,7 +171,8 @@ def instagram_status(instagram: dict | None = None, r2: dict | None = None) -> d
         "available": ready,
         "ready": ready,
         "ig_user_id": instagram_user_id(value),
-        "display_name": str(value.get("display_name") or "").strip(),
+        "display_name": str(value.get("display_name") or value.get("name") or "").strip(),
+        "connection_id": str(value.get("_connection_id") or value.get("connection_id") or "").strip(),
         "api_mode": instagram_api_mode(value),
         "graph_version": instagram_graph_version(value),
         "r2": {
@@ -216,12 +253,19 @@ def instagram_media_metadata(instagram: dict, media_id: str, access_token: str) 
 
 def instagram_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
-    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    project_dir = require_project(project)
+    brand = upload_brand_for_project(payload, project_dir, "Instagram")
+    payload = {**payload, "brand": brand}
+    config = read_social_config()
+    connection_id, instagram = resolve_social_brand_connection(config, brand, "instagram")
+    r2 = r2_config(config)
+    if not instagram_is_configured(instagram) or not r2_is_configured(r2):
+        raise ValueError(instagram_config_hint(instagram, r2))
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
         queued = schedule_upload("instagram", payload, scheduled)
-        return {"ok": True, "platform": "instagram", "project": project, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Instagram; worker sẽ publish đúng giờ."}
+        return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Instagram; worker sẽ publish đúng giờ."}
     video_path = final_video_path_for_project(project)
     if video_path.stat().st_size > MAX_INSTAGRAM_REEL_BYTES:
         raise ValueError("Instagram Reels chỉ nhận video tối đa 1 GB.")
@@ -229,11 +273,6 @@ def instagram_upload_video(payload: dict) -> dict:
     if len(caption) > MAX_INSTAGRAM_CAPTION_LENGTH:
         raise ValueError("Instagram caption tối đa 2.200 ký tự.")
 
-    config = read_social_config()
-    instagram = instagram_config(config)
-    r2 = r2_config(config)
-    if not instagram_is_configured(instagram) or not r2_is_configured(r2):
-        raise ValueError(instagram_config_hint(instagram, r2))
     access_token = instagram_access_token(instagram)
     object_key = instagram_object_key(project, r2)
     public_url = upload_file(video_path, object_key, "video/mp4", r2)
@@ -297,6 +336,7 @@ def instagram_upload_video(payload: dict) -> dict:
     }
     if brand:
         details["brand"] = brand
+    details["connection_id"] = connection_id
     record_social_upload(project, "instagram", details)
     message = "Đã đăng Instagram Reels."
     if cleanup_error:
@@ -306,6 +346,7 @@ def instagram_upload_video(payload: dict) -> dict:
         "platform": "instagram",
         "project": project,
         "brand": brand,
+        "connection_id": connection_id,
         "ig_user_id": instagram_user_id(instagram),
         "container_id": container_id,
         "media_id": published_id,

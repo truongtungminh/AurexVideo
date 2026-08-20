@@ -70,6 +70,7 @@ class InstagramUploadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             video_path = Path(temp_dir) / "final_video.mp4"
             video_path.write_bytes(b"fake video")
+            (Path(temp_dir) / "topic.json").write_text('{"brand": "popsy"}', encoding="utf-8")
             form_calls = []
 
             def fake_form(url: str, fields: dict) -> dict:
@@ -87,6 +88,7 @@ class InstagramUploadTests(unittest.TestCase):
                 patch.object(instagram, "record_social_upload") as record:
                 result = instagram.instagram_upload_video({
                     "project": "demo",
+                    "brand": "popsy",
                     "instagramCaption": "Caption test",
                 })
 
@@ -108,6 +110,8 @@ class InstagramUploadTests(unittest.TestCase):
                 "state": "PUBLISHED",
                 "r2_key": upload.call_args.args[1],
                 "r2_url": "https://media.example.com/instagram/video.mp4",
+                "brand": "popsy",
+                "connection_id": "popsy-legacy",
             },
         )
 

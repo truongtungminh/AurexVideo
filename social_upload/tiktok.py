@@ -9,12 +9,19 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .config import read_social_config, write_social_config
+from .config import (
+    read_social_config,
+    resolve_social_brand_connection,
+    store_social_brand_connection,
+    write_social_config,
+)
 from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
     read_expected_video_bytes,
     record_social_upload,
+    require_project,
+    upload_brand_for_project,
 )
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 
@@ -31,10 +38,11 @@ def zernio_config(config: dict | None = None) -> dict:
 
 def resolve_zernio_config(value: dict | None = None) -> dict:
     saved = value if isinstance(value, dict) else zernio_config()
+    use_environment = not bool(saved.get("_brand_connection"))
     return {
-        "api_key": str(os.environ.get("ZERNIO_API_KEY") or saved.get("api_key") or "").strip(),
-        "account_id": str(os.environ.get("ZERNIO_TIKTOK_ACCOUNT_ID") or saved.get("account_id") or "").strip(),
-        "base_url": str(os.environ.get("ZERNIO_BASE_URL") or saved.get("base_url") or ZERNIO_BASE_URL).strip().rstrip("/"),
+        "api_key": str((os.environ.get("ZERNIO_API_KEY") if use_environment else "") or saved.get("api_key") or "").strip(),
+        "account_id": str((os.environ.get("ZERNIO_TIKTOK_ACCOUNT_ID") if use_environment else "") or saved.get("account_id") or "").strip(),
+        "base_url": str((os.environ.get("ZERNIO_BASE_URL") if use_environment else "") or saved.get("base_url") or ZERNIO_BASE_URL).strip().rstrip("/"),
     }
 
 
@@ -54,14 +62,28 @@ def zernio_status(value: dict | None = None) -> dict:
     return {
         "configured": bool(config["api_key"]),
         "connected": zernio_is_configured(value),
+        "available": zernio_is_configured(value),
+        "ready": zernio_is_configured(value),
         "account_id": config["account_id"],
+        "connection_id": str(value.get("_connection_id") or value.get("connection_id") or "").strip() if isinstance(value, dict) else "",
+        "display_name": str(value.get("display_name") or value.get("name") or "").strip() if isinstance(value, dict) else "",
         "masked_api_key": masked,
         "base_url": config["base_url"],
         "message": "" if zernio_is_configured(value) else zernio_config_hint(),
     }
 
 
-def update_zernio_config(api_key: str, account_id: str, *, base_url: str = ZERNIO_BASE_URL) -> dict:
+def update_zernio_config(
+    api_key: str,
+    account_id: str,
+    *,
+    base_url: str = ZERNIO_BASE_URL,
+    brand: str = "",
+    connection_id: str = "",
+    display_name: str = "",
+    config: dict | None = None,
+    persist: bool = True,
+) -> dict:
     api_key = str(api_key or "").strip()
     account_id = str(account_id or "").strip()
     base_url = str(base_url or ZERNIO_BASE_URL).strip().rstrip("/")
@@ -71,15 +93,38 @@ def update_zernio_config(api_key: str, account_id: str, *, base_url: str = ZERNI
         raise ValueError("TikTok account ID của Zernio không được để trống.")
     if not base_url.startswith("https://"):
         raise ValueError("Zernio API URL phải bắt đầu bằng https://.")
-    config = read_social_config()
-    config["zernio"] = {"api_key": api_key, "account_id": account_id, "base_url": base_url}
-    write_social_config(config)
-    return {"ok": True, **zernio_status(config)}
+    config = read_social_config() if config is None else config
+    value = {"api_key": api_key, "account_id": account_id, "base_url": base_url, "display_name": str(display_name or "").strip()}
+    brand = str(brand or "").strip().casefold()
+    if brand:
+        saved_id = store_social_brand_connection(
+            config,
+            brand,
+            "tiktok",
+            value,
+            connection_id=connection_id,
+            name=display_name,
+        )
+        if persist:
+            write_social_config(config)
+        return {"ok": True, "brand": brand, "connection_id": saved_id, **zernio_status({**value, "_brand_connection": True, "_connection_id": saved_id})}
+    existing = zernio_config(config)
+    if isinstance(existing.get("connections"), dict):
+        value["connections"] = existing["connections"]
+    config["zernio"] = value
+    if persist:
+        write_social_config(config)
+    return {"ok": True, **zernio_status(value)}
 
 
 def disconnect_zernio() -> dict:
     config = read_social_config()
-    config.pop("zernio", None)
+    section = config.get("zernio")
+    connections = section.get("connections") if isinstance(section, dict) else None
+    if isinstance(connections, dict) and connections:
+        config["zernio"] = {"connections": connections}
+    else:
+        config.pop("zernio", None)
     write_social_config(config)
     return {"ok": True, "configured": False, "connected": False}
 
@@ -140,7 +185,14 @@ def _post_url(response: dict) -> str:
 
 def tiktok_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
-    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    project_dir = require_project(project)
+    brand = upload_brand_for_project(payload, project_dir, "TikTok")
+    payload = {**payload, "brand": brand}
+    config = read_social_config()
+    connection_id, connection = resolve_social_brand_connection(config, brand, "tiktok")
+    zernio = resolve_zernio_config(connection)
+    if not zernio_is_configured(zernio):
+        raise ValueError(zernio_config_hint())
     video_path = final_video_path_for_project(project)
     if video_path.stat().st_size > MAX_TIKTOK_VIDEO_BYTES:
         raise ValueError("TikTok qua Zernio chỉ nhận video tối đa 500 MB.")
@@ -150,10 +202,6 @@ def tiktok_upload_video(payload: dict) -> dict:
         caption = str(metadata.get("instagramCaption") or metadata.get("facebookCaption") or "").strip()
     if len(caption) > MAX_TIKTOK_CAPTION_LENGTH:
         raise ValueError("TikTok caption tối đa 2.200 ký tự.")
-    config = read_social_config()
-    zernio = resolve_zernio_config(zernio_config(config))
-    if not zernio_is_configured(zernio):
-        raise ValueError(zernio_config_hint())
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="TikTok")
@@ -190,8 +238,8 @@ def tiktok_upload_video(payload: dict) -> dict:
     if not post_id:
         raise RuntimeError(f"Zernio tạo post không trả về post id: {response}")
     url = _post_url(response)
-    details = {"url": url, "post_id": post_id, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or ""}
+    details = {"url": url, "post_id": post_id, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or "", "connection_id": connection_id}
     if brand:
         details["brand"] = brand
     record_social_upload(project, "tiktok", details)
-    return {"ok": True, "platform": "tiktok", "project": project, "brand": brand, "post_id": post_id, "url": url, "scheduledPublishAt": scheduled or "", "message": "Đã lên lịch TikTok qua Zernio." if scheduled else "Đã đăng TikTok qua Zernio."}
+    return {"ok": True, "platform": "tiktok", "project": project, "brand": brand, "connection_id": connection_id, "post_id": post_id, "url": url, "scheduledPublishAt": scheduled or "", "message": "Đã lên lịch TikTok qua Zernio." if scheduled else "Đã đăng TikTok qua Zernio."}
