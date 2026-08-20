@@ -140,6 +140,7 @@ def _post_url(response: dict) -> str:
 
 def tiktok_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
+    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
     video_path = final_video_path_for_project(project)
     if video_path.stat().st_size > MAX_TIKTOK_VIDEO_BYTES:
         raise ValueError("TikTok qua Zernio chỉ nhận video tối đa 500 MB.")
@@ -189,6 +190,6 @@ def tiktok_upload_video(payload: dict) -> dict:
     if not post_id:
         raise RuntimeError(f"Zernio tạo post không trả về post id: {response}")
     url = _post_url(response)
-    details = {"url": url, "post_id": post_id, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or ""}
+    details = {"url": url, "post_id": post_id, "brand": brand, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or ""}
     record_social_upload(project, "tiktok", details)
-    return {"ok": True, "platform": "tiktok", "project": project, "post_id": post_id, "url": url, "scheduledPublishAt": scheduled or "", "message": "Đã lên lịch TikTok qua Zernio." if scheduled else "Đã đăng TikTok qua Zernio."}
+    return {"ok": True, "platform": "tiktok", "project": project, "brand": brand, "post_id": post_id, "url": url, "scheduledPublishAt": scheduled or "", "message": "Đã lên lịch TikTok qua Zernio." if scheduled else "Đã đăng TikTok qua Zernio."}

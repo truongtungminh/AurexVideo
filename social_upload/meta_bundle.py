@@ -55,6 +55,11 @@ def publish_instagram_facebook_threads(payload: dict) -> dict:
             or ""
         ).strip(),
     }
+    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    if brand:
+        instagram_payload["brand"] = brand
+        facebook_payload["brand"] = brand
+        threads_payload["brand"] = brand
 
     results = {
         "instagram": _run_platform("instagram", lambda: instagram_upload_video(instagram_payload)),

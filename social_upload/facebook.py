@@ -337,10 +337,9 @@ def facebook_upload_video(payload: dict) -> dict:
     video_path = final_video_path_for_project(project)
     project_brand = project_brand_from_topic(video_path.parent.parent)
     declared_brand = str(payload.get("brand") or "").strip().casefold()
-    if not project_brand:
-        raise ValueError("Project thiếu brand; upload Facebook bị chặn để tránh dùng nhầm Page.")
-    if declared_brand and declared_brand != project_brand:
-        raise ValueError(f"Brand của payload không khớp brand project {project_brand}.")
+    brand = declared_brand or project_brand
+    if not brand:
+        raise ValueError("Chưa chọn brand; upload Facebook bị chặn để tránh dùng nhầm Page.")
     metadata = build_upload_metadata(project)
     caption, source_url = facebook_caption_for_project(
         project,
@@ -350,8 +349,8 @@ def facebook_upload_video(payload: dict) -> dict:
     config = read_social_config()
     facebook = facebook_config(config)
     upload_payload = dict(payload)
-    upload_payload["brand"] = project_brand
-    upload_payload["pageId"] = social_brand_route(config, project_brand, "facebook")["page_id"]
+    upload_payload["brand"] = brand
+    upload_payload["pageId"] = social_brand_route(config, brand, "facebook")["page_id"]
     page = facebook_upload_page(config, facebook, upload_payload)
     if not facebook_page_id(facebook, page) or not facebook_page_access_token(facebook, page):
         raise ValueError(facebook_config_hint())
@@ -440,6 +439,7 @@ def facebook_upload_video(payload: dict) -> dict:
             "url": reel_url,
             "video_id": video_id,
             "post_id": post_id,
+            "brand": brand,
             "state": video_state,
             "scheduled_at": scheduled_publish_at or "",
         },
@@ -458,6 +458,7 @@ def facebook_upload_video(payload: dict) -> dict:
         "ok": True,
         "platform": "facebook",
         "project": project,
+        "brand": brand,
         "page_id": facebook_page_id(facebook, page),
         "video_id": video_id,
         "post_id": post_id,

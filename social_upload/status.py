@@ -3,6 +3,7 @@ from __future__ import annotations
 from .config import (
     SOCIAL_UPLOAD_CONFIG,
     read_social_config,
+    social_brand_route_records,
     social_brand_routes,
     social_brand_routes_version,
     social_config_hint,
@@ -58,6 +59,7 @@ def social_status() -> dict:
     return {
         "config_path": str(SOCIAL_UPLOAD_CONFIG),
         "brand_routes": social_brand_routes(config),
+        "brand_route_records": social_brand_route_records(config),
         "brand_routes_version": social_brand_routes_version(config),
         "platforms": {
             "youtube": {
