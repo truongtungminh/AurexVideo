@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .config import (
     SOCIAL_UPLOAD_CONFIG,
+    canonical_brand,
     read_social_config,
     social_brand_route_records,
     social_brand_routes,
@@ -19,7 +20,7 @@ def _account_statuses(config: dict, platform: str, status_factory) -> list[dict]
             continue
         status = dict(status_factory({**connection, "_brand_connection": True, "_connection_id": str(connection_id)}))
         status["connection_id"] = str(connection_id)
-        status["brand"] = str(connection.get("brand") or "").strip().casefold()
+        status["brand"] = canonical_brand(connection.get("brand"))
         status["display_name"] = str(
             connection.get("display_name")
             or connection.get("name")

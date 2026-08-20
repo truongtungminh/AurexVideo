@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .config import read_social_config, social_brand_route, social_config_hint, write_social_config
+from .config import canonical_brand, read_social_config, social_brand_route, social_config_hint, write_social_config
 from .metadata import build_upload_metadata, final_video_path_for_project, project_brand_from_topic, read_expected_video_bytes, read_project_upload_metadata, record_social_upload, require_project
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 
@@ -132,7 +132,7 @@ def youtube_channel_for_id(youtube: dict, channel_id: str) -> dict:
 
 
 def youtube_upload_channel(config: dict, youtube: dict, payload: dict) -> dict:
-    brand = str(payload.get("brand") or "").strip().casefold()
+    brand = canonical_brand(payload.get("brand"))
     requested_id = str(payload.get("channelId") or payload.get("channel_id") or "").strip()
     if not brand:
         raise ValueError("YouTube upload thiếu brand; không được dùng active channel mặc định.")
@@ -436,7 +436,7 @@ def youtube_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     video_path = final_video_path_for_project(project)
     project_brand = project_brand_from_topic(video_path.parent.parent)
-    declared_brand = str(payload.get("brand") or "").strip().casefold()
+    declared_brand = canonical_brand(payload.get("brand"))
     brand = declared_brand or project_brand
     if not brand:
         raise ValueError("Chưa chọn brand; upload YouTube bị chặn để tránh dùng nhầm channel.")

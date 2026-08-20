@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from aurexvideo_paths import PROJECTS_ROOT, RESOURCE_ROOT
+from .config import canonical_brand
 
 REPO_ROOT = RESOURCE_ROOT
 PROJECT_ROOT = PROJECTS_ROOT
@@ -86,12 +87,12 @@ def project_brand_from_topic(project_dir: Path) -> str:
         return ""
     if not isinstance(topic, dict):
         return ""
-    return str(topic.get("brand") or "").strip().casefold()
+    return canonical_brand(topic.get("brand"))
 
 
 def upload_brand_for_project(payload: dict, project_dir: Path, platform: str) -> str:
     """Return the project-owned Brand and reject a conflicting API payload."""
-    declared = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    declared = canonical_brand(payload.get("brand") or payload.get("brandId"))
     project_brand = project_brand_from_topic(project_dir)
     if declared and project_brand and declared != project_brand:
         raise ValueError(
@@ -428,7 +429,7 @@ def generated_upload_metadata(project_dir: Path, script_lines: list[str], existi
         },
         "publish": {
             "schemaVersion": 1,
-            "brand": str(existing_publish.get("brand") or project_brand_from_topic(project_dir)).strip().casefold(),
+            "brand": canonical_brand(existing_publish.get("brand") or project_brand_from_topic(project_dir)),
             "caption": str(existing_publish.get("caption") or "").strip(),
         },
         "social": existing_social,
@@ -457,7 +458,7 @@ def record_social_upload(project: str, platform: str, details: dict) -> dict:
         "state": str(details.get("state") or details.get("video_state") or "published").strip().upper(),
         "scheduledAt": str(details.get("scheduledAt") or details.get("scheduled_at") or "").strip(),
     }
-    brand = str(details.get("brand") or details.get("brandId") or "").strip().casefold()
+    brand = canonical_brand(details.get("brand") or details.get("brandId"))
     if brand:
         entry["brand"] = brand
     connection_id = str(details.get("connection_id") or details.get("connectionId") or "").strip()
@@ -554,7 +555,7 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
         tags = vi["tags"]
         source_prefix = vi["sourcePrefix"]
     binance_tags = list(DEFAULT_BINANCE_TAGS)
-    publish_brand = str(publish.get("brand") or project_brand_from_topic(project_dir)).strip().casefold()
+    publish_brand = canonical_brand(publish.get("brand") or project_brand_from_topic(project_dir))
     publish_caption = str(publish.get("caption") or caption).strip()
     return {
         "project": project_dir.name,

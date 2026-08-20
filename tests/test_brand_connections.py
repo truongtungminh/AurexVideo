@@ -9,6 +9,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from social_upload.config import (
+    canonical_brand,
+    migrate_brand_aliases,
     migrate_legacy_social_connections,
     resolve_social_brand_connection,
     social_brand_routes,
@@ -21,6 +23,48 @@ from social_upload.tiktok import update_zernio_config
 
 
 class BrandConnectionTests(unittest.TestCase):
+    def test_tintucbitcoin_alias_is_migrated_to_july(self) -> None:
+        config: dict = {
+            "brand_routes": {
+                "tintucbitcoin": {
+                    "youtube": {"channel_id": "channel-july", "name": "Tin Tức Bitcoin"},
+                },
+            },
+        }
+
+        migrated, changed = migrate_brand_aliases(config)
+
+        self.assertTrue(changed)
+        self.assertEqual(canonical_brand("tintucbitcoin"), "july")
+        self.assertNotIn("tintucbitcoin", migrated["brand_routes"])
+        self.assertEqual(
+            social_brand_routes(migrated)["july"]["youtube"]["channel_id"],
+            "channel-july",
+        )
+
+    def test_tintucbitcoin_connection_alias_resolves_as_july(self) -> None:
+        config: dict = {
+            "brand_routes": {
+                "tintucbitcoin": {
+                    "tiktok": {"connection_id": "tiktok-july"},
+                },
+            },
+            "zernio": {
+                "connections": {
+                    "tiktok-july": {
+                        "brand": "tintucbitcoin",
+                        "account_id": "acct-july",
+                        "api_key": "key-july",
+                    },
+                },
+            },
+        }
+
+        connection_id, connection = resolve_social_brand_connection(config, "tintucbitcoin", "tiktok")
+
+        self.assertEqual(connection_id, "tiktok-july")
+        self.assertEqual(connection["brand"], "july")
+
     def test_migrates_legacy_accounts_to_popsy_without_exposing_secrets(self) -> None:
         config = {
             "instagram": {

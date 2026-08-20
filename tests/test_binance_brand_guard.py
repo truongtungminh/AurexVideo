@@ -16,6 +16,14 @@ class BinanceBrandGuardTests(unittest.TestCase):
              patch.object(binance, "project_brand_from_topic", return_value="july"):
             self.assertEqual(binance.resolve_binance_upload_brand({"project": "demo"}), "july")
 
+    def test_accepts_legacy_tintucbitcoin_project_as_july(self) -> None:
+        with patch.object(binance, "require_project", return_value=Path("/tmp/project")), \
+             patch.object(binance, "project_brand_from_topic", return_value="tintucbitcoin"):
+            self.assertEqual(
+                binance.resolve_binance_upload_brand({"project": "demo", "brand": "tintucbitcoin"}),
+                "july",
+            )
+
     def test_rejects_non_july_project_even_when_payload_claims_july(self) -> None:
         with patch.object(binance, "require_project", return_value=Path("/tmp/project")), \
              patch.object(binance, "project_brand_from_topic", return_value="other-brand"):

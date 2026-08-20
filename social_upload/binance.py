@@ -12,7 +12,7 @@ from pathlib import Path
 
 from aurexvideo_paths import ffmpeg_executable
 
-from .config import read_social_config, write_social_config
+from .config import canonical_brand, read_social_config, write_social_config
 from .http import http_form_request
 from .metadata import (
     build_upload_metadata,
@@ -196,8 +196,8 @@ def disconnect_binance() -> dict:
 def resolve_binance_upload_brand(payload: dict) -> str:
     """Return the Binance-eligible brand, rejecting non-July projects and payloads."""
     project = str(payload.get("project") or "").strip()
-    declared_brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
-    project_brand = project_brand_from_topic(require_project(project))
+    declared_brand = canonical_brand(payload.get("brand") or payload.get("brandId"))
+    project_brand = canonical_brand(project_brand_from_topic(require_project(project)))
     effective_brand = declared_brand or project_brand
     if project_brand not in {"", BINANCE_BRAND} or effective_brand != BINANCE_BRAND:
         raise ValueError("Binance Square is only available for Brand july.")
