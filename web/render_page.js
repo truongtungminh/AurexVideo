@@ -593,12 +593,23 @@
     const spec = composerPlatformSpec(platform);
     const route = composerRoute(platform);
     const brandScopedAccount = spec?.routeScope === 'brand' && ['instagram', 'tiktok', 'threads'].includes(platform);
+    const platformReady = platform === 'youtube'
+      ? Boolean(status.configured && status.connected)
+      : platform === 'facebook'
+        ? Boolean(status.available || (status.configured && status.connected))
+        : false;
     if (spec?.routeScope === 'brand' && route) {
       const routeId = String(route.connection_id || route.channel_id || route.page_id || '').trim();
-      const account = (status.accounts || []).find((item) => String(item.connection_id || item.id || '') === routeId);
+      const accountList = platform === 'youtube'
+        ? (status.channels || [])
+        : platform === 'facebook'
+          ? (status.pages || [])
+          : (status.accounts || []);
+      const account = accountList.find((item) => String(item.connection_id || item.id || '') === routeId);
       if (account) {
+        if (account.error) return false;
         if (brandScopedAccount && String(account.brand || '').trim().toLowerCase() !== String(state.uploadBrand || '').trim().toLowerCase()) return false;
-        return Boolean(account.connected || account.available || account.ready);
+        return Boolean(account.connected || account.available || account.ready || platformReady);
       }
       if (route.connected !== undefined || route.available !== undefined) return Boolean(route.connected || route.available);
       return false;
@@ -609,8 +620,7 @@
       );
       return Boolean(matchingAccount && (matchingAccount.connected || matchingAccount.available || matchingAccount.ready));
     }
-    if (platform === 'youtube') return Boolean(status.configured && status.connected);
-    if (platform === 'facebook') return Boolean(status.available || (status.configured && status.connected));
+    if (platformReady) return true;
     if (platform === 'binance') return Boolean(status.configured && status.connected);
     return Boolean(status.available || (status.configured && status.connected));
   }
