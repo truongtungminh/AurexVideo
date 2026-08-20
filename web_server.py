@@ -6433,7 +6433,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260820-brand-composer6"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer7"></script>
 """,
     )
 
@@ -6463,20 +6463,42 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
             <h1>AurexVideo</h1>
           </div>
         </div>
-        <div class="upload-context-cluster" id="uploadContextCluster">
-          <label class="field project-select-field field-project top-project-field">
-            <span class="upload-context-label">Project đăng</span>
-            <select id="projectSelect" {"disabled" if not projects else ""}>
-              {options}
-            </select>
-          </label>
-        </div>
         <div class="top-upload-actions">
-          <span class="ready-pill"><strong>{len(output_projects)}</strong><span>sẵn sàng</span></span>
           <button class="refresh-btn icon-btn header-nav-action" id="openDefaultTags" type="button">{ui_icon("pencil")}<span>Sửa caption</span></button>
           <a class="refresh-btn icon-btn header-nav-action" href="/">{ui_icon("arrow-left")}<span>Bảng điều khiển</span></a>
         </div>
       </header>
+
+      <section class="upload-page-head">
+        <div>
+          <p class="kicker">Upload Center</p>
+          <h2>Upload &amp; Publish</h2>
+          <p>Chọn project và brand, viết caption một lần rồi đăng lên các social đã kết nối.</p>
+        </div>
+        <span class="ready-pill"><strong>{len(output_projects)}</strong><span>sẵn sàng</span></span>
+      </section>
+
+      <section class="upload-context-card" id="uploadContextCard">
+        <div class="upload-context-card-head">
+          <div>
+            <strong>Ngữ cảnh đăng</strong>
+            <span>Project quyết định Brand có thể chọn; Brand quyết định các social được dùng.</span>
+          </div>
+        </div>
+        <div class="upload-context-grid" id="uploadContextCluster">
+          <label class="field project-select-field field-project context-project-field">
+            <span class="upload-context-label">Project đăng</span>
+            <select id="projectSelect" aria-label="Project đăng" {"disabled" if not projects else ""}>
+              {options}
+            </select>
+          </label>
+          <div class="upload-brand-context-slot" id="uploadBrandContextSlot"></div>
+        </div>
+        <div class="upload-social-summary">
+          <strong>Social đã kết nối</strong>
+          <div class="upload-social-chips" id="uploadSocialChips"></div>
+        </div>
+      </section>
 
       <div class="status warn" id="renderStatus" hidden></div>
 
@@ -6819,7 +6841,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
 """,
         extra_style="""
     body {
-      --upload-page-max: 1800px;
+      --upload-page-max: 1440px;
       padding: 24px clamp(24px, 3vw, 56px);
     }
     html.tauri-macos body {
@@ -7020,10 +7042,10 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       color: var(--text-soft) !important;
     }
 
-    .upload-machine { display: grid; gap: 14px; }
+    .upload-machine { display: grid; gap: 18px; }
     .top-upload-bar {
       display: grid;
-      grid-template-columns: minmax(180px, 0.72fr) minmax(470px, 1.55fr) auto;
+      grid-template-columns: minmax(260px, 1fr) auto;
       align-items: center;
       gap: 22px;
       width: 100%;
@@ -7033,6 +7055,216 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       border-radius: 0;
       background: transparent;
       box-shadow: none;
+    }
+    .upload-page-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin: 4px 0 0;
+      padding: 0 2px;
+    }
+    .upload-page-head h2 {
+      margin: 0 0 7px;
+      color: var(--text);
+      font-size: clamp(30px, 3.6vw, 46px);
+      line-height: 0.98;
+      letter-spacing: -0.06em;
+    }
+    .upload-page-head p:not(.kicker) {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+    .upload-page-head .kicker {
+      margin: 0 0 7px;
+    }
+    .upload-page-head .ready-pill {
+      flex: 0 0 auto;
+      min-height: 42px;
+    }
+    .upload-context-card {
+      display: grid;
+      gap: 16px;
+      border: 1px solid var(--control-line);
+      border-radius: 20px;
+      padding: 18px 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    body.theme-light .upload-context-card {
+      background: rgba(255, 251, 244, 0.64);
+      box-shadow: 0 14px 34px rgba(95, 61, 31, 0.06);
+    }
+    .upload-context-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .upload-context-card-head strong {
+      display: block;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 950;
+      letter-spacing: -0.02em;
+    }
+    .upload-context-card-head span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+    .upload-context-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+    .upload-context-grid > .field,
+    .upload-brand-context-slot {
+      min-width: 0;
+    }
+    .context-project-field,
+    .upload-context-card .upload-brand-context {
+      display: grid;
+      align-content: start;
+      gap: 7px;
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .context-project-field select,
+    .upload-context-card .upload-brand-context select {
+      min-height: 46px;
+      width: 100%;
+      border: 1px solid var(--control-line);
+      border-radius: 11px;
+      padding: 11px 13px;
+      color: var(--text);
+      background: var(--field-bg);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 850;
+    }
+    .upload-context-card .upload-brand-context > span,
+    .upload-context-card .upload-brand-context small,
+    .upload-context-card .upload-brand-context button {
+      grid-column: 1;
+    }
+    .upload-context-card .upload-brand-context > span {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0.14em;
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
+    .upload-context-card .upload-brand-context small {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 750;
+      line-height: 1.25;
+    }
+    .upload-context-card .upload-brand-context button {
+      justify-self: start;
+      min-height: 24px;
+      padding: 0;
+      border: 0;
+      color: var(--accent);
+      background: transparent;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 950;
+    }
+    .upload-social-summary {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--control-line-soft);
+    }
+    .upload-social-summary > strong {
+      min-width: 132px;
+      padding-top: 7px;
+      color: var(--text-soft);
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .upload-social-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      min-width: 0;
+    }
+    .upload-social-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      border: 1px solid var(--control-line-soft);
+      border-radius: 10px;
+      padding: 7px 10px;
+      color: var(--text-soft);
+      background: var(--surface);
+      font-size: 11px;
+      font-weight: 850;
+    }
+    .upload-social-chip.is-off { opacity: 0.52; }
+    .upload-social-chip.is-pending { border-color: rgba(243, 107, 33, 0.30); }
+    .upload-social-chip-icon {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      color: var(--text);
+      background: var(--surface-strong);
+      font-size: 10px;
+      font-weight: 950;
+    }
+    .upload-social-chip-copy {
+      display: grid;
+      min-width: 0;
+      gap: 2px;
+    }
+    .upload-social-chip-copy strong {
+      overflow: hidden;
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 900;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .upload-social-chip-copy small {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .upload-social-chip-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22a35a;
+    }
+    .upload-social-chip.is-pending .upload-social-chip-dot { background: var(--accent); }
+    .upload-social-chip.is-off .upload-social-chip-dot { background: var(--muted); }
+    .upload-social-chip-status {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 750;
     }
     body.theme-light .top-upload-bar,
     body:not(.theme-light) .top-upload-bar {
@@ -8116,7 +8348,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     [hidden] { display: none !important; }
     @media (min-width: 1500px) {
       body {
-        --upload-page-max: 2180px;
+        --upload-page-max: 1440px;
         padding: 32px clamp(40px, 4vw, 82px);
       }
       html.tauri-macos body { padding-top: 54px; }
@@ -8154,15 +8386,10 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .upload-header { display: grid; }
       .header-tools { justify-content: stretch; justify-self: stretch; width: 100%; }
       .top-upload-bar {
-        grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+        grid-template-columns: minmax(220px, 1fr) auto;
         gap: 14px 18px;
       }
-      .upload-context-cluster {
-        grid-column: 1 / -1;
-        order: 3;
-      }
       .top-upload-actions {
-        grid-column: 2;
         justify-content: flex-end;
       }
     }
@@ -8178,11 +8405,10 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         grid-template-columns: 1fr;
         align-items: flex-start;
       }
-      .upload-context-cluster {
-        grid-column: auto;
-        grid-template-columns: 1fr;
-        width: 100%;
-      }
+      .upload-page-head { align-items: flex-start; flex-direction: column; }
+      .upload-context-grid { grid-template-columns: 1fr; }
+      .upload-social-summary { flex-direction: column; gap: 8px; }
+      .upload-social-summary > strong { min-width: 0; padding-top: 0; }
       .top-upload-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
       .platform-card-head { align-items: flex-start; flex-direction: column; }
       .platform-grid { grid-template-columns: 1fr; }
@@ -8198,7 +8424,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260820-brand-composer6"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer7"></script>
 """,
     )
 
