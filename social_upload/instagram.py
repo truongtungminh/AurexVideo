@@ -216,6 +216,7 @@ def instagram_media_metadata(instagram: dict, media_id: str, access_token: str) 
 
 def instagram_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
+    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
@@ -290,6 +291,7 @@ def instagram_upload_video(payload: dict) -> dict:
         "url": permalink,
         "video_id": container_id,
         "post_id": published_id,
+        "brand": brand,
         "state": "PUBLISHED",
         "r2_key": object_key,
         "r2_url": public_url,
@@ -302,6 +304,7 @@ def instagram_upload_video(payload: dict) -> dict:
         "ok": True,
         "platform": "instagram",
         "project": project,
+        "brand": brand,
         "ig_user_id": instagram_user_id(instagram),
         "container_id": container_id,
         "media_id": published_id,

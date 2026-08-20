@@ -309,6 +309,7 @@ def threads_upload_video(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise TypeError("Threads upload payload must be an object.")
     project = str(payload.get("project") or "").strip()
+    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
@@ -431,6 +432,7 @@ def threads_upload_video(payload: dict) -> dict:
                 "url": url,
                 "video_id": container_id,
                 "post_id": media_id,
+                "brand": brand,
                 "state": "PUBLISHED",
             },
         )
@@ -445,6 +447,7 @@ def threads_upload_video(payload: dict) -> dict:
         "ok": True,
         "platform": "threads",
         "project": project,
+        "brand": brand,
         "user_id": threads_user_id(threads),
         "container_id": container_id,
         "media_id": media_id,

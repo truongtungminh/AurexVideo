@@ -188,6 +188,7 @@ def disconnect_binance() -> dict:
 
 def binance_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
+    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
     video_path = final_video_path_for_project(project)
     duration = float(payload.get("duration") or 0)
     if duration <= 0:
@@ -235,6 +236,7 @@ def binance_upload_video(payload: dict) -> dict:
             "url": str(result.get("shareLink") or ""),
             "videoId": str(result.get("id") or file_ticket),
             "postId": str(result.get("id") or ""),
+            "brand": brand,
             "state": "published" if result.get("id") or result.get("shareLink") else "published_without_post_id",
         },
     )
@@ -242,6 +244,7 @@ def binance_upload_video(payload: dict) -> dict:
         "ok": True,
         "platform": "binance",
         "project": project,
+        "brand": brand,
         "videoId": str(result.get("id") or file_ticket),
         "postId": str(result.get("id") or ""),
         "url": str(result.get("shareLink") or ""),

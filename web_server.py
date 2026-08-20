@@ -56,7 +56,12 @@ from social_upload import (
     youtube_upload_video,
 )
 import social_upload.metadata as social_metadata
-from social_upload.config import read_social_config, write_social_config
+from social_upload.config import (
+    SOCIAL_ROUTE_PLATFORMS,
+    read_social_config,
+    save_social_brand_route,
+    write_social_config,
+)
 from social_upload.scheduler import start_scheduler
 import m3_backend as m3
 from tts.elevenlabs import (
@@ -711,6 +716,82 @@ def list_projects() -> list[dict]:
             }
         )
     return projects
+
+
+def upload_brand_context(project: str = "") -> dict:
+    """Build the non-secret Brand + social destination context for Upload."""
+    status = social_status()
+    routes = status.get("brand_route_records") or {}
+    brand_display: dict[str, str] = {}
+    project_counts: dict[str, int] = {}
+    project_brand = ""
+
+    for project_dir in iter_project_dirs():
+        topic_path = project_dir / "topic.json"
+        if not topic_path.is_file():
+            continue
+        try:
+            topic = json.loads(topic_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(topic, dict):
+            continue
+        raw_brand = str(topic.get("brand") or "").strip()
+        brand = raw_brand.casefold()
+        if not brand:
+            continue
+        brand_display.setdefault(brand, raw_brand)
+        project_counts[brand] = project_counts.get(brand, 0) + 1
+        if project and project_dir.name == project:
+            project_brand = brand
+
+    for brand, platform_routes in routes.items():
+        brand_display.setdefault(brand, brand)
+        for route in platform_routes.values():
+            name = str(route.get("name") or "").strip() if isinstance(route, dict) else ""
+            if name and brand_display.get(brand, brand) == brand:
+                brand_display[brand] = name
+                break
+
+    platforms = status.get("platforms") or {}
+    safe_platforms: dict[str, dict] = {}
+    for platform, value in platforms.items():
+        if not isinstance(value, dict):
+            continue
+        # Keep only fields needed by the picker. In particular, never pass
+        # credential-bearing config values through this endpoint.
+        safe = {
+            key: value.get(key)
+            for key in (
+                "configured", "connected", "available", "ready", "message",
+                "display_name", "name", "ig_user_id", "threads_user_id",
+                "account_id", "active_channel_id", "active_page_id", "channel", "page",
+                "channels", "pages", "masked_api_key",
+            )
+            if key in value
+        }
+        safe_platforms[platform] = safe
+
+    brands = [
+        {
+            "id": brand,
+            "name": brand_display.get(brand) or brand,
+            "project_count": project_counts.get(brand, 0),
+            "routes": routes.get(brand, {}),
+        }
+        for brand in brand_display
+    ]
+    brands.sort(key=lambda item: (item["name"].casefold(), item["id"]))
+    if project_brand:
+        brands.sort(key=lambda item: 0 if item["id"] == project_brand else 1)
+    return {
+        "project": project,
+        "project_brand": project_brand,
+        "brands": brands,
+        "brand_routes": routes,
+        "platforms": safe_platforms,
+        "brand_routes_version": status.get("brand_routes_version", 1),
+    }
 
 
 def require_project(project: str) -> Path:
@@ -8738,6 +8819,18 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if path == "/api/social/brands":
+            project = (parse_qs(parsed.query).get("project") or [""])[0]
+            try:
+                if project:
+                    require_project(project)
+                self.send_json(200, upload_brand_context(project))
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if path == "/api/social/status":
             try:
                 self.send_json(200, social_status())
@@ -8829,6 +8922,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                 payload["description"] = default_copy["youtubeDescription"]
                 payload["facebookCaption"] = default_copy["facebookCaption"]
                 payload["instagramCaption"] = default_copy["instagramCaption"]
+                payload["commonCaption"] = default_copy["facebookCaption"]
                 payload["defaultUploadCopy"] = default_copy
                 self.send_json(200, payload)
             except FileNotFoundError as exc:
@@ -8933,6 +9027,56 @@ class WebHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/social/default-tags":
             try:
                 self.send_json(200, save_default_upload_tags(self.read_json_body()))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/social/brand-route":
+            try:
+                payload = self.read_json_body()
+                brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+                platform = str(payload.get("platform") or "").strip().casefold()
+                connection_id = str(
+                    payload.get("connectionId")
+                    or payload.get("channelId")
+                    or payload.get("pageId")
+                    or payload.get("accountId")
+                    or ""
+                ).strip()
+                name = str(payload.get("name") or payload.get("displayName") or "").strip()
+                if platform not in SOCIAL_ROUTE_PLATFORMS:
+                    raise ValueError(f"Unsupported social platform: {platform or '<empty>'}.")
+
+                status = social_status()
+                platform_status = status.get("platforms", {}).get(platform, {})
+                if platform in {"youtube", "facebook"}:
+                    account_key = "channels" if platform == "youtube" else "pages"
+                    accounts = platform_status.get(account_key) or []
+                    account = next((item for item in accounts if str(item.get("id") or "") == connection_id), None)
+                    if not account:
+                        raise ValueError(f"Không tìm thấy account {platform} để gán vào Brand.")
+                    name = name or str(account.get("title") or account.get("name") or connection_id)
+                else:
+                    if not bool(platform_status.get("connected") or platform_status.get("available")):
+                        raise ValueError(platform_status.get("message") or f"{platform} chưa kết nối.")
+                    current_id = str(
+                        platform_status.get("ig_user_id")
+                        or platform_status.get("threads_user_id")
+                        or platform_status.get("account_id")
+                        or "global"
+                    ).strip()
+                    if connection_id in {"", "global"}:
+                        connection_id = current_id or "global"
+                    elif current_id and connection_id != current_id:
+                        raise ValueError(f"Account {platform} không khớp cấu hình hiện tại.")
+                    name = name or str(
+                        platform_status.get("display_name")
+                        or platform_status.get("name")
+                        or connection_id
+                    )
+
+                routes = save_social_brand_route(brand, platform, connection_id, name=name)
+                self.send_json(200, {"ok": True, "brand": brand, "platform": platform, "route": routes.get(platform, {})})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return

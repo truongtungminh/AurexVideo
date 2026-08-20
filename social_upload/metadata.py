@@ -437,6 +437,9 @@ def record_social_upload(project: str, platform: str, details: dict) -> dict:
         "state": str(details.get("state") or details.get("video_state") or "published").strip().upper(),
         "scheduledAt": str(details.get("scheduledAt") or details.get("scheduled_at") or "").strip(),
     }
+    brand = str(details.get("brand") or details.get("brandId") or "").strip().casefold()
+    if brand:
+        entry["brand"] = brand
     social[platform] = entry
     existing["social"] = social
     write_project_upload_metadata(project_dir, existing)

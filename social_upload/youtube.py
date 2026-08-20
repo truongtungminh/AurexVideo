@@ -437,10 +437,9 @@ def youtube_upload_video(payload: dict) -> dict:
     video_path = final_video_path_for_project(project)
     project_brand = project_brand_from_topic(video_path.parent.parent)
     declared_brand = str(payload.get("brand") or "").strip().casefold()
-    if not project_brand:
-        raise ValueError("Project thiếu brand; upload YouTube bị chặn để tránh dùng nhầm channel.")
-    if declared_brand and declared_brand != project_brand:
-        raise ValueError(f"Brand của payload không khớp brand project {project_brand}.")
+    brand = declared_brand or project_brand
+    if not brand:
+        raise ValueError("Chưa chọn brand; upload YouTube bị chặn để tránh dùng nhầm channel.")
     metadata = build_upload_metadata(project)
     title = str(payload.get("title") or metadata["title"]).strip()[:90]
     description = str(payload.get("description") or metadata["description"]).strip()[:5000]
@@ -462,8 +461,8 @@ def youtube_upload_video(payload: dict) -> dict:
     if not youtube_is_configured(youtube):
         raise ValueError(social_config_hint())
     upload_payload = dict(payload)
-    upload_payload["brand"] = project_brand
-    upload_payload["channelId"] = social_brand_route(config, project_brand, "youtube")["channel_id"]
+    upload_payload["brand"] = brand
+    upload_payload["channelId"] = social_brand_route(config, brand, "youtube")["channel_id"]
     channel = youtube_upload_channel(config, youtube, upload_payload)
     access_token = youtube_access_token_for_channel(config, youtube, channel)
     video_bytes = read_expected_video_bytes(video_path, payload)
@@ -533,6 +532,7 @@ def youtube_upload_video(payload: dict) -> dict:
         {
             "url": f"https://youtu.be/{video_id}",
             "video_id": video_id,
+            "brand": brand,
             "state": privacy_status,
             "scheduled_at": scheduled_publish_at or "",
         },
@@ -548,6 +548,7 @@ def youtube_upload_video(payload: dict) -> dict:
         "ok": True,
         "platform": "youtube",
         "project": project,
+        "brand": brand,
         "channel_id": str(channel.get("id") or ""),
         "channel_title": str(channel.get("title") or ""),
         "video_id": video_id,
