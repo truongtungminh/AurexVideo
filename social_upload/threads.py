@@ -425,17 +425,15 @@ def threads_upload_video(payload: dict) -> dict:
 
     metadata_error = ""
     try:
-        record_social_upload(
-            project,
-            "threads",
-            {
-                "url": url,
-                "video_id": container_id,
-                "post_id": media_id,
-                "brand": brand,
-                "state": "PUBLISHED",
-            },
-        )
+        record_details = {
+            "url": url,
+            "video_id": container_id,
+            "post_id": media_id,
+            "state": "PUBLISHED",
+        }
+        if brand:
+            record_details["brand"] = brand
+        record_social_upload(project, "threads", record_details)
     except Exception as exc:
         metadata_error = _redact_sensitive(exc, *known_secrets)
     message = "Đã đăng video lên Threads."

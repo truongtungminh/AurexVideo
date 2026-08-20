@@ -75,6 +75,7 @@ def publish_instagram_facebook_threads(payload: dict) -> dict:
             results["facebook_comment"] = _run_platform(
                 "facebook comment",
                 lambda: facebook_comment_source({
+                    **({"brand": brand} if brand else {}),
                     "project": project,
                     "sourceCommentTargetId": target_id,
                     "facebookSourceComment": source_comment,

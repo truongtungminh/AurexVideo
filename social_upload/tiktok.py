@@ -190,6 +190,8 @@ def tiktok_upload_video(payload: dict) -> dict:
     if not post_id:
         raise RuntimeError(f"Zernio tạo post không trả về post id: {response}")
     url = _post_url(response)
-    details = {"url": url, "post_id": post_id, "brand": brand, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or ""}
+    details = {"url": url, "post_id": post_id, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or ""}
+    if brand:
+        details["brand"] = brand
     record_social_upload(project, "tiktok", details)
     return {"ok": True, "platform": "tiktok", "project": project, "brand": brand, "post_id": post_id, "url": url, "scheduledPublishAt": scheduled or "", "message": "Đã lên lịch TikTok qua Zernio." if scheduled else "Đã đăng TikTok qua Zernio."}

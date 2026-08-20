@@ -747,11 +747,6 @@ def upload_brand_context(project: str = "") -> dict:
 
     for brand, platform_routes in routes.items():
         brand_display.setdefault(brand, brand)
-        for route in platform_routes.values():
-            name = str(route.get("name") or "").strip() if isinstance(route, dict) else ""
-            if name and brand_display.get(brand, brand) == brand:
-                brand_display[brand] = name
-                break
 
     platforms = status.get("platforms") or {}
     safe_platforms: dict[str, dict] = {}
@@ -6433,7 +6428,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260817-vieneu1"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer1"></script>
 """,
     )
 
@@ -8144,7 +8139,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260817-vieneu1"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer1"></script>
 """,
     )
 
@@ -8922,7 +8917,26 @@ class WebHandler(SimpleHTTPRequestHandler):
                 payload["description"] = default_copy["youtubeDescription"]
                 payload["facebookCaption"] = default_copy["facebookCaption"]
                 payload["instagramCaption"] = default_copy["instagramCaption"]
-                payload["commonCaption"] = default_copy["facebookCaption"]
+                publish = payload.get("publish") if isinstance(payload.get("publish"), dict) else {}
+                common_caption = str(publish.get("caption") or "").strip()
+                if common_caption:
+                    payload["commonCaption"] = common_caption
+                    try:
+                        first_line = next((line.strip() for line in common_caption.splitlines() if line.strip()), "")
+                        first_line = re.sub(r"^[^\wÀ-ỹ]+", "", first_line, flags=re.UNICODE).strip()
+                        if not first_line:
+                            raise ValueError("Caption không có dòng đầu hợp lệ.")
+                        payload["title"] = social_metadata.limit_youtube_title(first_line)
+                    except ValueError:
+                        payload["title"] = default_copy["title"]
+                    payload["youtubeDescription"] = common_caption
+                    payload["description"] = common_caption
+                    payload["facebookCaption"] = common_caption
+                    payload["instagramCaption"] = common_caption[:2200]
+                    payload["tiktokCaption"] = common_caption[:2200]
+                    payload["binanceCaption"] = common_caption
+                else:
+                    payload["commonCaption"] = default_copy["facebookCaption"]
                 payload["defaultUploadCopy"] = default_copy
                 self.send_json(200, payload)
             except FileNotFoundError as exc:
@@ -9027,6 +9041,37 @@ class WebHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/social/default-tags":
             try:
                 self.send_json(200, save_default_upload_tags(self.read_json_body()))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/social/upload-metadata":
+            try:
+                payload = self.read_json_body()
+                project = require_payload_project(payload)
+                project_dir = social_metadata.require_project(project)
+                existing = social_metadata.read_project_upload_metadata(project_dir)
+                if not existing:
+                    existing = social_metadata.generated_upload_metadata(
+                        project_dir,
+                        social_metadata.read_script_lines(project_dir),
+                        {},
+                        language=current_ui_language(),
+                    )
+                publish = existing.get("publish") if isinstance(existing.get("publish"), dict) else {}
+                publish = dict(publish)
+                brand = str(payload.get("brand") or payload.get("brandId") or publish.get("brand") or social_metadata.project_brand_from_topic(project_dir)).strip().casefold()
+                if brand and not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+                    raise ValueError("Brand chỉ được dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.")
+                caption = str(payload.get("caption") if "caption" in payload else payload.get("commonCaption") if "commonCaption" in payload else publish.get("caption") or "").strip()
+                if len(caption) > 5000:
+                    raise ValueError("Caption chung tối đa 5.000 ký tự.")
+                publish.update({"schemaVersion": 1, "brand": brand, "caption": caption})
+                existing["publish"] = publish
+                social_metadata.write_project_upload_metadata(project_dir, existing)
+                self.send_json(200, {"ok": True, "project": project, "publish": publish})
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return

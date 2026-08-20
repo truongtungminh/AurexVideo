@@ -50,6 +50,8 @@
     brandRoutes: {},
     socialStatus: {},
     uploadTargets: new Set(),
+    uploadTargetsBrand: '',
+    composerDraftTimer: null,
     socialReady: { youtube: false, facebook: false, instagram: false, threads: false },
     socialConfigured: { youtube: false, facebook: false, instagram: false, threads: false },
     instagramConfig: {},
@@ -435,31 +437,41 @@
 
   function setUploadStatus(message = '', tone = 'warn') {
     const status = $('#uploadStatus');
-    if (!status) return;
-    status.textContent = message;
-    status.hidden = !message;
-    status.className = `upload-status ${tone}`;
+    if (status) {
+      status.textContent = message;
+      status.hidden = !message;
+      status.className = `upload-status ${tone}`;
+    }
+    const composerStatus = $('#composerStatus');
+    if (composerStatus) {
+      composerStatus.textContent = message;
+      composerStatus.hidden = !message;
+      composerStatus.className = `composer-status ${tone}`;
+    }
   }
 
   function setUploadResult(message = '', tone = 'warn', links = []) {
     const result = $('#uploadResult');
-    if (!result) return;
-    result.textContent = '';
-    result.hidden = !message && !links.length;
-    result.className = `upload-result ${tone}`;
-    if (message) {
-      const text = document.createElement('span');
-      text.textContent = message;
-      result.appendChild(text);
-    }
-    links.forEach((link) => {
-      result.appendChild(document.createTextNode(' '));
-      const anchor = document.createElement('a');
-      anchor.href = link.href;
-      anchor.target = '_blank';
-      anchor.rel = 'noreferrer';
-      anchor.textContent = link.label;
-      result.appendChild(anchor);
+    const composerResult = $('#composerResult');
+    [result, composerResult].forEach((target) => {
+      if (!target) return;
+      target.textContent = '';
+      target.hidden = !message && !links.length;
+      target.className = `${target === composerResult ? 'composer-result' : 'upload-result'} ${tone}`;
+      if (message) {
+        const text = document.createElement('span');
+        text.textContent = message;
+        target.appendChild(text);
+      }
+      links.forEach((link) => {
+        target.appendChild(document.createTextNode(' '));
+        const anchor = document.createElement('a');
+        anchor.href = link.href;
+        anchor.target = '_blank';
+        anchor.rel = 'noreferrer';
+        anchor.textContent = link.label;
+        target.appendChild(anchor);
+      });
     });
   }
 
@@ -545,6 +557,602 @@
     }
   }
 
+  const COMPOSER_PLATFORMS = Object.freeze([
+    { id: 'youtube', label: 'YouTube', icon: '▶', className: 'youtube', routeScope: 'brand', legacyButton: '#uploadYoutube', connectButton: '#connectYoutube', configButton: '#openYoutubeConfig', schedule: true },
+    { id: 'facebook', label: 'Facebook Reels', icon: 'f', className: 'facebook', routeScope: 'brand', legacyButton: '#uploadFacebook', connectButton: '#openFacebookConfig', schedule: true },
+    { id: 'instagram', label: 'Instagram Reels', icon: '◎', className: 'instagram', routeScope: 'global', legacyButton: '#uploadInstagram', configButton: '#openInstagramConfig' },
+    { id: 'tiktok', label: 'TikTok', icon: '♪', className: 'tiktok', routeScope: 'global', legacyButton: '#uploadTiktok', configButton: '#openTiktokConfig', schedule: true },
+    { id: 'threads', label: 'Threads', icon: '@', className: 'threads', routeScope: 'global', legacyButton: '#uploadThreads', configButton: '#openThreadsConfig' },
+    { id: 'binance', label: 'Binance Square', icon: 'B', className: 'binance', routeScope: 'global', legacyButton: '#uploadBinance', configButton: '#openBinanceConfig' },
+  ]);
+
+  function composerEscape(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  }
+
+  function composerPlatformSpec(platform) {
+    return COMPOSER_PLATFORMS.find((item) => item.id === platform) || null;
+  }
+
+  function composerPlatformStatus(platform) {
+    return state.socialStatus?.platforms?.[platform] || {};
+  }
+
+  function composerPlatformReady(platform) {
+    const status = composerPlatformStatus(platform);
+    if (platform === 'youtube') return Boolean(status.configured && status.connected);
+    if (platform === 'facebook') return Boolean(status.available || (status.configured && status.connected));
+    if (platform === 'binance') return Boolean(status.configured && status.connected);
+    return Boolean(status.available || (status.configured && status.connected));
+  }
+
+  function composerRoute(platform) {
+    return state.brandRoutes?.[state.uploadBrand]?.[platform] || null;
+  }
+
+  function composerTargetAvailable(platform) {
+    const spec = composerPlatformSpec(platform);
+    if (!spec || !state.uploadBrand || !composerPlatformReady(platform)) return false;
+    return spec.routeScope === 'global' || Boolean(composerRoute(platform));
+  }
+
+  function composerAccountName(platform) {
+    const status = composerPlatformStatus(platform);
+    const route = composerRoute(platform);
+    if (route?.name) return String(route.name);
+    const identity = String(route?.connection_id || route?.channel_id || route?.page_id || '').trim();
+    if (platform === 'youtube') {
+      const channel = (status.channels || []).find((item) => String(item.id || '') === identity);
+      return String(channel?.title || channel?.name || status.channel?.title || status.channel?.name || identity || 'YouTube channel');
+    }
+    if (platform === 'facebook') {
+      const page = (status.pages || []).find((item) => String(item.id || '') === identity);
+      return String(page?.name || status.page?.name || identity || 'Facebook Page');
+    }
+    const friendlyName = String(status.display_name || status.name || '').trim();
+    if (friendlyName) return friendlyName;
+    if (platform === 'instagram') return 'Instagram account chung';
+    if (platform === 'tiktok') return 'TikTok account chung';
+    if (platform === 'threads') return 'Threads account chung';
+    if (platform === 'binance') return 'Binance account chung';
+    return 'Tài khoản đã kết nối';
+  }
+
+  function composerTargetReason(platform) {
+    const spec = composerPlatformSpec(platform);
+    const status = composerPlatformStatus(platform);
+    if (!state.uploadBrand) return 'Chọn Brand để xem kênh đăng.';
+    if (!composerPlatformReady(platform)) return String(status.message || 'Chưa kết nối social.');
+    if (spec?.routeScope === 'brand' && !composerRoute(platform)) return 'Chưa gán social này cho Brand.';
+    if (spec?.routeScope === 'global') return 'Tài khoản chung của nền tảng · chưa hỗ trợ nhiều account.';
+    return 'Đã gán vào Brand này.';
+  }
+
+  function installUploadComposerStyles() {
+    if (document.getElementById('upload-composer-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'upload-composer-styles';
+    style.textContent = [
+      '.upload-redesigned { width: min(1180px, calc(100vw - 40px)) !important; max-width: none !important; margin: 22px auto 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; }',
+      '.upload-redesigned .platform-grid, .upload-redesigned .final-upload-actions, .upload-redesigned > .upload-status, .upload-redesigned > .upload-result { display: none !important; }',
+      '.upload-brand-context { min-width: 210px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 8px 12px; border: 1px solid var(--control-line); border-radius: 14px; background: var(--surface); }',
+      '.upload-brand-context > span { grid-column: 1; color: var(--muted); font-size: 10px; font-weight: 950; letter-spacing: .14em; text-transform: uppercase; }',
+      '.upload-brand-context select { grid-column: 2; min-width: 0; min-height: 34px; border: 0; padding: 0 24px 0 0; color: var(--text); background: transparent; font: inherit; font-size: 14px; font-weight: 950; }',
+      '.upload-brand-context small { grid-column: 1 / -1; color: var(--muted); font-size: 10px; font-weight: 750; line-height: 1.25; }',
+      '.upload-brand-context button { grid-column: 1 / -1; justify-self: start; min-height: 28px; border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; font-size: 11px; font-weight: 950; cursor: pointer; }',
+      '.upload-brand-context button:hover { text-decoration: underline; }',
+      '.upload-composer-layout { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(390px, .92fr); gap: 18px; align-items: start; }',
+      '.upload-composer-card { min-width: 0; border: 1px solid var(--control-line); border-radius: 22px; padding: 20px; background: radial-gradient(circle at 8% 0%, rgba(242,178,101,.12), transparent 38%), var(--surface-panel); box-shadow: 0 18px 55px rgba(0,0,0,.08); }',
+      'body.theme-light .upload-composer-card { box-shadow: 0 18px 55px rgba(95,61,31,.08); }',
+      '.upload-composer-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 16px; }',
+      '.upload-composer-card h2 { margin: 0; color: var(--text); font-size: clamp(20px, 2vw, 28px); letter-spacing: -.045em; line-height: 1.04; }',
+      '.upload-composer-card .kicker { margin-bottom: 7px; }',
+      '.upload-composer-subtitle { max-width: 560px; margin: 8px 0 0; color: var(--muted); font-size: 12px; font-weight: 750; line-height: 1.5; }',
+      '.upload-copy-input { width: 100%; min-height: 300px; resize: vertical; border: 1px solid var(--control-line); border-radius: 17px; padding: 15px 16px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 16px; font-weight: 700; line-height: 1.55; outline: none; }',
+      '.upload-copy-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }',
+      '.upload-copy-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; color: var(--muted); font-size: 11px; font-weight: 800; }',
+      '.upload-copy-meta strong { color: var(--text-soft); }',
+      '.upload-advanced { margin-top: 18px; border-top: 1px solid var(--control-line-soft); padding-top: 14px; }',
+      '.upload-advanced summary { color: var(--text-soft); font-size: 12px; font-weight: 950; cursor: pointer; }',
+      '.upload-advanced-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }',
+      '.upload-advanced-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 900; }',
+      '.upload-advanced-grid label.wide { grid-column: 1 / -1; }',
+      '.upload-advanced-grid input, .upload-advanced-grid select { width: 100%; min-height: 40px; border: 1px solid var(--control-line); border-radius: 11px; padding: 9px 11px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 12px; }',
+      '.upload-destination-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 14px; }',
+      '.upload-destination-head h2 { font-size: 21px; }',
+      '.upload-destination-count { color: var(--accent); font-size: 12px; font-weight: 950; white-space: nowrap; }',
+      '.upload-destination-list { display: grid; gap: 9px; }',
+      '.upload-destination-row { display: grid; grid-template-columns: auto 1fr auto; gap: 11px; align-items: center; min-width: 0; border: 1px solid var(--control-line-soft); border-radius: 15px; padding: 11px 12px; background: var(--surface); transition: border-color .16s ease, background .16s ease; }',
+      '.upload-destination-row:hover { border-color: var(--control-line); background: var(--surface-strong); }',
+      '.upload-destination-row.is-disabled { opacity: .65; }',
+      '.upload-destination-row.is-selected { border-color: rgba(232,160,96,.52); background: rgba(242,178,101,.09); }',
+      '.destination-toggle { width: 18px; height: 18px; accent-color: var(--accent); }',
+      '.destination-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; color: var(--text); background: rgba(242,178,101,.16); font-size: 14px; font-weight: 950; }',
+      '.destination-main { min-width: 0; display: grid; gap: 3px; }',
+      '.destination-name { color: var(--text); font-size: 13px; font-weight: 950; }',
+      '.destination-account { min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 11px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }',
+      '.destination-reason { min-width: 0; overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }',
+      '.destination-side { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }',
+      '.destination-status { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 900; white-space: nowrap; }',
+      '.destination-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }',
+      '.destination-status.good { color: #55b879; }',
+      '.destination-status.bad { color: var(--warn-text); }',
+      '.destination-action, .destination-schedule { min-height: 28px; border: 1px solid var(--control-line); border-radius: 9px; padding: 5px 8px; color: var(--text-soft); background: transparent; font: inherit; font-size: 10px; font-weight: 900; cursor: pointer; }',
+      '.destination-action:hover, .destination-schedule:hover { border-color: var(--accent); color: var(--accent); }',
+      '.destination-action:disabled { opacity: .45; cursor: not-allowed; }',
+      '.destination-schedule-wrap { grid-column: 2 / -1; display: flex; align-items: center; gap: 7px; padding-left: 0; }',
+      '.destination-schedule-wrap input[type="datetime-local"] { min-height: 30px; border: 1px solid var(--control-line); border-radius: 9px; padding: 5px 7px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 10px; }',
+      '.composer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 16px; }',
+      '.composer-publish { min-height: 46px; border: 1px solid rgba(232,160,96,.6); border-radius: 13px; color: var(--accent-contrast); background: var(--accent); font: inherit; font-size: 12px; font-weight: 950; cursor: pointer; }',
+      '.composer-publish.secondary { color: var(--text-soft); border-color: var(--control-line); background: transparent; }',
+      '.composer-publish:disabled { cursor: wait; opacity: .5; }',
+      '.composer-status, .composer-result { margin-top: 12px; border: 1px solid var(--control-line-soft); border-radius: 13px; padding: 10px 11px; color: var(--status-text); background: var(--surface); font-size: 11px; font-weight: 800; line-height: 1.5; white-space: pre-line; }',
+      '.composer-status.good, .composer-result.good { border-color: rgba(85,184,121,.38); color: var(--good-text); }',
+      '.composer-status.bad, .composer-result.bad { border-color: rgba(255,82,82,.42); color: var(--danger-text); }',
+      '.composer-status.warn, .composer-result.warn { border-color: rgba(255,171,64,.38); color: var(--warn-text); }',
+      '.composer-result a { color: var(--accent); font-weight: 950; }',
+      '.brand-social-modal-backdrop { position: fixed; inset: 0; z-index: 240; display: grid; place-items: center; padding: 20px; background: rgba(8,5,2,.55); backdrop-filter: blur(16px); }',
+      '.brand-social-modal-backdrop[hidden] { display: none !important; }',
+      '.brand-social-modal-card { position: relative; width: min(760px, 100%); max-height: min(86vh, 760px); overflow: auto; border: 1px solid var(--control-line); border-radius: 22px; padding: 22px; color: var(--text); background: var(--panel); box-shadow: 0 30px 100px rgba(0,0,0,.45); }',
+      '.brand-social-modal-card h3 { margin: 0; font-size: 24px; letter-spacing: -.045em; }',
+      '.brand-social-modal-card p { color: var(--muted); font-size: 12px; font-weight: 750; line-height: 1.5; }',
+      '.brand-social-modal-close { position: absolute; top: 14px; right: 14px; width: 34px; height: 34px; border: 1px solid var(--control-line); border-radius: 50%; color: var(--text); background: transparent; font-size: 20px; cursor: pointer; }',
+      '.brand-social-brand-select { display: grid; gap: 7px; margin: 16px 0; color: var(--muted); font-size: 11px; font-weight: 900; }',
+      '.brand-social-brand-select select { min-height: 42px; border: 1px solid var(--control-line); border-radius: 11px; padding: 9px 11px; color: var(--text); background: var(--field-bg); font: inherit; }',
+      '.brand-route-list { display: grid; gap: 9px; }',
+      '.brand-route-item { display: grid; grid-template-columns: minmax(120px, .55fr) minmax(0, 1fr) auto; gap: 9px; align-items: center; border: 1px solid var(--control-line-soft); border-radius: 13px; padding: 10px; }',
+      '.brand-route-platform { display: flex; align-items: center; gap: 7px; color: var(--text); font-size: 12px; font-weight: 950; }',
+      '.brand-route-platform em { color: var(--muted); font-size: 9px; font-style: normal; font-weight: 800; }',
+      '.brand-route-item select { min-width: 0; min-height: 36px; border: 1px solid var(--control-line); border-radius: 9px; padding: 7px 9px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 11px; }',
+      '.brand-route-save { min-height: 34px; border: 1px solid var(--accent); border-radius: 9px; padding: 7px 10px; color: var(--accent-contrast); background: var(--accent); font: inherit; font-size: 10px; font-weight: 950; cursor: pointer; white-space: nowrap; }',
+      '.brand-route-save:disabled { opacity: .45; cursor: not-allowed; }',
+      '@media (max-width: 1050px) { .upload-composer-layout { grid-template-columns: 1fr; } .upload-brand-context { min-width: 180px; } }',
+      '@media (max-width: 720px) { .upload-redesigned { width: min(100% - 24px, 680px) !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide { grid-column: auto; } .upload-destination-row { grid-template-columns: auto 1fr; } .destination-side { grid-column: 2; justify-content: flex-start; } .destination-schedule-wrap { grid-column: 2; } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
+    ].join('\n');
+    document.head.appendChild(style);
+  }
+
+  function deriveComposerTitle(caption) {
+    const firstLine = String(caption || '').split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '';
+    return firstLine.replace(/^[^\p{L}\p{N}]+/u, '').trim().slice(0, 100).trim();
+  }
+
+  function syncComposerCaptionToLegacy(value) {
+    const caption = String(value || '');
+    const title = deriveComposerTitle(caption);
+    const fields = {
+      '#uploadTitle': title,
+      '#youtubeDescription': caption,
+      '#facebookCaption': caption,
+      '#instagramCaption': caption.slice(0, 2200),
+      '#tiktokCaption': caption.slice(0, 2200),
+      '#threadsText': caption.slice(0, 500),
+      '#binanceCaption': caption,
+    };
+    Object.entries(fields).forEach(([selector, nextValue]) => {
+      const field = $(selector);
+      if (field && field.value !== nextValue) field.value = nextValue;
+    });
+    updateFacebookCommentButton();
+  }
+
+  function updateComposerCaptionMeta() {
+    const input = $('#commonCaption');
+    const counter = $('#commonCaptionCount');
+    const hint = $('#commonCaptionHint');
+    const value = String(input?.value || '');
+    if (counter) counter.textContent = `${value.length}/5000`;
+    if (hint) hint.textContent = deriveComposerTitle(value) ? 'Dòng đầu sẽ làm tiêu đề YouTube; các nền tảng khác dùng cùng caption.' : 'Nhập caption một lần, sau đó chọn các kênh đăng ở bên phải.';
+  }
+
+  function setComposerCaption(value) {
+    const input = $('#commonCaption');
+    if (!input) return;
+    input.value = String(value || '');
+    syncComposerCaptionToLegacy(input.value);
+    updateComposerCaptionMeta();
+  }
+
+  function queueComposerDraftSave() {
+    if (!state.uploadProject || !state.uploadBrand) return;
+    if (state.composerDraftTimer) window.clearTimeout(state.composerDraftTimer);
+    state.composerDraftTimer = window.setTimeout(async () => {
+      try {
+        await fetch('/api/social/upload-metadata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project: state.uploadProject, brand: state.uploadBrand, commonCaption: $('#commonCaption')?.value || '' }),
+        });
+      } catch (_) {
+        // Draft persistence is best effort; the composer remains usable offline.
+      }
+    }, 450);
+  }
+
+  function composerLegacySchedule(platform) {
+    const map = {
+      youtube: { toggle: '#youtubeScheduleToggle', time: '#youtubeScheduleTime' },
+      facebook: { toggle: '#facebookScheduleToggle', time: '#facebookScheduleTime' },
+      tiktok: { toggle: '#tiktokScheduleToggle', time: '#tiktokScheduleTime' },
+    };
+    const config = map[platform];
+    if (!config) return { enabled: false, value: '' };
+    return { enabled: Boolean($(config.toggle)?.checked), value: String($(config.time)?.value || '') };
+  }
+
+  function syncComposerScheduleToLegacy(platform, enabled, value) {
+    const map = {
+      youtube: { toggle: '#youtubeScheduleToggle', time: '#youtubeScheduleTime' },
+      facebook: { toggle: '#facebookScheduleToggle', time: '#facebookScheduleTime' },
+      tiktok: { toggle: '#tiktokScheduleToggle', time: '#tiktokScheduleTime' },
+    };
+    const config = map[platform];
+    if (!config) return;
+    const toggle = $(config.toggle);
+    const time = $(config.time);
+    if (toggle) toggle.checked = Boolean(enabled);
+    if (time && value !== undefined) time.value = String(value || '');
+    if (toggle) toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function renderComposerBrandPicker() {
+    const select = $('#uploadBrandSelect');
+    const summary = $('#uploadBrandSummary');
+    if (!select) return;
+    select.textContent = '';
+    state.uploadBrands.forEach((brand) => {
+      const option = document.createElement('option');
+      option.value = String(brand.id || '');
+      option.textContent = String(brand.name || brand.id || 'Brand');
+      select.appendChild(option);
+    });
+    select.disabled = !state.uploadBrands.length;
+    if (state.uploadBrand && state.uploadBrands.some((brand) => brand.id === state.uploadBrand)) select.value = state.uploadBrand;
+    const routeCount = COMPOSER_PLATFORMS.filter((item) => composerRoute(item.id)).length;
+    if (summary) summary.textContent = state.uploadBrand ? `${routeCount} kết nối đã gán · ${state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.project_count || 0} project` : 'Chưa có Brand trong project';
+  }
+
+  function renderComposerDestinations() {
+    const list = $('#uploadDestinations');
+    const title = $('#destinationBrandTitle');
+    const count = $('#destinationCount');
+    if (!list) return;
+    const availableIds = COMPOSER_PLATFORMS.filter((item) => composerTargetAvailable(item.id)).map((item) => item.id);
+    if (state.uploadTargetsBrand !== state.uploadBrand || !state.uploadTargets.size) {
+      state.uploadTargets = new Set(availableIds);
+      state.uploadTargetsBrand = state.uploadBrand;
+    } else {
+      state.uploadTargets = new Set(Array.from(state.uploadTargets).filter((id) => availableIds.includes(id)));
+    }
+    if (title) title.textContent = state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.name || state.uploadBrand || 'Chọn Brand';
+    if (count) count.textContent = `${state.uploadTargets.size}/${availableIds.length} đã chọn`;
+    list.textContent = '';
+    COMPOSER_PLATFORMS.forEach((platform) => {
+      const ready = composerTargetAvailable(platform.id);
+      const connected = composerPlatformReady(platform.id);
+      const selected = state.uploadTargets.has(platform.id);
+      const spec = platform;
+      const scopeLabel = spec.routeScope === 'global' ? 'account chung' : 'Brand route';
+      const schedule = spec.schedule ? composerLegacySchedule(platform.id) : null;
+      const row = document.createElement('div');
+      row.className = `upload-destination-row ${selected ? 'is-selected' : ''} ${ready ? '' : 'is-disabled'}`;
+      row.dataset.platform = platform.id;
+      row.innerHTML = '<input class="destination-toggle" type="checkbox" data-destination-toggle="' + composerEscape(platform.id) + '" ' + (selected ? 'checked ' : '') + (!ready ? 'disabled ' : '') + 'aria-label="Chọn ' + composerEscape(platform.label) + '" />'
+        + '<div class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</div>'
+        + '<div class="destination-main"><span class="destination-name">' + composerEscape(platform.label) + '</span><span class="destination-account">' + composerEscape(composerAccountName(platform.id)) + '</span><span class="destination-reason">' + composerEscape(composerTargetReason(platform.id)) + '</span></div>'
+        + '<div class="destination-side"><span class="destination-status ' + (ready ? 'good' : 'bad') + '">' + (ready ? (spec.routeScope === 'global' ? 'Sẵn sàng' : 'Đã gán') : (connected ? 'Cần gán' : 'Chưa sẵn sàng')) + '</span><button class="destination-action" type="button" data-destination-action="' + composerEscape(platform.id) + '">' + (connected && spec.routeScope === 'brand' && !composerRoute(platform.id) ? 'Gán Brand' : (connected ? 'Quản lý' : 'Kết nối')) + '</button></div>';
+      if (schedule) {
+        const scheduleWrap = document.createElement('div');
+        scheduleWrap.className = 'destination-schedule-wrap';
+        scheduleWrap.innerHTML = '<label class="destination-schedule"><input type="checkbox" data-schedule-toggle="' + composerEscape(platform.id) + '" ' + (schedule.enabled ? 'checked' : '') + ' /> Hẹn giờ</label><input type="datetime-local" data-schedule-time="' + composerEscape(platform.id) + '" value="' + composerEscape(schedule.value) + '" ' + (schedule.enabled ? '' : 'disabled') + ' />';
+        row.appendChild(scheduleWrap);
+      }
+      list.appendChild(row);
+    });
+    const selectedButton = $('#publishSelectedTargets');
+    const allButton = $('#publishAllTargets');
+    if (selectedButton) selectedButton.disabled = !state.uploadTargets.size || state.composerBusy;
+    if (allButton) allButton.disabled = !availableIds.length || state.composerBusy;
+  }
+
+  function openLegacySocialConfig(platform) {
+    const spec = composerPlatformSpec(platform);
+    const button = $(spec?.configButton || spec?.connectButton || '');
+    if (button) button.click();
+  }
+
+  function routeOptionsForPlatform(platform) {
+    const status = composerPlatformStatus(platform);
+    if (platform === 'youtube') return (status.channels || []).map((item) => ({ id: item.id, name: item.title || item.name || item.id })).filter((item) => item.id);
+    if (platform === 'facebook') return (status.pages || []).map((item) => ({ id: item.id, name: item.name || item.id })).filter((item) => item.id);
+    const id = status.ig_user_id || status.threads_user_id || status.account_id || 'global';
+    const name = status.display_name || status.name || status.account_id || id;
+    return [{ id: String(id), name: String(name) }];
+  }
+
+  function ensureBrandSocialModal() {
+    let modal = $('#brandSocialModal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'brandSocialModal';
+    modal.className = 'brand-social-modal-backdrop';
+    modal.hidden = true;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', async (event) => {
+      if (event.target === modal || event.target.closest('[data-close-brand-social]')) {
+        modal.hidden = true;
+        return;
+      }
+      const configButton = event.target.closest('[data-brand-social-config]');
+      if (configButton) {
+        modal.hidden = true;
+        openLegacySocialConfig(configButton.dataset.brandSocialConfig || '');
+        return;
+      }
+      const saveButton = event.target.closest('[data-save-brand-route]');
+      if (!saveButton) return;
+      const platform = saveButton.dataset.saveBrandRoute || '';
+      const field = modal.querySelector('[data-route-select="' + platform + '"]');
+      const connectionId = field?.value || '';
+      if (!connectionId) return;
+      saveButton.disabled = true;
+      setUploadStatus('Đang gán social vào Brand...', 'warn');
+      try {
+        const response = await fetch('/api/social/brand-route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brand: state.uploadBrand, platform, connectionId }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        setUploadStatus(`Đã gán ${composerPlatformSpec(platform)?.label || platform} vào Brand ${state.uploadBrand}.`, 'good');
+        await refreshSocialStatus();
+        renderBrandSocialModal();
+      } catch (error) {
+        setUploadStatus(error.message || String(error), 'bad');
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
+    modal.addEventListener('change', (event) => {
+      const brandSelect = event.target.closest('#brandSocialBrandSelect');
+      if (!brandSelect) return;
+      state.uploadBrand = brandSelect.value;
+      state.uploadTargetsBrand = '';
+      renderComposerBrandPicker();
+      renderComposerDestinations();
+      queueComposerDraftSave();
+      renderBrandSocialModal();
+    });
+    return modal;
+  }
+
+  function renderBrandSocialModal() {
+    const modal = $('#brandSocialModal');
+    if (!modal) return;
+    const brandOptions = state.uploadBrands.map((brand) => '<option value="' + composerEscape(brand.id) + '" ' + (brand.id === state.uploadBrand ? 'selected' : '') + '>' + composerEscape(brand.name || brand.id) + '</option>').join('');
+    const routeRows = COMPOSER_PLATFORMS.map((platform) => {
+      const ready = composerPlatformReady(platform.id);
+      const options = routeOptionsForPlatform(platform.id);
+      const route = composerRoute(platform.id);
+      const selected = route?.connection_id || route?.channel_id || route?.page_id || options[0]?.id || '';
+      const optionMarkup = options.map((option) => '<option value="' + composerEscape(option.id) + '" ' + (String(option.id) === String(selected) ? 'selected' : '') + '>' + composerEscape(option.name) + '</option>').join('');
+      const scopeNote = platform.routeScope === 'global' ? 'account chung' : 'riêng theo Brand';
+      const action = ready
+        ? '<button class="brand-route-save" type="button" data-save-brand-route="' + composerEscape(platform.id) + '" ' + (!options.length ? 'disabled' : '') + '>Lưu</button>'
+        : '<button class="brand-route-save" type="button" data-brand-social-config="' + composerEscape(platform.id) + '">Kết nối</button>';
+      return '<div class="brand-route-item"><div class="brand-route-platform"><span class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</span><span>' + composerEscape(platform.label) + '<em>' + composerEscape(scopeNote) + '</em></span></div><select data-route-select="' + composerEscape(platform.id) + '" ' + (!ready ? 'disabled' : '') + '>' + (optionMarkup || '<option value="">Chưa có account</option>') + '</select>' + action + '</div>';
+    }).join('');
+    modal.innerHTML = '<div class="brand-social-modal-card" role="dialog" aria-modal="true" aria-labelledby="brandSocialTitle"><button class="brand-social-modal-close" type="button" data-close-brand-social aria-label="Đóng">×</button><p class="kicker">Brand Social Center</p><h3 id="brandSocialTitle">Kênh đăng của Brand</h3><p>Gán channel/page cho Brand để mỗi lần đăng dùng đúng social. Instagram, TikTok, Threads và Binance hiện dùng account chung của cấu hình nền tảng.</p><label class="brand-social-brand-select"><span>Brand đang quản lý</span><select id="brandSocialBrandSelect">' + brandOptions + '</select></label><div class="brand-route-list">' + routeRows + '</div></div>';
+  }
+
+  function openBrandSocialModal(platform = '') {
+    const modal = ensureBrandSocialModal();
+    renderBrandSocialModal();
+    modal.hidden = false;
+    if (platform) modal.querySelector('[data-route-select="' + platform + '"]')?.focus();
+  }
+
+  function syncComposerAdvancedControls() {
+    const source = $('#commonSourceComment');
+    const legacySource = $('#facebookSourceComment');
+    if (source && legacySource && source.value !== legacySource.value) source.value = legacySource.value;
+    const privacy = $('#commonYoutubePrivacy');
+    const legacyPrivacy = $('#youtubePrivacy');
+    if (privacy && legacyPrivacy) privacy.value = legacyPrivacy.value || 'public';
+    const fbState = $('#commonFacebookState');
+    const legacyFbState = $('#facebookVideoState');
+    if (fbState && legacyFbState) fbState.value = legacyFbState.value || 'PUBLISHED';
+  }
+
+  function wireUploadComposer() {
+    const root = $('#uploadComposerRoot');
+    if (!root || root.dataset.wired) return;
+    root.dataset.wired = '1';
+    root.addEventListener('input', (event) => {
+      const target = event.target;
+      if (target.id === 'commonCaption') {
+        syncComposerCaptionToLegacy(target.value);
+        updateComposerCaptionMeta();
+        queueComposerDraftSave();
+      } else if (target.id === 'commonSourceComment') {
+        const legacy = $('#facebookSourceComment');
+        if (legacy) legacy.value = target.value;
+        updateFacebookCommentButton();
+      } else if (target.dataset.scheduleTime) {
+        const legacy = composerLegacySchedule(target.dataset.scheduleTime);
+        syncComposerScheduleToLegacy(target.dataset.scheduleTime, legacy.enabled, target.value);
+      }
+    });
+    root.addEventListener('change', (event) => {
+      const target = event.target;
+      if (target.id === 'uploadBrandSelect') {
+        state.uploadBrand = target.value;
+        state.uploadTargetsBrand = '';
+        renderComposerBrandPicker();
+        renderComposerDestinations();
+        queueComposerDraftSave();
+        return;
+      }
+      if (target.id === 'commonYoutubePrivacy') {
+        const legacy = $('#youtubePrivacy');
+        if (legacy) legacy.value = target.value;
+        updateUploadBothButton();
+        return;
+      }
+      if (target.id === 'commonFacebookState') {
+        const legacy = $('#facebookVideoState');
+        if (legacy) legacy.value = target.value;
+        updateUploadBothButton();
+        updateMetaAllButton();
+        return;
+      }
+      if (target.dataset.destinationToggle) {
+        if (target.checked) state.uploadTargets.add(target.dataset.destinationToggle);
+        else state.uploadTargets.delete(target.dataset.destinationToggle);
+        renderComposerDestinations();
+        return;
+      }
+      if (target.dataset.scheduleToggle) {
+        const platform = target.dataset.scheduleToggle;
+        const timeField = root.querySelector('[data-schedule-time="' + platform + '"]');
+        syncComposerScheduleToLegacy(platform, target.checked, timeField?.value || '');
+        renderComposerDestinations();
+      }
+    });
+    root.addEventListener('click', async (event) => {
+      const copyButton = event.target.closest('#copyCommonCaption');
+      if (copyButton) {
+        try { await copyText($('#commonCaption')?.value || ''); flashCopyButton(copyButton); } catch (_) { setUploadStatus('Không copy được caption.', 'bad'); }
+        return;
+      }
+      const manageButton = event.target.closest('#manageBrandSocial');
+      if (manageButton) { openBrandSocialModal(); return; }
+      const targetAction = event.target.closest('[data-destination-action]');
+      if (targetAction) {
+        const platform = targetAction.dataset.destinationAction || '';
+        const spec = composerPlatformSpec(platform);
+        if (spec?.routeScope === 'brand' && composerPlatformReady(platform)) openBrandSocialModal(platform);
+        else openLegacySocialConfig(platform);
+        return;
+      }
+      if (event.target.closest('#publishSelectedTargets')) { publishComposerTargets(); return; }
+      if (event.target.closest('#publishAllTargets')) {
+        state.uploadTargets = new Set(COMPOSER_PLATFORMS.filter((item) => composerTargetAvailable(item.id)).map((item) => item.id));
+        renderComposerDestinations();
+        publishComposerTargets();
+      }
+    });
+  }
+
+  async function uploadComposerPlatform(platform, project) {
+    if (platform === 'youtube') return uploadYoutubeVideo(project);
+    if (platform === 'facebook') return uploadFacebookReel(project, $('#facebookVideoState')?.value || 'PUBLISHED');
+    if (platform === 'instagram') return uploadInstagramReel(project);
+    if (platform === 'tiktok') return uploadTiktokVideo(project);
+    if (platform === 'threads') return uploadThreadsVideo(project);
+    if (platform === 'binance') return uploadBinanceVideo(project);
+    throw new Error(`Unsupported social platform: ${platform}`);
+  }
+
+  async function publishComposerTargets() {
+    if (state.composerBusy) return;
+    const project = state.uploadProject || state.project;
+    const caption = String($('#commonCaption')?.value || '').trim();
+    const targets = COMPOSER_PLATFORMS.filter((platform) => state.uploadTargets.has(platform.id) && composerTargetAvailable(platform.id));
+    if (!project) return setUploadStatus('Vui lòng render hoặc chọn project trước.', 'bad');
+    if (!state.uploadBrand) return setUploadStatus('Chọn Brand trước khi đăng.', 'bad');
+    if (!caption) return setUploadStatus('Caption chung đang trống.', 'bad');
+    if (!deriveComposerTitle(caption)) return setUploadStatus('Dòng đầu caption phải có nội dung để làm tiêu đề YouTube.', 'bad');
+    if (!targets.length) return setUploadStatus('Chọn ít nhất một kênh đã sẵn sàng và đã gán vào Brand.', 'bad');
+
+    syncComposerCaptionToLegacy(caption);
+    state.composerBusy = true;
+    const succeeded = [];
+    const failed = [];
+    const links = [];
+    let facebookUploadedAt = 0;
+    setUploadResult('');
+    renderComposerDestinations();
+    try {
+      for (const platform of targets) {
+        setUploadStatus(`Đang đăng ${platform.label}...`, 'warn');
+        try {
+          const data = await uploadComposerPlatform(platform.id, project);
+          if (!data) throw new Error('Nền tảng không trả về kết quả upload.');
+          succeeded.push(platform.label);
+          if (platform.id === 'facebook') {
+            facebookUploadedAt = Date.now();
+            state.facebookCommentTargetId = data.source_comment_target_id || data.post_id || data.video_id || '';
+            updateFacebookCommentButton();
+          }
+          if (data.url) links.push({ label: `Mở ${platform.label}`, href: data.url });
+          if (data.studio_url) links.push({ label: 'Mở YouTube Studio', href: data.studio_url });
+        } catch (error) {
+          failed.push(`${platform.label}: ${error.message || String(error)}`);
+        }
+      }
+      const sourceComment = ($('#facebookSourceComment')?.value || '').trim();
+      const facebookSelected = targets.some((platform) => platform.id === 'facebook');
+      const facebookPublished = $('#facebookVideoState')?.value === 'PUBLISHED' && !$('#facebookScheduleToggle')?.checked;
+      if (facebookSelected && succeeded.includes('Facebook Reels') && sourceComment && facebookPublished) {
+        if (!state.facebookCommentTargetId) {
+          failed.push('Facebook comment: upload xong nhưng chưa có Reel/Post ID.');
+        } else {
+          try {
+            const commentData = await commentFacebookSourceWithDelay(project, facebookUploadedAt);
+            if (commentData?.message) succeeded.push('Comment nguồn');
+          } catch (error) {
+            failed.push(`Facebook comment: ${error.message || String(error)}`);
+          }
+        }
+      }
+      const level = failed.length ? (succeeded.length ? 'warn' : 'bad') : 'good';
+      const summary = failed.length
+        ? `Đã đăng: ${succeeded.join(', ') || 'chưa có nền tảng nào'}\n${failed.join('\n')}`
+        : `Đã đăng ${succeeded.join(', ')}.`;
+      setUploadStatus(summary, level);
+      setUploadResult(summary, level, links);
+    } finally {
+      state.composerBusy = false;
+      renderComposerDestinations();
+      await refreshSocialStatus().catch(() => {});
+    }
+  }
+
+  function enhanceUploadPage() {
+    const panel = $('#uploadPanel');
+    if (!panel || $('#uploadComposerRoot')) return;
+    installUploadComposerStyles();
+    panel.classList.add('upload-redesigned');
+    const header = document.querySelector('.top-upload-bar');
+    if (header && !$('#uploadBrandContext')) {
+      const context = document.createElement('div');
+      context.id = 'uploadBrandContext';
+      context.className = 'upload-brand-context';
+      context.innerHTML = '<span>Brand đăng bài</span><select id="uploadBrandSelect" aria-label="Brand đăng bài"></select><small id="uploadBrandSummary">Đang tải social route...</small><button id="manageBrandSocial" type="button">Kết nối / quản lý social</button>';
+      const actions = header.querySelector('.top-upload-actions');
+      if (actions) header.insertBefore(context, actions);
+      else header.appendChild(context);
+    }
+    const root = document.createElement('section');
+    root.id = 'uploadComposerRoot';
+    root.className = 'upload-composer-root';
+    root.innerHTML = '<div class="upload-composer-layout"><section class="upload-composer-card"><div class="upload-composer-card-head"><div><p class="kicker">Nội dung đăng</p><h2>Viết một lần, đăng nhiều nơi</h2><p class="upload-composer-subtitle">Caption chung cho Brand. Dòng đầu tự làm tiêu đề YouTube; từng nền tảng vẫn giữ giới hạn riêng.</p></div><button class="destination-action" id="copyCommonCaption" type="button">Copy caption</button></div><textarea class="upload-copy-input" id="commonCaption" maxlength="5000" placeholder="Nhập caption chung cho video..."></textarea><div class="upload-copy-meta"><span id="commonCaptionHint">Nhập caption một lần, sau đó chọn các kênh đăng ở bên phải.</span><span id="commonCaptionCount">0/5000</span></div><details class="upload-advanced"><summary>Tuỳ chỉnh nâng cao</summary><div class="upload-advanced-grid"><label><span>Quyền riêng tư YouTube</span><select id="commonYoutubePrivacy"><option value="private">Private - duyệt trước</option><option value="unlisted">Unlisted - có link mới xem</option><option value="public">Public - đăng công khai</option></select></label><label><span>Trạng thái Facebook Reels</span><select id="commonFacebookState"><option value="DRAFT">Draft - duyệt trước</option><option value="PUBLISHED">Publish now</option></select></label><label class="wide"><span>Comment nguồn Facebook</span><input id="commonSourceComment" type="text" maxlength="1000" placeholder="Nguồn: https://..." /></label></div><p class="upload-composer-subtitle">Hẹn giờ được đặt ngay trên từng kênh đăng.</p></details></section><section class="upload-composer-card"><div class="upload-destination-head"><div><p class="kicker">Kênh đăng</p><h2 id="destinationBrandTitle">Chọn Brand</h2></div><span class="upload-destination-count" id="destinationCount">0/0 đã chọn</span></div><div class="upload-destination-list" id="uploadDestinations"></div><div class="composer-actions"><button class="composer-publish" id="publishSelectedTargets" type="button" disabled>Đăng đã chọn</button><button class="composer-publish secondary" id="publishAllTargets" type="button" disabled>Đăng tất cả kênh sẵn sàng</button></div><div class="composer-status" id="composerStatus" hidden></div><div class="composer-result" id="composerResult" hidden></div></section></div>';
+    panel.insertBefore(root, panel.firstChild);
+    wireUploadComposer();
+    const brandSelect = $('#uploadBrandSelect');
+    if (brandSelect) {
+      brandSelect.addEventListener('change', () => {
+        state.uploadBrand = brandSelect.value;
+        state.uploadTargetsBrand = '';
+        renderComposerBrandPicker();
+        renderComposerDestinations();
+        queueComposerDraftSave();
+      });
+    }
+    const manageBrandSocial = $('#manageBrandSocial');
+    if (manageBrandSocial) manageBrandSocial.addEventListener('click', () => openBrandSocialModal());
+    renderComposerBrandPicker();
+    renderComposerDestinations();
+  }
+
   function hideUploadPanel() {
     const panel = $('#uploadPanel');
     if (panel) panel.hidden = true;
@@ -592,6 +1200,12 @@
       if (facebookSourceComment) facebookSourceComment.value = data.facebookSourceComment || '';
       if (privacy && data.privacyStatus) privacy.value = data.privacyStatus;
       if (facebookVideoState && data.facebookVideoState) facebookVideoState.value = data.facebookVideoState === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
+      if (data.publish?.brand) {
+        state.uploadBrand = String(data.publish.brand).toLowerCase();
+        state.uploadTargetsBrand = '';
+      }
+      setComposerCaption(data.publish?.caption || data.commonCaption || data.facebookCaption || data.youtubeDescription || '');
+      syncComposerAdvancedControls();
       // Auto-fill Binance duration from the actual rendered video when available.
       const binanceDuration = $('#binanceDuration');
       if (binanceDuration && !binanceDuration.dataset.touched) {
@@ -1169,9 +1783,18 @@
     const facebookVideoState = $('#facebookVideoState');
     if (!connectYoutube || !uploadYoutube) return;
     try {
-      const response = await fetch('/api/social/status', { cache: 'no-store' });
+      const project = state.uploadProject || state.project || '';
+      const response = await fetch(`/api/social/brands?project=${encodeURIComponent(project)}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      state.socialStatus = data;
+      state.uploadBrands = Array.isArray(data.brands) ? data.brands : [];
+      state.brandRoutes = data.brand_routes && typeof data.brand_routes === 'object' ? data.brand_routes : {};
+      const brandIds = state.uploadBrands.map((brand) => brand.id).filter(Boolean);
+      if (!state.uploadBrand || !brandIds.includes(state.uploadBrand)) {
+        state.uploadBrand = data.project_brand || brandIds[0] || '';
+        state.uploadTargetsBrand = '';
+      }
       const youtube = data.platforms?.youtube || {};
       const facebook = data.platforms?.facebook || {};
       const instagram = data.platforms?.instagram || {};
@@ -1254,11 +1877,18 @@
       }
       updateUploadBothButton();
       updateMetaAllButton();
+      renderComposerBrandPicker();
+      renderComposerDestinations();
     } catch (error) {
       state.socialReady = { youtube: false, facebook: false, instagram: false, threads: false };
       state.socialConfigured = { youtube: false, facebook: false, instagram: false, threads: false };
       state.instagramConfig = {};
       state.threadsConfig = {};
+      state.socialStatus = {};
+      state.uploadBrands = [];
+      state.brandRoutes = {};
+      state.uploadTargets.clear();
+      state.uploadTargetsBrand = '';
       syncYoutubeConfigUi({ configured: false });
       syncFacebookConfigUi({ configured: false });
       uploadYoutube.disabled = true;
@@ -1272,6 +1902,8 @@
       updateUploadBothButton();
       updateMetaAllButton();
       updateFacebookCommentButton();
+      renderComposerBrandPicker();
+      renderComposerDestinations();
       setUploadStatus(error.message || String(error), 'bad');
     }
   }
@@ -1282,6 +1914,9 @@
     state.uploadProject = projectName;
     state.outputUrl = videoUrl || state.outputUrl;
     state.facebookCommentTargetId = '';
+    state.uploadBrand = '';
+    state.uploadTargets.clear();
+    state.uploadTargetsBrand = '';
     panel.hidden = false;
     setUploadEmpty(projectName, false);
     setUploadResult('');
@@ -2847,6 +3482,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project,
+        brand: state.uploadBrand || undefined,
         title: $('#uploadTitle')?.value || '',
         description: $('#youtubeDescription')?.value || '',
         tags: state.defaultUploadTags,
@@ -2939,7 +3575,7 @@
     const response = await fetch('/api/social/binance/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, duration, text }),
+      body: JSON.stringify({ project, brand: state.uploadBrand || undefined, duration, text }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -2953,6 +3589,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project,
+        brand: state.uploadBrand || undefined,
         facebookCaption: $('#facebookCaption')?.value || '',
         facebookVideoState,
         ...(scheduledPublishAt ? { scheduledPublishAt } : {}),
@@ -2965,7 +3602,7 @@
 
   async function uploadTiktokVideo(project) {
     const scheduledPublishAt = $('#tiktokScheduleToggle')?.checked ? scheduleIsoValue($('#tiktokScheduleTime'), 'TikTok') : '';
-    const response = await fetch('/api/social/tiktok/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, tiktokCaption: $('#tiktokCaption')?.value || '', ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }) });
+    const response = await fetch('/api/social/tiktok/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, brand: state.uploadBrand || undefined, tiktokCaption: $('#tiktokCaption')?.value || '', ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
@@ -2977,6 +3614,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project,
+        brand: state.uploadBrand || undefined,
         instagramCaption: $('#instagramCaption')?.value || '',
       }),
     });
@@ -2991,6 +3629,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project,
+        brand: state.uploadBrand || undefined,
         threadsText: $('#threadsText')?.value || '',
       }),
     });
@@ -3006,6 +3645,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project,
+        brand: state.uploadBrand || undefined,
         instagramCaption: $('#instagramCaption')?.value || '',
         facebookCaption: $('#facebookCaption')?.value || '',
         threadsText: $('#threadsText')?.value || '',
@@ -3025,6 +3665,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project,
+        brand: state.uploadBrand || undefined,
         sourceCommentTargetId: state.facebookCommentTargetId,
         facebookSourceComment: $('#facebookSourceComment')?.value || '',
       }),
@@ -3680,6 +4321,7 @@
   const edgeVoice = $('#edgeVoice');
   if (edgeVoice) edgeVoice.addEventListener('change', syncEdgeVoiceCustomField);
 
+  enhanceUploadPage();
   const initialFromUrl = new URLSearchParams(window.location.search).get('project');
   const initialProject = window.__INITIAL_PROJECT__ || initialFromUrl || projects[0]?.name;
   if (initialProject) setSelectedProject(initialProject, false);
