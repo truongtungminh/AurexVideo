@@ -22,6 +22,21 @@ SOCIAL_CONNECTION_CONFIG_KEYS = {
     "tiktok": "zernio",
     "threads": "threads",
 }
+SOCIAL_CONNECTION_ENV_KEYS = {
+    "instagram": {
+        "ig_user_id": "INSTAGRAM_IG_USER_ID",
+        "access_token": "INSTAGRAM_ACCESS_TOKEN",
+    },
+    "tiktok": {
+        "account_id": "ZERNIO_TIKTOK_ACCOUNT_ID",
+        "api_key": "ZERNIO_API_KEY",
+        "base_url": "ZERNIO_BASE_URL",
+    },
+    "threads": {
+        "threads_user_id": "THREADS_USER_ID",
+        "access_token": "THREADS_ACCESS_TOKEN",
+    },
+}
 SOCIAL_CONNECTION_PUBLIC_ID_KEYS = {
     "instagram": "ig_user_id",
     "tiktok": "account_id",
@@ -153,7 +168,7 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
                     connection = {}
                 owner = str(connection.get("brand") or "").strip().casefold()
                 required = SOCIAL_CONNECTION_REQUIRED_KEYS[platform]
-                configured = bool(connection) and (not owner or owner == brand) and all(
+                configured = bool(connection) and owner == brand and all(
                     str(connection.get(key) or "").strip() for key in required
                 )
                 route["configured"] = configured
@@ -197,10 +212,15 @@ def _brand_route_connection_id(config: dict, brand: str, platform: str) -> str:
 
 
 def _legacy_connection_payload(section: dict, platform: str) -> dict:
+    effective = dict(section) if isinstance(section, dict) else {}
+    for key, env_name in SOCIAL_CONNECTION_ENV_KEYS[platform].items():
+        env_value = str(os.environ.get(env_name) or "").strip()
+        if env_value:
+            effective[key] = env_value
     return {
-        key: section.get(key)
+        key: effective.get(key)
         for key in SOCIAL_CONNECTION_COPY_KEYS[platform]
-        if section.get(key) not in (None, "")
+        if effective.get(key) not in (None, "")
     }
 
 
@@ -222,9 +242,8 @@ def migrate_legacy_social_connections(config: dict) -> tuple[dict, bool]:
         popsy_routes = {}
 
     for platform, section_key in SOCIAL_CONNECTION_CONFIG_KEYS.items():
-        section = config.get(section_key)
-        if not isinstance(section, dict):
-            continue
+        raw_section = config.get(section_key)
+        section = dict(raw_section) if isinstance(raw_section, dict) else {}
         legacy = _legacy_connection_payload(section, platform)
         if not all(str(legacy.get(key) or "").strip() for key in SOCIAL_CONNECTION_REQUIRED_KEYS[platform]):
             continue
@@ -306,9 +325,21 @@ def store_social_brand_connection(
         digest = hashlib.sha256(f"{platform}:{brand}:{public_id}".encode("utf-8")).hexdigest()[:12]
         requested_id = f"{platform}-{digest}"
 
+    for candidate_id, candidate in connections.items():
+        if not isinstance(candidate, dict) or str(candidate_id) == requested_id:
+            continue
+        candidate_public_id = str(candidate.get(public_id_key) or "").strip()
+        if not public_id or candidate_public_id != public_id:
+            continue
+        candidate_owner = str(candidate.get("brand") or "").strip().casefold()
+        if candidate_owner != brand:
+            raise ValueError(
+                f"Social account {public_id} đang thuộc brand {candidate_owner or 'khác'}."
+            )
+
     existing = connections.get(requested_id)
     existing_owner = str(existing.get("brand") or "").strip().casefold() if isinstance(existing, dict) else ""
-    if existing_owner and existing_owner != brand:
+    if isinstance(existing, dict) and existing_owner != brand:
         raise ValueError(f"Social connection {requested_id} đang thuộc brand {existing_owner}.")
 
     value = dict(connection)
@@ -365,7 +396,7 @@ def resolve_social_brand_connection(
     if not isinstance(connection, dict):
         raise ValueError(f"Social connection {connection_id} không tồn tại cho {platform}.")
     owner = str(connection.get("brand") or "").strip().casefold()
-    if owner and owner != brand:
+    if owner != brand:
         raise ValueError(f"Social connection {connection_id} không thuộc brand {brand}.")
     if not all(str(connection.get(key) or "").strip() for key in SOCIAL_CONNECTION_REQUIRED_KEYS[platform]):
         raise ValueError(f"Social connection {connection_id} chưa cấu hình đầy đủ cho {platform}.")
