@@ -21,6 +21,8 @@ from .metadata import (
     record_social_upload,
     require_project,
 )
+from .schedule import parse_scheduled_publish_at
+from .scheduler import schedule_upload
 
 
 BASE_URL_V1 = "https://www.binance.com/bapi/composite/v1/public/pgc/openApi"
@@ -212,6 +214,19 @@ def binance_upload_video(payload: dict) -> dict:
     if duration <= 0:
         raise ValueError("Duration is required for Binance Square video upload.")
     text = str(payload.get("text") or "").strip()
+    scheduled = parse_scheduled_publish_at(payload)
+    if scheduled:
+        queued = schedule_upload("binance", payload, scheduled)
+        return {
+            "ok": True,
+            "platform": "binance",
+            "project": project,
+            "brand": brand,
+            "state": "SCHEDULED",
+            "scheduledPublishAt": queued["scheduledPublishAt"],
+            "schedule_id": queued["id"],
+            "message": "Đã xếp lịch Binance Square; worker sẽ publish đúng giờ.",
+        }
 
     api_key = resolve_binance_api_key()
     file_name = video_path.name

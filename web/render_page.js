@@ -709,28 +709,39 @@
       '.upload-destination-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 14px; }',
       '.upload-destination-head h2 { font-size: 21px; }',
       '.upload-destination-count { color: var(--accent); font-size: 12px; font-weight: 950; white-space: nowrap; }',
-      '.upload-destination-list { display: grid; gap: 9px; }',
-      '.upload-destination-row { display: grid; grid-template-columns: auto 1fr auto; gap: 11px; align-items: center; min-width: 0; border: 1px solid var(--control-line-soft); border-radius: 15px; padding: 11px 12px; background: var(--surface); transition: border-color .16s ease, background .16s ease; }',
+      '.upload-destination-list { display: grid; gap: 10px; }',
+      '.upload-destination-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-width: 0; border: 1px solid var(--control-line-soft); border-radius: 16px; padding: 13px 14px; background: var(--surface); transition: border-color .16s ease, background .16s ease, opacity .16s ease; }',
       '.upload-destination-row:hover { border-color: var(--control-line); background: var(--surface-strong); }',
-      '.upload-destination-row.is-disabled { opacity: .65; }',
+      '.upload-destination-row.is-disabled { opacity: .55; }',
       '.upload-destination-row.is-selected { border-color: rgba(232,160,96,.52); background: rgba(242,178,101,.09); }',
-      '.destination-toggle { width: 18px; height: 18px; accent-color: var(--accent); }',
-      '.destination-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; color: var(--text); background: rgba(242,178,101,.16); font-size: 14px; font-weight: 950; }',
+      '.destination-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: var(--text); background: var(--surface-strong); font-size: 16px; font-weight: 950; }',
       '.destination-main { min-width: 0; display: grid; gap: 3px; }',
-      '.destination-name { color: var(--text); font-size: 13px; font-weight: 950; }',
+      '.destination-name { color: var(--text); font-size: 14px; font-weight: 950; }',
       '.destination-account { min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 11px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }',
       '.destination-reason { min-width: 0; overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }',
-      '.destination-side { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }',
-      '.destination-status { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 900; white-space: nowrap; }',
-      '.destination-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }',
-      '.destination-status.good { color: #55b879; }',
-      '.destination-status.bad { color: var(--warn-text); }',
-      '.destination-action, .destination-schedule { min-height: 28px; border: 1px solid var(--control-line); border-radius: 9px; padding: 5px 8px; color: var(--text-soft); background: transparent; font: inherit; font-size: 10px; font-weight: 900; cursor: pointer; }',
-      '.destination-action:hover, .destination-schedule:hover { border-color: var(--accent); color: var(--accent); }',
+      '.destination-switch { position: relative; display: inline-flex; flex: 0 0 auto; width: 72px; height: 36px; margin: 0; cursor: pointer; }',
+      '.destination-switch input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }',
+      '.destination-switch-track { position: relative; display: block; width: 100%; height: 100%; border: 1px solid rgba(79,57,31,.08); border-radius: 999px; background: #e9ebee; box-shadow: inset 0 1px 2px rgba(0,0,0,.04); transition: background .18s ease, border-color .18s ease; }',
+      '.destination-switch-track::after { content: ""; position: absolute; top: 4px; left: 4px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 7px rgba(0,0,0,.14); transition: transform .18s ease; }',
+      '.destination-switch input:checked + .destination-switch-track { border-color: #17181c; background: #17181c; }',
+      '.destination-switch input:checked + .destination-switch-track::after { transform: translateX(36px); }',
+      '.destination-switch input:focus-visible + .destination-switch-track { outline: 3px solid var(--accent-glow); outline-offset: 2px; }',
+      '.destination-switch input:disabled { cursor: not-allowed; }',
+      '.destination-switch input:disabled + .destination-switch-track { opacity: .62; }',
+      '.composer-publish-mode { display: grid; gap: 9px; margin-top: 18px; }',
+      '.composer-publish-mode > span { color: var(--text); font-size: 13px; font-weight: 950; }',
+      '.composer-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 13px; background: var(--surface-strong); }',
+      '.composer-mode-button { min-height: 42px; border: 0; border-radius: 10px; padding: 8px 10px; color: var(--muted); background: transparent; font: inherit; font-size: 12px; font-weight: 950; cursor: pointer; }',
+      '.composer-mode-button.active { color: var(--text); background: var(--field-bg); box-shadow: 0 2px 7px rgba(0,0,0,.06); }',
+      '.composer-schedule-box { display: grid; gap: 5px; }',
+      '.composer-schedule-box[hidden] { display: none !important; }',
+      '.composer-schedule-box label { color: var(--muted); font-size: 11px; font-weight: 850; }',
+      '.composer-schedule-box input[type="datetime-local"] { min-height: 42px; width: 100%; border: 1px solid var(--control-line); border-radius: 11px; padding: 9px 11px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 12px; }',
+      '.composer-publish-info { margin-top: 14px; border: 1px solid var(--control-line-soft); border-radius: 12px; padding: 11px 12px; color: var(--muted); background: var(--surface-strong); font-size: 11px; font-weight: 750; line-height: 1.5; }',
+      '.destination-action { min-height: 28px; border: 1px solid var(--control-line); border-radius: 9px; padding: 5px 8px; color: var(--text-soft); background: transparent; font: inherit; font-size: 10px; font-weight: 900; cursor: pointer; }',
+      '.destination-action:hover { border-color: var(--accent); color: var(--accent); }',
       '.destination-action:disabled { opacity: .45; cursor: not-allowed; }',
-      '.destination-schedule-wrap { grid-column: 2 / -1; display: flex; align-items: center; gap: 7px; padding-left: 0; }',
-      '.destination-schedule-wrap input[type="datetime-local"] { min-height: 30px; border: 1px solid var(--control-line); border-radius: 9px; padding: 5px 7px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 10px; }',
-      '.composer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 16px; }',
+      '.composer-actions { display: grid; grid-template-columns: 1fr 1.35fr; gap: 9px; margin-top: 16px; }',
       '.composer-publish { min-height: 46px; border: 1px solid rgba(232,160,96,.6); border-radius: 13px; color: var(--accent-contrast); background: var(--accent); font: inherit; font-size: 12px; font-weight: 950; cursor: pointer; }',
       '.composer-publish.secondary { color: var(--text-soft); border-color: var(--control-line); background: transparent; }',
       '.composer-publish:disabled { cursor: wait; opacity: .5; }',
@@ -757,7 +768,7 @@
       '.brand-route-save.secondary { border-color: var(--control-line); color: var(--text-soft); background: var(--field-bg); }',
       '.brand-route-save:disabled { opacity: .45; cursor: not-allowed; }',
       '@media (max-width: 1050px) { .upload-composer-layout { grid-template-columns: 1fr; } .upload-context-cluster { grid-template-columns: 1fr; } .upload-brand-context { min-width: 180px; } }',
-      '@media (max-width: 720px) { .upload-redesigned { width: min(100% - 24px, 680px) !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide { grid-column: auto; } .upload-destination-row { grid-template-columns: auto 1fr; } .destination-side { grid-column: 2; justify-content: flex-start; } .destination-schedule-wrap { grid-column: 2; } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
+      '@media (max-width: 720px) { .upload-redesigned { width: 100% !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide { grid-column: auto; } .upload-destination-row { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 9px; padding: 11px; } .destination-icon { width: 38px; height: 38px; } .destination-switch { width: 58px; height: 32px; } .destination-switch-track::after { width: 24px; height: 24px; } .destination-switch input:checked + .destination-switch-track::after { transform: translateX(26px); } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
     ].join('\n');
     document.head.appendChild(style);
   }
@@ -845,6 +856,75 @@
     if (toggle) toggle.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function composerGlobalScheduleEnabled() {
+    const toggle = $('#composerScheduleToggle');
+    if (toggle) return Boolean(toggle.checked);
+    return Boolean($('#youtubeScheduleToggle')?.checked || $('#facebookScheduleToggle')?.checked || $('#tiktokScheduleToggle')?.checked);
+  }
+
+  function composerGlobalScheduleValue() {
+    return String($('#composerScheduleTime')?.value || '').trim();
+  }
+
+  function syncComposerGlobalScheduleToLegacy(enabled, value = composerGlobalScheduleValue()) {
+    ['youtube', 'facebook', 'tiktok'].forEach((platform) => syncComposerScheduleToLegacy(platform, enabled, value));
+  }
+
+  function renderComposerPublishMode() {
+    const enabled = composerGlobalScheduleEnabled();
+    $all('[data-publish-mode]').forEach((button) => {
+      const active = (button.dataset.publishMode === 'schedule') === enabled;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const box = $('#composerScheduleBox');
+    if (box) box.hidden = !enabled;
+    const time = $('#composerScheduleTime');
+    if (time) time.disabled = !enabled;
+    const publish = $('#publishSelectedTargets');
+    if (publish) publish.textContent = enabled ? 'Hẹn giờ đăng' : 'Đăng';
+  }
+
+  function renderComposerPublishInfo() {
+    const info = $('#composerPublishInfo');
+    if (!info) return;
+    const project = state.uploadProject || state.project || 'project hiện tại';
+    const brand = state.uploadBrands.find((item) => item.id === state.uploadBrand)?.name || state.uploadBrand || 'Brand hiện tại';
+    const mode = composerGlobalScheduleEnabled() ? 'Các kênh đang bật sẽ cùng hẹn một thời điểm.' : 'Các kênh đang bật sẽ được đăng ngay trong một lần bấm.';
+    info.innerHTML = 'Đăng từ <strong>' + composerEscape(project) + '</strong> → <strong>' + composerEscape(brand) + '</strong>. ' + composerEscape(mode);
+  }
+
+  function setComposerPublishMode(mode = 'now', value = undefined) {
+    const enabled = mode === 'schedule';
+    const toggle = $('#composerScheduleToggle');
+    const time = $('#composerScheduleTime');
+    if (toggle) toggle.checked = enabled;
+    if (time && value !== undefined) time.value = String(value || '');
+    if (time && enabled) time.min = scheduleLocalValue(new Date(Date.now() + 10 * 60 * 1000));
+    renderComposerPublishMode();
+    syncComposerGlobalScheduleToLegacy(enabled, time?.value || '');
+    renderComposerPublishInfo();
+  }
+
+  function composerScheduledPublishAt() {
+    if (!composerGlobalScheduleEnabled()) return '';
+    return scheduleIsoValue($('#composerScheduleTime'), 'các kênh đăng');
+  }
+
+  function validateComposerScheduleForTargets(targets, scheduledPublishAt) {
+    if (!scheduledPublishAt) return;
+    const needsTenMinutes = targets.some((platform) => ['facebook', 'instagram', 'tiktok', 'threads'].includes(platform.id));
+    const minimumMs = (needsTenMinutes ? 10 : 2) * 60 * 1000;
+    if (Date.parse(scheduledPublishAt) < Date.now() + minimumMs) {
+      throw new Error(`Hẹn giờ chung cần cách hiện tại ít nhất ${needsTenMinutes ? 10 : 2} phút cho các kênh đang bật.`);
+    }
+  }
+
+  function scheduledPublishAtFor(override, toggleSelector, timeSelector, label) {
+    if (override !== undefined) return String(override || '');
+    return $(toggleSelector)?.checked ? scheduleIsoValue($(timeSelector), label) : '';
+  }
+
   function renderComposerBrandPicker() {
     const select = $('#uploadBrandSelect');
     const summary = $('#uploadBrandSummary');
@@ -905,30 +985,21 @@
     list.textContent = '';
     platforms.forEach((platform) => {
       const ready = composerTargetAvailable(platform.id);
-      const connected = composerPlatformReady(platform.id);
       const selected = state.uploadTargets.has(platform.id);
-      const spec = platform;
-      const scopeLabel = spec.routeScope === 'global' ? 'account chung' : 'Brand route';
-      const schedule = spec.schedule ? composerLegacySchedule(platform.id) : null;
       const row = document.createElement('div');
       row.className = `upload-destination-row ${selected ? 'is-selected' : ''} ${ready ? '' : 'is-disabled'}`;
       row.dataset.platform = platform.id;
-      row.innerHTML = '<input class="destination-toggle" type="checkbox" data-destination-toggle="' + composerEscape(platform.id) + '" ' + (selected ? 'checked ' : '') + (!ready ? 'disabled ' : '') + 'aria-label="Chọn ' + composerEscape(platform.label) + '" />'
-        + '<div class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</div>'
-        + '<div class="destination-main"><span class="destination-name">' + composerEscape(platform.label) + '</span><span class="destination-account">' + composerEscape(composerAccountName(platform.id)) + '</span><span class="destination-reason">' + composerEscape(composerTargetReason(platform.id)) + '</span></div>'
-        + '<div class="destination-side"><span class="destination-status ' + (ready ? 'good' : 'bad') + '">' + (ready ? (spec.routeScope === 'global' ? 'Sẵn sàng' : 'Đã gán') : (connected ? 'Cần gán' : 'Chưa sẵn sàng')) + '</span><button class="destination-action" type="button" data-destination-action="' + composerEscape(platform.id) + '">' + (connected && spec.routeScope === 'brand' && !composerRoute(platform.id) ? 'Gán Brand' : (connected ? 'Quản lý' : 'Kết nối')) + '</button></div>';
-      if (schedule) {
-        const scheduleWrap = document.createElement('div');
-        scheduleWrap.className = 'destination-schedule-wrap';
-        scheduleWrap.innerHTML = '<label class="destination-schedule"><input type="checkbox" data-schedule-toggle="' + composerEscape(platform.id) + '" ' + (schedule.enabled ? 'checked' : '') + ' /> Hẹn giờ</label><input type="datetime-local" data-schedule-time="' + composerEscape(platform.id) + '" value="' + composerEscape(schedule.value) + '" ' + (schedule.enabled ? '' : 'disabled') + ' />';
-        row.appendChild(scheduleWrap);
-      }
+      row.innerHTML = '<div class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</div>'
+        + '<div class="destination-main"><span class="destination-name">' + composerEscape(platform.label) + '</span><span class="destination-account">' + composerEscape(composerAccountName(platform.id)) + '</span><span class="destination-reason">' + composerEscape(ready ? 'Đã gán vào Brand này.' : composerTargetReason(platform.id)) + '</span></div>'
+        + '<label class="destination-switch" aria-label="Bật ' + composerEscape(platform.label) + '"><input class="destination-toggle" type="checkbox" data-destination-toggle="' + composerEscape(platform.id) + '" ' + (selected ? 'checked ' : '') + (!ready ? 'disabled ' : '') + 'aria-label="Bật ' + composerEscape(platform.label) + '" /><span class="destination-switch-track" aria-hidden="true"></span></label>';
       list.appendChild(row);
     });
     const selectedButton = $('#publishSelectedTargets');
     const allButton = $('#publishAllTargets');
     if (selectedButton) selectedButton.disabled = !state.uploadTargets.size || state.composerBusy;
     if (allButton) allButton.disabled = !availableIds.length || state.composerBusy;
+    renderComposerPublishMode();
+    renderComposerPublishInfo();
     renderComposerSocialSummary();
   }
 
@@ -1076,6 +1147,8 @@
         const legacy = $('#facebookSourceComment');
         if (legacy) legacy.value = target.value;
         updateFacebookCommentButton();
+      } else if (target.id === 'composerScheduleTime') {
+        syncComposerGlobalScheduleToLegacy(composerGlobalScheduleEnabled(), target.value);
       } else if (target.dataset.scheduleTime) {
         const legacy = composerLegacySchedule(target.dataset.scheduleTime);
         syncComposerScheduleToLegacy(target.dataset.scheduleTime, legacy.enabled, target.value);
@@ -1104,6 +1177,14 @@
         updateMetaAllButton();
         return;
       }
+      if (target.dataset.publishMode) {
+        setComposerPublishMode(target.dataset.publishMode);
+        return;
+      }
+      if (target.id === 'composerScheduleToggle') {
+        setComposerPublishMode(target.checked ? 'schedule' : 'now');
+        return;
+      }
       if (target.dataset.destinationToggle) {
         const platform = target.dataset.destinationToggle;
         if (target.checked && composerTargetAvailable(platform)) state.uploadTargets.add(platform);
@@ -1119,6 +1200,11 @@
       }
     });
     root.addEventListener('click', async (event) => {
+      const publishModeButton = event.target.closest('[data-publish-mode]');
+      if (publishModeButton) {
+        setComposerPublishMode(publishModeButton.dataset.publishMode || 'now');
+        return;
+      }
       const copyButton = event.target.closest('#copyCommonCaption');
       if (copyButton) {
         try { await copyText($('#commonCaption')?.value || ''); flashCopyButton(copyButton); } catch (_) { setUploadStatus('Không copy được caption.', 'bad'); }
@@ -1134,6 +1220,11 @@
         else openLegacySocialConfig(platform);
         return;
       }
+      if (event.target.closest('#saveComposerDraft')) {
+        queueComposerDraftSave();
+        setUploadStatus('Đã lưu bản nháp.', 'good');
+        return;
+      }
       if (event.target.closest('#publishSelectedTargets')) { publishComposerTargets(); return; }
       if (event.target.closest('#publishAllTargets')) {
         state.uploadTargets = new Set(composerPlatformsForActiveBrand().filter((item) => composerTargetAvailable(item.id)).map((item) => item.id));
@@ -1143,13 +1234,13 @@
     });
   }
 
-  async function uploadComposerPlatform(platform, project) {
-    if (platform === 'youtube') return uploadYoutubeVideo(project);
-    if (platform === 'facebook') return uploadFacebookReel(project, $('#facebookVideoState')?.value || 'PUBLISHED');
-    if (platform === 'instagram') return uploadInstagramReel(project);
-    if (platform === 'tiktok') return uploadTiktokVideo(project);
-    if (platform === 'threads') return uploadThreadsVideo(project);
-    if (platform === 'binance') return uploadBinanceVideo(project);
+  async function uploadComposerPlatform(platform, project, scheduledPublishAt = undefined) {
+    if (platform === 'youtube') return uploadYoutubeVideo(project, scheduledPublishAt);
+    if (platform === 'facebook') return uploadFacebookReel(project, $('#facebookVideoState')?.value || 'PUBLISHED', scheduledPublishAt);
+    if (platform === 'instagram') return uploadInstagramReel(project, scheduledPublishAt);
+    if (platform === 'tiktok') return uploadTiktokVideo(project, scheduledPublishAt);
+    if (platform === 'threads') return uploadThreadsVideo(project, scheduledPublishAt);
+    if (platform === 'binance') return uploadBinanceVideo(project, scheduledPublishAt);
     throw new Error(`Unsupported social platform: ${platform}`);
   }
 
@@ -1163,6 +1254,14 @@
     if (!caption) return setUploadStatus('Caption chung đang trống.', 'bad');
     if (!deriveComposerTitle(caption)) return setUploadStatus('Dòng đầu caption phải có nội dung để làm tiêu đề YouTube.', 'bad');
     if (!targets.length) return setUploadStatus('Chọn ít nhất một kênh đã sẵn sàng và đã gán vào Brand.', 'bad');
+    let scheduledPublishAt = '';
+    try {
+      scheduledPublishAt = composerScheduledPublishAt();
+      validateComposerScheduleForTargets(targets, scheduledPublishAt);
+    } catch (error) {
+      return setUploadStatus(error.message || String(error), 'bad');
+    }
+    syncComposerGlobalScheduleToLegacy(Boolean(scheduledPublishAt), composerGlobalScheduleValue());
 
     syncComposerCaptionToLegacy(caption);
     state.composerBusy = true;
@@ -1176,7 +1275,7 @@
       for (const platform of targets) {
         setUploadStatus(`Đang đăng ${platform.label}...`, 'warn');
         try {
-          const data = await uploadComposerPlatform(platform.id, project);
+          const data = await uploadComposerPlatform(platform.id, project, scheduledPublishAt);
           if (!data) throw new Error('Nền tảng không trả về kết quả upload.');
           succeeded.push(platform.label);
           if (platform.id === 'facebook') {
@@ -1240,7 +1339,57 @@
     const root = document.createElement('section');
     root.id = 'uploadComposerRoot';
     root.className = 'upload-composer-root';
-    root.innerHTML = '<div class="upload-composer-layout"><section class="upload-composer-card"><div class="upload-composer-card-head"><div><p class="kicker">Nội dung đăng</p><h2>Viết một lần, đăng nhiều nơi</h2><p class="upload-composer-subtitle">Caption chung cho Brand. Dòng đầu tự làm tiêu đề YouTube; từng nền tảng vẫn giữ giới hạn riêng.</p></div><button class="destination-action" id="copyCommonCaption" type="button">Copy caption</button></div><textarea class="upload-copy-input" id="commonCaption" maxlength="5000" placeholder="Nhập caption chung cho video..."></textarea><div class="upload-copy-meta"><span id="commonCaptionHint">Nhập caption một lần, sau đó chọn các kênh đăng ở bên phải.</span><span id="commonCaptionCount">0/5000</span></div><details class="upload-advanced"><summary>Tuỳ chỉnh nâng cao</summary><div class="upload-advanced-grid"><label><span>Quyền riêng tư YouTube</span><select id="commonYoutubePrivacy"><option value="private">Private - duyệt trước</option><option value="unlisted">Unlisted - có link mới xem</option><option value="public">Public - đăng công khai</option></select></label><label><span>Trạng thái Facebook Reels</span><select id="commonFacebookState"><option value="DRAFT">Draft - duyệt trước</option><option value="PUBLISHED">Publish now</option></select></label><label class="wide"><span>Comment nguồn Facebook</span><input id="commonSourceComment" type="text" maxlength="1000" placeholder="Nguồn: https://..." /></label></div><p class="upload-composer-subtitle">Hẹn giờ được đặt ngay trên từng kênh đăng.</p></details></section><section class="upload-composer-card"><div class="upload-destination-head"><div><p class="kicker">Kênh đăng</p><h2 id="destinationBrandTitle">Chọn Brand</h2></div><span class="upload-destination-count" id="destinationCount">0/0 đã chọn</span></div><div class="upload-destination-list" id="uploadDestinations"></div><div class="composer-actions"><button class="composer-publish" id="publishSelectedTargets" type="button" disabled>Đăng đã chọn</button><button class="composer-publish secondary" id="publishAllTargets" type="button" disabled>Đăng tất cả kênh sẵn sàng</button></div><div class="composer-status" id="composerStatus" hidden></div><div class="composer-result" id="composerResult" hidden></div></section></div>';
+    root.innerHTML = `
+      <div class="upload-composer-layout">
+        <section class="upload-composer-card">
+          <div class="upload-composer-card-head">
+            <div>
+              <p class="kicker">Nội dung đăng</p>
+              <h2>Viết một lần, đăng nhiều nơi</h2>
+              <p class="upload-composer-subtitle">Caption chung cho Brand. Dòng đầu tự làm tiêu đề YouTube; từng nền tảng vẫn giữ giới hạn riêng.</p>
+            </div>
+            <button class="destination-action" id="copyCommonCaption" type="button">Copy caption</button>
+          </div>
+          <textarea class="upload-copy-input" id="commonCaption" maxlength="5000" placeholder="Nhập caption chung cho video..."></textarea>
+          <div class="upload-copy-meta"><span id="commonCaptionHint">Nhập caption một lần, sau đó chọn các kênh đăng ở bên phải.</span><span id="commonCaptionCount">0/5000</span></div>
+          <details class="upload-advanced">
+            <summary>Tuỳ chỉnh nâng cao</summary>
+            <div class="upload-advanced-grid">
+              <label><span>Quyền riêng tư YouTube</span><select id="commonYoutubePrivacy"><option value="private">Private - duyệt trước</option><option value="unlisted">Unlisted - có link mới xem</option><option value="public">Public - đăng công khai</option></select></label>
+              <label><span>Trạng thái Facebook Reels</span><select id="commonFacebookState"><option value="DRAFT">Draft - duyệt trước</option><option value="PUBLISHED">Publish now</option></select></label>
+              <label class="wide"><span>Comment nguồn Facebook</span><input id="commonSourceComment" type="text" maxlength="1000" placeholder="Nguồn: https://..." /></label>
+            </div>
+            <p class="upload-composer-subtitle">Hẹn giờ dùng một thời điểm chung cho các kênh đang bật.</p>
+          </details>
+        </section>
+        <section class="upload-composer-card">
+          <div class="upload-destination-head">
+            <div><p class="kicker">Kênh đăng</p><h2 id="destinationBrandTitle">Chọn Brand</h2></div>
+            <span class="upload-destination-count" id="destinationCount">0/0 đã chọn</span>
+          </div>
+          <div class="upload-destination-list" id="uploadDestinations"></div>
+          <div class="composer-publish-mode">
+            <span>Chế độ đăng</span>
+            <div class="composer-mode-switch" role="tablist" aria-label="Chế độ đăng">
+              <button class="composer-mode-button active" type="button" data-publish-mode="now" role="tab" aria-selected="true">Đăng ngay</button>
+              <button class="composer-mode-button" type="button" data-publish-mode="schedule" role="tab" aria-selected="false">Hẹn giờ</button>
+            </div>
+            <input id="composerScheduleToggle" type="checkbox" hidden />
+            <div class="composer-schedule-box" id="composerScheduleBox" hidden>
+              <label for="composerScheduleTime">Thời gian đăng chung</label>
+              <input id="composerScheduleTime" type="datetime-local" />
+            </div>
+          </div>
+          <div class="composer-publish-info" id="composerPublishInfo">Các kênh đang bật sẽ dùng cùng caption và cùng thời điểm đăng.</div>
+          <div class="composer-actions">
+            <button class="composer-publish secondary" id="saveComposerDraft" type="button">Lưu bản nháp</button>
+            <button class="composer-publish" id="publishSelectedTargets" type="button" disabled>Đăng</button>
+            <button class="composer-publish secondary" id="publishAllTargets" type="button" disabled hidden>Đăng tất cả kênh sẵn sàng</button>
+          </div>
+          <div class="composer-status" id="composerStatus" hidden></div>
+          <div class="composer-result" id="composerResult" hidden></div>
+        </section>
+      </div>`;
     panel.insertBefore(root, panel.firstChild);
     wireUploadComposer();
     const brandSelect = $('#uploadBrandSelect');
@@ -2112,6 +2261,7 @@
     state.socialStatus = {};
     state.uploadTargets.clear();
     state.uploadTargetsBrand = '';
+    setComposerPublishMode('now', '');
     panel.hidden = false;
     setUploadEmpty(projectName, false);
     setUploadResult('');
@@ -3669,12 +3819,12 @@
   }
 
   function scheduleActive() {
-    return Boolean($('#youtubeScheduleToggle')?.checked || $('#facebookScheduleToggle')?.checked);
+    return composerGlobalScheduleEnabled();
   }
 
-  async function uploadYoutubeVideo(project) {
-    const scheduleEnabled = Boolean($('#youtubeScheduleToggle')?.checked);
-    const scheduledPublishAt = scheduleEnabled ? scheduleIsoValue($('#youtubeScheduleTime'), 'YouTube') : '';
+  async function uploadYoutubeVideo(project, scheduledPublishAtOverride = undefined) {
+    const scheduledPublishAt = scheduledPublishAtFor(scheduledPublishAtOverride, '#youtubeScheduleToggle', '#youtubeScheduleTime', 'YouTube');
+    const scheduleEnabled = Boolean(scheduledPublishAt);
     const response = await fetch('/api/social/youtube/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3762,26 +3912,27 @@
     }
   }
 
-  async function uploadBinanceVideo(project) {
+  async function uploadBinanceVideo(project, scheduledPublishAtOverride = undefined) {
     const duration = parseFloat($('#binanceDuration')?.value || '0') || 0;
     const text = ($('#binanceCaption')?.value || '').trim();
+    const scheduledPublishAt = String(scheduledPublishAtOverride || '');
     if (!duration || duration <= 0) {
       setUploadStatus('Nhập thời lượng video (giây) hợp lệ trước khi đăng Binance.', 'bad');
       return null;
     }
-    setUploadStatus('Đang upload Binance Square...', 'warn');
+    setUploadStatus(scheduledPublishAt ? 'Đang xếp lịch Binance Square...' : 'Đang upload Binance Square...', 'warn');
     const response = await fetch('/api/social/binance/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, brand: state.uploadBrand || undefined, duration, text }),
+      body: JSON.stringify({ project, brand: state.uploadBrand || undefined, duration, text, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
   }
 
-  async function uploadFacebookReel(project, facebookVideoState = $('#facebookVideoState')?.value || 'PUBLISHED') {
-    const scheduledPublishAt = $('#facebookScheduleToggle')?.checked ? scheduleIsoValue($('#facebookScheduleTime'), 'Facebook') : '';
+  async function uploadFacebookReel(project, facebookVideoState = $('#facebookVideoState')?.value || 'PUBLISHED', scheduledPublishAtOverride = undefined) {
+    const scheduledPublishAt = scheduledPublishAtFor(scheduledPublishAtOverride, '#facebookScheduleToggle', '#facebookScheduleTime', 'Facebook');
     const response = await fetch('/api/social/facebook/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3798,15 +3949,16 @@
     return data;
   }
 
-  async function uploadTiktokVideo(project) {
-    const scheduledPublishAt = $('#tiktokScheduleToggle')?.checked ? scheduleIsoValue($('#tiktokScheduleTime'), 'TikTok') : '';
+  async function uploadTiktokVideo(project, scheduledPublishAtOverride = undefined) {
+    const scheduledPublishAt = scheduledPublishAtFor(scheduledPublishAtOverride, '#tiktokScheduleToggle', '#tiktokScheduleTime', 'TikTok');
     const response = await fetch('/api/social/tiktok/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, brand: state.uploadBrand || undefined, tiktokCaption: $('#tiktokCaption')?.value || '', ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
   }
 
-  async function uploadInstagramReel(project) {
+  async function uploadInstagramReel(project, scheduledPublishAtOverride = undefined) {
+    const scheduledPublishAt = String(scheduledPublishAtOverride || '');
     const response = await fetch('/api/social/instagram/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3814,6 +3966,7 @@
         project,
         brand: state.uploadBrand || undefined,
         instagramCaption: $('#instagramCaption')?.value || '',
+        ...(scheduledPublishAt ? { scheduledPublishAt } : {}),
       }),
     });
     const data = await response.json();
@@ -3821,7 +3974,8 @@
     return data;
   }
 
-  async function uploadThreadsVideo(project) {
+  async function uploadThreadsVideo(project, scheduledPublishAtOverride = undefined) {
+    const scheduledPublishAt = String(scheduledPublishAtOverride || '');
     const response = await fetch('/api/social/threads/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3829,6 +3983,7 @@
         project,
         brand: state.uploadBrand || undefined,
         threadsText: $('#threadsText')?.value || '',
+        ...(scheduledPublishAt ? { scheduledPublishAt } : {}),
       }),
     });
     const data = await response.json();
