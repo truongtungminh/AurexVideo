@@ -89,6 +89,20 @@ def project_brand_from_topic(project_dir: Path) -> str:
     return str(topic.get("brand") or "").strip().casefold()
 
 
+def upload_brand_for_project(payload: dict, project_dir: Path, platform: str) -> str:
+    """Return the project-owned Brand and reject a conflicting API payload."""
+    declared = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    project_brand = project_brand_from_topic(project_dir)
+    if declared and project_brand and declared != project_brand:
+        raise ValueError(
+            f"{platform} Brand '{declared}' không khớp Brand '{project_brand}' của project."
+        )
+    brand = declared or project_brand
+    if not brand:
+        raise ValueError(f"{platform} upload thiếu Brand.")
+    return brand
+
+
 def final_video_url(project: str) -> str:
     return f"/project/{quote(project)}/output/final_video.mp4"
 
@@ -446,6 +460,9 @@ def record_social_upload(project: str, platform: str, details: dict) -> dict:
     brand = str(details.get("brand") or details.get("brandId") or "").strip().casefold()
     if brand:
         entry["brand"] = brand
+    connection_id = str(details.get("connection_id") or details.get("connectionId") or "").strip()
+    if connection_id:
+        entry["connectionId"] = connection_id
     social[platform] = entry
     existing["social"] = social
     write_project_upload_metadata(project_dir, existing)

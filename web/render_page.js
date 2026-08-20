@@ -51,6 +51,7 @@
     socialStatus: {},
     uploadTargets: new Set(),
     uploadTargetsBrand: '',
+    brandConnectionTarget: null,
     composerDraftTimer: null,
     socialReady: { youtube: false, facebook: false, instagram: false, threads: false },
     socialConfigured: { youtube: false, facebook: false, instagram: false, threads: false },
@@ -560,9 +561,9 @@
   const COMPOSER_PLATFORMS = Object.freeze([
     { id: 'youtube', label: 'YouTube', icon: '▶', className: 'youtube', routeScope: 'brand', legacyButton: '#uploadYoutube', connectButton: '#connectYoutube', configButton: '#openYoutubeConfig', schedule: true },
     { id: 'facebook', label: 'Facebook Reels', icon: 'f', className: 'facebook', routeScope: 'brand', legacyButton: '#uploadFacebook', connectButton: '#openFacebookConfig', schedule: true },
-    { id: 'instagram', label: 'Instagram Reels', icon: '◎', className: 'instagram', routeScope: 'global', legacyButton: '#uploadInstagram', configButton: '#openInstagramConfig' },
-    { id: 'tiktok', label: 'TikTok', icon: '♪', className: 'tiktok', routeScope: 'global', legacyButton: '#uploadTiktok', configButton: '#openTiktokConfig', schedule: true },
-    { id: 'threads', label: 'Threads', icon: '@', className: 'threads', routeScope: 'global', legacyButton: '#uploadThreads', configButton: '#openThreadsConfig' },
+    { id: 'instagram', label: 'Instagram Reels', icon: '◎', className: 'instagram', routeScope: 'brand', legacyButton: '#uploadInstagram', configButton: '#openInstagramConfig' },
+    { id: 'tiktok', label: 'TikTok', icon: '♪', className: 'tiktok', routeScope: 'brand', legacyButton: '#uploadTiktok', configButton: '#openTiktokConfig', schedule: true },
+    { id: 'threads', label: 'Threads', icon: '@', className: 'threads', routeScope: 'brand', legacyButton: '#uploadThreads', configButton: '#openThreadsConfig' },
     { id: 'binance', label: 'Binance Square', icon: 'B', className: 'binance', routeScope: 'global', legacyButton: '#uploadBinance', configButton: '#openBinanceConfig' },
   ]);
   const BINANCE_COMPOSER_BRAND = 'july';
@@ -589,6 +590,25 @@
 
   function composerPlatformReady(platform) {
     const status = composerPlatformStatus(platform);
+    const spec = composerPlatformSpec(platform);
+    const route = composerRoute(platform);
+    const brandScopedAccount = spec?.routeScope === 'brand' && ['instagram', 'tiktok', 'threads'].includes(platform);
+    if (spec?.routeScope === 'brand' && route) {
+      const routeId = String(route.connection_id || route.channel_id || route.page_id || '').trim();
+      const account = (status.accounts || []).find((item) => String(item.connection_id || item.id || '') === routeId);
+      if (account) {
+        if (brandScopedAccount && String(account.brand || '').trim().toLowerCase() !== String(state.uploadBrand || '').trim().toLowerCase()) return false;
+        return Boolean(account.connected || account.available || account.ready);
+      }
+      if (route.connected !== undefined || route.available !== undefined) return Boolean(route.connected || route.available);
+      return false;
+    }
+    if (brandScopedAccount) {
+      const matchingAccount = (status.accounts || []).find(
+        (item) => String(item.brand || '').trim().toLowerCase() === String(state.uploadBrand || '').trim().toLowerCase(),
+      );
+      return Boolean(matchingAccount && (matchingAccount.connected || matchingAccount.available || matchingAccount.ready));
+    }
     if (platform === 'youtube') return Boolean(status.configured && status.connected);
     if (platform === 'facebook') return Boolean(status.available || (status.configured && status.connected));
     if (platform === 'binance') return Boolean(status.configured && status.connected);
@@ -618,11 +638,15 @@
       const page = (status.pages || []).find((item) => String(item.id || '') === identity);
       return String(page?.name || status.page?.name || identity || 'Facebook Page');
     }
+    if (composerPlatformSpec(platform)?.routeScope === 'brand') {
+      const brand = String(state.uploadBrand || '').trim().toLowerCase();
+      const accountCount = (status.accounts || []).filter(
+        (item) => String(item.brand || '').trim().toLowerCase() === brand,
+      ).length;
+      return accountCount ? `${accountCount} account khả dụng` : 'Chưa có account theo Brand';
+    }
     const friendlyName = String(status.display_name || status.name || '').trim();
     if (friendlyName) return friendlyName;
-    if (platform === 'instagram') return 'Instagram account chung';
-    if (platform === 'tiktok') return 'TikTok account chung';
-    if (platform === 'threads') return 'Threads account chung';
     if (platform === 'binance') return 'Binance account chung';
     return 'Tài khoản đã kết nối';
   }
@@ -631,7 +655,12 @@
     const spec = composerPlatformSpec(platform);
     const status = composerPlatformStatus(platform);
     if (!state.uploadBrand) return 'Chọn Brand để xem kênh đăng.';
-    if (!composerPlatformReady(platform)) return String(status.message || 'Chưa kết nối social.');
+    if (!composerPlatformReady(platform)) {
+      if (spec?.routeScope === 'brand' && ['instagram', 'tiktok', 'threads'].includes(platform) && (status.accounts || []).length) {
+        return 'Chưa có account theo Brand này.';
+      }
+      return String(status.message || 'Chưa kết nối social.');
+    }
     if (spec?.routeScope === 'brand' && !composerRoute(platform)) return 'Chưa gán social này cho Brand.';
     if (spec?.routeScope === 'global') return 'Tài khoản chung của nền tảng · chưa hỗ trợ nhiều account.';
     return 'Đã gán vào Brand này.';
@@ -714,6 +743,8 @@
       '.brand-route-platform em { color: var(--muted); font-size: 9px; font-style: normal; font-weight: 800; }',
       '.brand-route-item select { min-width: 0; min-height: 36px; border: 1px solid var(--control-line); border-radius: 9px; padding: 7px 9px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 11px; }',
       '.brand-route-save { min-height: 34px; border: 1px solid var(--accent); border-radius: 9px; padding: 7px 10px; color: var(--accent-contrast); background: var(--accent); font: inherit; font-size: 10px; font-weight: 950; cursor: pointer; white-space: nowrap; }',
+      '.brand-route-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }',
+      '.brand-route-save.secondary { border-color: var(--control-line); color: var(--text-soft); background: var(--field-bg); }',
       '.brand-route-save:disabled { opacity: .45; cursor: not-allowed; }',
       '@media (max-width: 1050px) { .upload-composer-layout { grid-template-columns: 1fr; } .upload-brand-context { min-width: 180px; } }',
       '@media (max-width: 720px) { .upload-redesigned { width: min(100% - 24px, 680px) !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide { grid-column: auto; } .upload-destination-row { grid-template-columns: auto 1fr; } .destination-side { grid-column: 2; justify-content: flex-start; } .destination-schedule-wrap { grid-column: 2; } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
@@ -867,6 +898,10 @@
 
   function openLegacySocialConfig(platform) {
     const spec = composerPlatformSpec(platform);
+    if (spec?.routeScope === 'brand' && ['instagram', 'tiktok', 'threads'].includes(platform)) {
+      openBrandConnectionConfig(platform, state.uploadBrand);
+      return;
+    }
     const selector = platform === 'youtube'
       ? (state.socialConfigured.youtube ? spec?.connectButton : spec?.configButton)
       : (spec?.configButton || spec?.connectButton);
@@ -878,6 +913,13 @@
     const status = composerPlatformStatus(platform);
     if (platform === 'youtube') return (status.channels || []).map((item) => ({ id: item.id, name: item.title || item.name || item.id })).filter((item) => item.id);
     if (platform === 'facebook') return (status.pages || []).map((item) => ({ id: item.id, name: item.name || item.id })).filter((item) => item.id);
+    if (composerPlatformSpec(platform)?.routeScope === 'brand') {
+      return (status.accounts || []).map((item) => ({
+        id: item.connection_id || item.id || item.account_id || item.ig_user_id || item.threads_user_id,
+        name: item.display_name || item.name || item.account_id || item.ig_user_id || item.threads_user_id,
+        brand: item.brand || '',
+      })).filter((item) => item.id && (!['instagram', 'tiktok', 'threads'].includes(platform) || String(item.brand || '').trim().toLowerCase() === String(state.uploadBrand || '').trim().toLowerCase()));
+    }
     const id = status.ig_user_id || status.threads_user_id || status.account_id || 'global';
     const name = status.display_name || status.name || status.account_id || id;
     return [{ id: String(id), name: String(name) }];
@@ -894,6 +936,12 @@
     modal.addEventListener('click', async (event) => {
       if (event.target === modal || event.target.closest('[data-close-brand-social]')) {
         modal.hidden = true;
+        return;
+      }
+      const addConnectionButton = event.target.closest('[data-add-brand-connection]');
+      if (addConnectionButton) {
+        modal.hidden = true;
+        openBrandConnectionConfig(addConnectionButton.dataset.addBrandConnection || '', state.uploadBrand);
         return;
       }
       const configButton = event.target.closest('[data-brand-social-config]');
@@ -947,12 +995,16 @@
       const selected = route?.connection_id || route?.channel_id || route?.page_id || options[0]?.id || '';
       const optionMarkup = options.map((option) => '<option value="' + composerEscape(option.id) + '" ' + (String(option.id) === String(selected) ? 'selected' : '') + '>' + composerEscape(option.name) + '</option>').join('');
       const scopeNote = platform.routeScope === 'global' ? 'account chung' : 'riêng theo Brand';
+      const isBrandAccount = platform.routeScope === 'brand' && ['instagram', 'tiktok', 'threads'].includes(platform.id);
+      const addAccount = isBrandAccount
+        ? '<button class="brand-route-save secondary" type="button" data-add-brand-connection="' + composerEscape(platform.id) + '">Thêm account</button>'
+        : '';
       const action = ready
-        ? '<button class="brand-route-save" type="button" data-save-brand-route="' + composerEscape(platform.id) + '" ' + (!options.length ? 'disabled' : '') + '>Lưu</button>'
-        : '<button class="brand-route-save" type="button" data-brand-social-config="' + composerEscape(platform.id) + '">Kết nối</button>';
+        ? '<div class="brand-route-actions"><button class="brand-route-save" type="button" data-save-brand-route="' + composerEscape(platform.id) + '" ' + (!options.length ? 'disabled' : '') + '>Lưu</button>' + addAccount + '</div>'
+        : '<div class="brand-route-actions"><button class="brand-route-save" type="button" data-brand-social-config="' + composerEscape(platform.id) + '">Kết nối</button>' + addAccount + '</div>';
       return '<div class="brand-route-item"><div class="brand-route-platform"><span class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</span><span>' + composerEscape(platform.label) + '<em>' + composerEscape(scopeNote) + '</em></span></div><select data-route-select="' + composerEscape(platform.id) + '" ' + (!ready ? 'disabled' : '') + '>' + (optionMarkup || '<option value="">Chưa có account</option>') + '</select>' + action + '</div>';
     }).join('');
-    modal.innerHTML = '<div class="brand-social-modal-card" role="dialog" aria-modal="true" aria-labelledby="brandSocialTitle"><button class="brand-social-modal-close" type="button" data-close-brand-social aria-label="Đóng">×</button><p class="kicker">Brand Social Center</p><h3 id="brandSocialTitle">Kênh đăng của Brand</h3><p>Gán channel/page cho Brand để mỗi lần đăng dùng đúng social. Instagram, TikTok và Threads hiện dùng account chung của cấu hình nền tảng; Binance Square chỉ áp dụng cho Brand july.</p><label class="brand-social-brand-select"><span>Brand đang quản lý</span><select id="brandSocialBrandSelect">' + brandOptions + '</select></label><div class="brand-route-list">' + routeRows + '</div></div>';
+    modal.innerHTML = '<div class="brand-social-modal-card" role="dialog" aria-modal="true" aria-labelledby="brandSocialTitle"><button class="brand-social-modal-close" type="button" data-close-brand-social aria-label="Đóng">×</button><p class="kicker">Brand Social Center</p><h3 id="brandSocialTitle">Kênh đăng của Brand</h3><p>Mỗi Brand có thể gán account Instagram, TikTok và Threads riêng. YouTube/Facebook dùng channel/page route; Binance Square chỉ áp dụng cho Brand july.</p><label class="brand-social-brand-select"><span>Brand đang quản lý</span><select id="brandSocialBrandSelect">' + brandOptions + '</select></label><div class="brand-route-list">' + routeRows + '</div></div>';
   }
 
   function openBrandSocialModal(platform = '') {
@@ -1568,6 +1620,61 @@
     if (modal) modal.hidden = true;
   }
 
+  function brandConnectionTargetFor(platform) {
+    const target = state.brandConnectionTarget;
+    return target && target.platform === platform && target.brand ? target : null;
+  }
+
+  function setBrandConnectionScopeLabel(selector, platform) {
+    const label = $(selector);
+    const target = brandConnectionTargetFor(platform);
+    if (!label) return;
+    label.hidden = !target;
+    label.textContent = target ? `Đang thêm account ${platform} cho Brand ${target.brand}.` : '';
+  }
+
+  async function openBrandTiktokConfig(brand) {
+    if (!brand) {
+      setUploadStatus('Chọn Brand trước khi thêm TikTok account.', 'bad');
+      return;
+    }
+    const displayName = window.prompt(`Tên account TikTok cho Brand ${brand} (tuỳ chọn):`, '') || '';
+    const apiKey = window.prompt('Zernio API key:');
+    if (!apiKey) return;
+    const accountId = window.prompt('TikTok account ID trong Zernio:');
+    if (!accountId) return;
+    setUploadStatus(`Đang lưu TikTok account cho Brand ${brand}...`, 'warn');
+    try {
+      const response = await fetch('/api/social/brand-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: 'tiktok', brand, displayName, apiKey, accountId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      await refreshSocialStatus();
+      setUploadStatus(`Đã thêm TikTok account cho Brand ${brand}.`, 'good');
+      openBrandSocialModal();
+    } catch (error) {
+      setUploadStatus(error.message || String(error), 'bad');
+    }
+  }
+
+  function openBrandConnectionConfig(platform, brand) {
+    const normalizedBrand = String(brand || '').trim().toLowerCase();
+    if (!normalizedBrand) {
+      setUploadStatus('Chọn Brand trước khi thêm account.', 'bad');
+      return;
+    }
+    if (platform === 'tiktok') {
+      openBrandTiktokConfig(normalizedBrand);
+      return;
+    }
+    state.brandConnectionTarget = { platform, brand: normalizedBrand };
+    if (platform === 'instagram') openInstagramConfigModal(normalizedBrand);
+    else if (platform === 'threads') openThreadsConfigModal(normalizedBrand);
+  }
+
   function syncInstagramConfigUi(instagram = {}) {
     const igUserIdInput = $('#instagramIgUserId');
     const apiModeInput = $('#instagramApiMode');
@@ -1579,9 +1686,11 @@
     const r2PublicUrlInput = $('#r2PublicBaseUrl');
     const r2ObjectPrefixInput = $('#r2ObjectPrefix');
     const r2RetainInput = $('#r2RetainMedia');
+    const displayNameInput = $('#instagramDisplayName');
     const modalOpen = Boolean($('#instagramConfigModal') && !$('#instagramConfigModal').hidden);
     const r2 = instagram.r2 || {};
     if (igUserIdInput && document.activeElement !== igUserIdInput) igUserIdInput.value = String(instagram.ig_user_id || '');
+    if (displayNameInput && document.activeElement !== displayNameInput) displayNameInput.value = String(instagram.display_name || instagram.name || '');
     if (apiModeInput && document.activeElement !== apiModeInput) apiModeInput.value = String(instagram.api_mode || 'instagram_login');
     if (graphVersionInput && document.activeElement !== graphVersionInput) graphVersionInput.value = String(instagram.graph_version || 'v25.0');
     if (r2AccountIdInput && !modalOpen && document.activeElement !== r2AccountIdInput) r2AccountIdInput.value = '';
@@ -1598,17 +1707,25 @@
     if (r2SecretInput) r2SecretInput.placeholder = r2.configured ? 'Đã lưu Secret Key, dán key mới nếu muốn đổi' : 'Secret Access Key';
   }
 
-  function openInstagramConfigModal() {
+  function openInstagramConfigModal(brand = '') {
     const modal = $('#instagramConfigModal');
     if (!modal) return;
+    if (brand) state.brandConnectionTarget = { platform: 'instagram', brand: String(brand).trim().toLowerCase() };
     modal.hidden = false;
     syncInstagramConfigUi(state.instagramConfig || {});
+    setBrandConnectionScopeLabel('#instagramConfigScope', 'instagram');
     const tokenInput = $('#instagramAccessToken');
     if (tokenInput) tokenInput.value = '';
     ['#r2AccountId', '#r2AccessKeyId', '#r2SecretAccessKey'].forEach((selector) => {
       const input = $(selector);
       if (input) input.value = '';
     });
+    if (brand) {
+      const accountIdInput = $('#instagramIgUserId');
+      const displayNameInput = $('#instagramDisplayName');
+      if (accountIdInput) accountIdInput.value = '';
+      if (displayNameInput) displayNameInput.value = '';
+    }
     if (tokenInput) tokenInput.focus();
     else $('#instagramIgUserId')?.focus();
   }
@@ -1620,6 +1737,7 @@
       if (input) input.value = '';
     });
     if (modal) modal.hidden = true;
+    if (brandConnectionTargetFor('instagram')) state.brandConnectionTarget = null;
   }
 
   let instagramConfigSaving = false;
@@ -1630,6 +1748,7 @@
       accessToken: $('#instagramAccessToken')?.value.trim() || '',
       apiMode: $('#instagramApiMode')?.value || 'instagram_login',
       graphVersion: $('#instagramGraphVersion')?.value.trim() || 'v25.0',
+      displayName: $('#instagramDisplayName')?.value.trim() || '',
       r2AccountId: $('#r2AccountId')?.value.trim() || '',
       r2Bucket: $('#r2Bucket')?.value.trim() || '',
       r2AccessKeyId: $('#r2AccessKeyId')?.value.trim() || '',
@@ -1638,25 +1757,29 @@
       r2ObjectPrefix: $('#r2ObjectPrefix')?.value.trim() || 'instagram',
       r2RetainMedia: $('#r2RetainMedia')?.checked === true,
     };
-    if (!payload.igUserId || !payload.accessToken || !payload.r2AccountId || !payload.r2Bucket || !payload.r2AccessKeyId || !payload.r2SecretAccessKey || !payload.r2PublicBaseUrl) {
-      setUploadStatus('Nhập đủ Instagram ID/token và toàn bộ thông tin R2 trước khi lưu.', 'bad');
+    const brandTarget = brandConnectionTargetFor('instagram');
+    const r2Ready = Boolean(state.instagramConfig?.r2?.configured);
+    const missingR2 = !r2Ready && (!payload.r2AccountId || !payload.r2Bucket || !payload.r2AccessKeyId || !payload.r2SecretAccessKey || !payload.r2PublicBaseUrl);
+    if (!payload.igUserId || !payload.accessToken || missingR2) {
+      setUploadStatus(brandTarget ? 'Nhập đủ Instagram ID/token; nếu R2 chưa cấu hình thì nhập thêm toàn bộ thông tin R2.' : 'Nhập đủ Instagram ID/token và toàn bộ thông tin R2 trước khi lưu.', 'bad');
       return;
     }
     if (instagramConfigSaving) return;
     instagramConfigSaving = true;
     if (button) button.disabled = true;
-    setUploadStatus('Đang lưu cấu hình Instagram + R2...', 'warn');
+    setUploadStatus(brandTarget ? `Đang lưu Instagram account cho Brand ${brandTarget.brand}...` : 'Đang lưu cấu hình Instagram + R2...', 'warn');
     try {
-      const response = await fetch('/api/social/instagram/config', {
+      const response = await fetch(brandTarget ? '/api/social/brand-connection' : '/api/social/instagram/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(brandTarget ? { ...payload, platform: 'instagram', brand: brandTarget.brand } : payload),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       closeInstagramConfigModal();
       await refreshSocialStatus();
-      setUploadStatus('Đã lưu cấu hình Instagram API và Cloudflare R2.', 'good');
+      setUploadStatus(brandTarget ? `Đã thêm Instagram account cho Brand ${brandTarget.brand}.` : 'Đã lưu cấu hình Instagram API và Cloudflare R2.', 'good');
+      if (brandTarget) openBrandSocialModal();
     } catch (error) {
       setUploadStatus(error.message || String(error), 'bad');
     } finally {
@@ -1669,9 +1792,11 @@
     const userIdInput = $('#threadsUserId');
     const tokenInput = $('#threadsAccessToken');
     const graphVersionInput = $('#threadsGraphVersion');
+    const displayNameInput = $('#threadsDisplayName');
     const configState = $('#threadsConfigState');
     const userId = String(threads.threads_user_id || threads.user_id || '').trim();
     if (userIdInput && document.activeElement !== userIdInput) userIdInput.value = userId;
+    if (displayNameInput && document.activeElement !== displayNameInput) displayNameInput.value = String(threads.display_name || threads.name || '');
     if (graphVersionInput && document.activeElement !== graphVersionInput) graphVersionInput.value = String(threads.graph_version || 'v1.0');
     if (tokenInput) {
       tokenInput.placeholder = threads.configured
@@ -1684,17 +1809,25 @@
     }
   }
 
-  function openThreadsConfigModal() {
+  function openThreadsConfigModal(brand = '') {
     const modal = $('#threadsConfigModal');
     if (!modal) return;
+    if (brand) state.brandConnectionTarget = { platform: 'threads', brand: String(brand).trim().toLowerCase() };
     modal.hidden = false;
     syncThreadsConfigUi(state.threadsConfig || {});
+    setBrandConnectionScopeLabel('#threadsConfigScope', 'threads');
     const tokenInput = $('#threadsAccessToken');
     if (tokenInput) {
       tokenInput.value = '';
       tokenInput.focus();
     } else {
       $('#threadsUserId')?.focus();
+    }
+    if (brand) {
+      const userIdInput = $('#threadsUserId');
+      const displayNameInput = $('#threadsDisplayName');
+      if (userIdInput) userIdInput.value = '';
+      if (displayNameInput) displayNameInput.value = '';
     }
   }
 
@@ -1703,16 +1836,20 @@
     const tokenInput = $('#threadsAccessToken');
     if (tokenInput) tokenInput.value = '';
     if (modal) modal.hidden = true;
+    if (brandConnectionTargetFor('threads')) state.brandConnectionTarget = null;
   }
 
   async function saveThreadsConfig() {
     const userIdInput = $('#threadsUserId');
     const tokenInput = $('#threadsAccessToken');
     const graphVersionInput = $('#threadsGraphVersion');
+    const displayNameInput = $('#threadsDisplayName');
     const button = $('#saveThreadsConfig');
     const threadsUserId = userIdInput?.value.trim() || '';
     const accessToken = tokenInput?.value.trim() || '';
     const graphVersion = graphVersionInput?.value.trim() || 'v1.0';
+    const displayName = displayNameInput?.value.trim() || '';
+    const brandTarget = brandConnectionTargetFor('threads');
     if (!threadsUserId || !accessToken) {
       setUploadStatus('Nhập đủ Threads User ID và access token trước khi lưu.', 'bad');
       return;
@@ -1720,18 +1857,19 @@
     if (threadsConfigSaving) return;
     threadsConfigSaving = true;
     if (button) button.disabled = true;
-    setUploadStatus('Đang lưu cấu hình Threads...', 'warn');
+    setUploadStatus(brandTarget ? `Đang lưu Threads account cho Brand ${brandTarget.brand}...` : 'Đang lưu cấu hình Threads...', 'warn');
     try {
-      const response = await fetch('/api/social/threads/config', {
+      const response = await fetch(brandTarget ? '/api/social/brand-connection' : '/api/social/threads/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadsUserId, accessToken, graphVersion }),
+        body: JSON.stringify(brandTarget ? { platform: 'threads', brand: brandTarget.brand, displayName, threadsUserId, accessToken, graphVersion } : { threadsUserId, accessToken, graphVersion, displayName }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       closeThreadsConfigModal();
       await refreshSocialStatus();
-      setUploadStatus('Đã lưu cấu hình Threads.', 'good');
+      setUploadStatus(brandTarget ? `Đã thêm Threads account cho Brand ${brandTarget.brand}.` : 'Đã lưu cấu hình Threads.', 'good');
+      if (brandTarget) openBrandSocialModal();
     } catch (error) {
       setUploadStatus(error.message || String(error), 'bad');
     } finally {

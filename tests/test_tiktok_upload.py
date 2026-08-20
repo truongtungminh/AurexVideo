@@ -41,12 +41,14 @@ class TiktokUploadTests(unittest.TestCase):
         path.write_bytes(b"video")
         try:
             with patch.object(tt, "read_social_config", return_value=config), \
+                 patch.object(tt, "require_project", return_value=Path("/tmp")), \
+                 patch("social_upload.metadata.project_brand_from_topic", return_value="popsy"), \
                  patch.object(tt, "final_video_path_for_project", return_value=path), \
                  patch.object(tt, "read_expected_video_bytes", return_value=b"video"), \
                  patch.object(tt, "build_upload_metadata", return_value={"instagramCaption": "Caption"}), \
                  patch.object(tt, "record_social_upload") as record, \
                  patch.object(tt, "urlopen", side_effect=fake_urlopen):
-                result = tt.tiktok_upload_video({"project": "demo", "tiktokCaption": "Hello"})
+                result = tt.tiktok_upload_video({"project": "demo", "brand": "popsy", "tiktokCaption": "Hello"})
             self.assertEqual(result["post_id"], "post_1")
             self.assertEqual(result["url"], "https://tiktok.com/@a/video/1")
             self.assertEqual(calls[0].method, "POST")

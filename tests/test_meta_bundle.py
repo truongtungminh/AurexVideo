@@ -52,6 +52,22 @@ class MetaBundleTests(unittest.TestCase):
         self.assertEqual(result["failed"], ["instagram"])
         self.assertEqual(result["platforms"]["instagram"]["error"], "Instagram failed")
 
+    def test_publish_forwards_brand_to_brand_scoped_platforms(self) -> None:
+        with patch.object(bundle, "instagram_upload_video", return_value={"url": "https://instagram.example/post"}) as instagram, \
+             patch.object(bundle, "facebook_upload_video", return_value={"source_comment_target_id": "fb_1"}) as facebook, \
+             patch.object(bundle, "threads_upload_video", return_value={"url": "https://threads.example/post"}) as threads:
+            result = bundle.publish_instagram_facebook_threads({
+                "project": "demo",
+                "brand": "popsy",
+                "instagramCaption": "Instagram",
+                "threadsText": "Threads",
+            })
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(instagram.call_args.args[0]["brand"], "popsy")
+        self.assertEqual(facebook.call_args.args[0]["brand"], "popsy")
+        self.assertEqual(threads.call_args.args[0]["brand"], "popsy")
+
     def test_publish_rejects_facebook_draft_state(self) -> None:
         with self.assertRaisesRegex(ValueError, "PUBLISHED"):
             bundle.publish_instagram_facebook_threads({

@@ -762,6 +762,7 @@ def upload_brand_context(project: str = "") -> dict:
                 "display_name", "name", "ig_user_id", "threads_user_id",
                 "account_id", "active_channel_id", "active_page_id", "channel", "page",
                 "channels", "pages", "masked_api_key",
+                "accounts",
             )
             if key in value
         }
@@ -6428,7 +6429,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260820-brand-composer2"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer3"></script>
 """,
     )
 
@@ -6703,11 +6704,16 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           <button class="modal-close" id="closeInstagramConfig" type="button" aria-label="Đóng">×</button>
           <p class="kicker">Instagram API + Cloudflare R2</p>
           <h3 id="instagramConfigTitle">Cấu hình Instagram Reels</h3>
+          <p class="modal-copy" id="instagramConfigScope" hidden></p>
           <p class="modal-copy">Instagram sẽ kéo video từ public HTTPS URL trên R2. Access token và Secret Key được lưu trong file config local với quyền hạn chế.</p>
           <div class="instagram-config-grid">
             <div class="field upload-field compact instagram-config-field">
               <span class="field-label"><span class="field-icon">ID</span><span>Instagram IG User ID</span></span>
               <input id="instagramIgUserId" type="text" inputmode="numeric" autocomplete="off" placeholder="Ví dụ: 1784..." />
+            </div>
+            <div class="field upload-field compact instagram-config-field">
+              <span class="field-label"><span>Tên account</span></span>
+              <input id="instagramDisplayName" type="text" autocomplete="off" maxlength="160" placeholder="Ví dụ: Popsy Instagram" />
             </div>
             <div class="field upload-field compact instagram-config-field">
               <span class="field-label">{ui_icon("key", "field-icon")}<span>Instagram access token</span></span>
@@ -6761,10 +6767,15 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           <button class="modal-close" id="closeThreadsConfig" type="button" aria-label="Đóng">×</button>
           <p class="kicker">Threads API</p>
           <h3 id="threadsConfigTitle">Cấu hình Threads</h3>
+          <p class="modal-copy" id="threadsConfigScope" hidden></p>
           <p class="modal-copy">Threads cần token riêng có quyền <code>threads_basic</code> và <code>threads_content_publish</code>. Token được lưu local và không hiển thị lại.</p>
           <div class="field upload-field compact threads-config-field">
             <span class="field-label"><span class="field-icon">ID</span><span>Threads User ID</span></span>
             <input id="threadsUserId" type="text" inputmode="numeric" autocomplete="off" placeholder="Dán Threads User ID" />
+          </div>
+          <div class="field upload-field compact threads-config-field">
+            <span class="field-label"><span>Tên account</span></span>
+            <input id="threadsDisplayName" type="text" autocomplete="off" maxlength="160" placeholder="Ví dụ: Popsy Threads" />
           </div>
           <div class="field upload-field compact threads-config-field">
             <span class="field-label">{ui_icon("key", "field-icon")}<span>Threads access token</span></span>
@@ -8139,7 +8150,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260820-brand-composer2"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer3"></script>
 """,
     )
 
@@ -9101,6 +9112,23 @@ class WebHandler(SimpleHTTPRequestHandler):
                     if not account:
                         raise ValueError(f"Không tìm thấy account {platform} để gán vào Brand.")
                     name = name or str(account.get("title") or account.get("name") or connection_id)
+                elif platform in {"instagram", "tiktok", "threads"}:
+                    accounts = platform_status.get("accounts") or []
+                    account = next(
+                        (
+                            item for item in accounts
+                            if str(item.get("connection_id") or item.get("id") or "") == connection_id
+                        ),
+                        None,
+                    )
+                    if not account:
+                        raise ValueError(f"Không tìm thấy account {platform} để gán vào Brand.")
+                    account_brand = str(account.get("brand") or "").strip().casefold()
+                    if account_brand != brand:
+                        raise ValueError(f"Account {platform} đang thuộc brand {account_brand or 'khác'}.")
+                    if not bool(account.get("connected") or account.get("available")):
+                        raise ValueError(account.get("message") or f"{platform} chưa sẵn sàng.")
+                    name = name or str(account.get("display_name") or account.get("name") or connection_id)
                 else:
                     if not bool(platform_status.get("connected") or platform_status.get("available")):
                         raise ValueError(platform_status.get("message") or f"{platform} chưa kết nối.")
@@ -9122,6 +9150,82 @@ class WebHandler(SimpleHTTPRequestHandler):
 
                 routes = save_social_brand_route(brand, platform, connection_id, name=name)
                 self.send_json(200, {"ok": True, "brand": brand, "platform": platform, "route": routes.get(platform, {})})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/social/brand-connection":
+            try:
+                payload = self.read_json_body()
+                brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+                platform = str(payload.get("platform") or "").strip().casefold()
+                connection_id = str(payload.get("connectionId") or payload.get("connection_id") or "").strip()
+                display_name = str(payload.get("displayName") or payload.get("name") or "").strip()
+                if platform not in {"instagram", "tiktok", "threads"}:
+                    raise ValueError("Brand connection chỉ hỗ trợ Instagram, TikTok và Threads.")
+                if not brand:
+                    raise ValueError("Brand không được để trống.")
+                config = read_social_config()
+                if platform == "instagram":
+                    r2_fields = (
+                        "r2AccountId", "accountId", "r2Bucket", "bucket", "r2AccessKeyId", "accessKeyId",
+                        "r2SecretAccessKey", "secretAccessKey", "r2PublicBaseUrl", "publicBaseUrl",
+                    )
+                    has_r2_update = any(str(payload.get(key) or "").strip() for key in r2_fields)
+                    if has_r2_update:
+                        update_r2_config(
+                            str(payload.get("r2AccountId") or payload.get("accountId") or ""),
+                            str(payload.get("r2Bucket") or payload.get("bucket") or ""),
+                            str(payload.get("r2AccessKeyId") or payload.get("accessKeyId") or ""),
+                            str(payload.get("r2SecretAccessKey") or payload.get("secretAccessKey") or ""),
+                            str(payload.get("r2PublicBaseUrl") or payload.get("publicBaseUrl") or ""),
+                            str(payload.get("r2Region") or payload.get("region") or "auto"),
+                            str(payload.get("r2ObjectPrefix") or payload.get("objectPrefix") or "instagram"),
+                            bool(payload.get("r2RetainMedia") or payload.get("retainMedia")),
+                            config=config,
+                            persist=False,
+                        )
+                    account = update_instagram_config(
+                        str(payload.get("igUserId") or payload.get("ig_user_id") or ""),
+                        str(payload.get("accessToken") or payload.get("access_token") or ""),
+                        str(payload.get("apiMode") or payload.get("api_mode") or "instagram_login"),
+                        str(payload.get("graphVersion") or payload.get("graph_version") or "v25.0"),
+                        display_name,
+                        config=config,
+                        persist=False,
+                        brand=brand,
+                        connection_id=connection_id,
+                    )
+                elif platform == "tiktok":
+                    account = update_zernio_config(
+                        str(payload.get("apiKey") or payload.get("api_key") or ""),
+                        str(payload.get("accountId") or payload.get("account_id") or ""),
+                        base_url=str(payload.get("baseUrl") or payload.get("base_url") or "https://zernio.com/api/v1"),
+                        brand=brand,
+                        connection_id=connection_id,
+                        display_name=display_name,
+                        config=config,
+                        persist=False,
+                    )
+                else:
+                    account = update_threads_config(
+                        str(payload.get("threadsUserId") or payload.get("userId") or ""),
+                        str(payload.get("accessToken") or payload.get("access_token") or ""),
+                        str(payload.get("graphVersion") or payload.get("graph_version") or "v1.0"),
+                        display_name,
+                        brand=brand,
+                        connection_id=connection_id,
+                        config=config,
+                        persist=False,
+                    )
+                write_social_config(config)
+                self.send_json(200, {
+                    "ok": True,
+                    "brand": brand,
+                    "platform": platform,
+                    "connection_id": account.get("connection_id") if isinstance(account, dict) else "",
+                    "account": account,
+                })
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return

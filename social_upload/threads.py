@@ -9,9 +9,20 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlsplit
 
-from .config import read_social_config, write_social_config
+from .config import (
+    read_social_config,
+    resolve_social_brand_connection,
+    store_social_brand_connection,
+    write_social_config,
+)
 from .http import http_form_request, http_get_request
-from .metadata import build_upload_metadata, final_video_path_for_project, record_social_upload, require_project
+from .metadata import (
+    build_upload_metadata,
+    final_video_path_for_project,
+    record_social_upload,
+    require_project,
+    upload_brand_for_project,
+)
 from .r2 import delete_file, r2_config, r2_config_hint, r2_is_configured, resolve_r2_config, upload_file
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 from .scheduler import schedule_upload
@@ -44,12 +55,14 @@ def threads_graph_version(threads: dict | None = None) -> str:
 
 def threads_user_id(threads: dict | None = None) -> str:
     value = threads if isinstance(threads, dict) else threads_config()
-    return str(os.environ.get("THREADS_USER_ID") or value.get("threads_user_id") or "").strip()
+    env_value = "" if value.get("_brand_connection") else os.environ.get("THREADS_USER_ID")
+    return str(env_value or value.get("threads_user_id") or "").strip()
 
 
 def threads_access_token(threads: dict | None = None) -> str:
     value = threads if isinstance(threads, dict) else threads_config()
-    return str(os.environ.get("THREADS_ACCESS_TOKEN") or value.get("access_token") or "").strip()
+    env_value = "" if value.get("_brand_connection") else os.environ.get("THREADS_ACCESS_TOKEN")
+    return str(env_value or value.get("access_token") or "").strip()
 
 
 def threads_is_configured(threads: dict | None = None) -> bool:
@@ -111,7 +124,8 @@ def threads_status(threads: dict | None = None) -> dict:
         "ready": configured,
         "user_id": user_id,
         "threads_user_id": user_id,
-        "display_name": str(value.get("display_name") or "").strip(),
+        "display_name": str(value.get("display_name") or value.get("name") or "").strip(),
+        "connection_id": str(value.get("_connection_id") or value.get("connection_id") or "").strip(),
         "graph_version": threads_graph_version(value),
         "poll_attempts": _poll_attempts(value.get("poll_attempts")),
         "poll_interval_seconds": _poll_interval_seconds(value.get("poll_interval_seconds")),
@@ -126,6 +140,11 @@ def update_threads_config(
     display_name: str = "",
     poll_attempts: int = DEFAULT_POLL_ATTEMPTS,
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    *,
+    brand: str = "",
+    connection_id: str = "",
+    config: dict | None = None,
+    persist: bool = True,
 ) -> dict:
     user_id = str(threads_user_id or "").strip()
     token = str(access_token or "").strip()
@@ -147,15 +166,37 @@ def update_threads_config(
         "poll_attempts": _poll_attempts(poll_attempts, validate=True),
         "poll_interval_seconds": _poll_interval_seconds(poll_interval_seconds, validate=True),
     }
-    config = read_social_config()
+    config = read_social_config() if config is None else config
+    brand = str(brand or "").strip().casefold()
+    if brand:
+        saved_id = store_social_brand_connection(
+            config,
+            brand,
+            "threads",
+            value,
+            connection_id=connection_id,
+            name=display_name,
+        )
+        if persist:
+            write_social_config(config)
+        return {"ok": True, "brand": brand, "connection_id": saved_id, **threads_status({**value, "_brand_connection": True, "_connection_id": saved_id})}
+    existing = threads_config(config)
+    if isinstance(existing.get("connections"), dict):
+        value["connections"] = existing["connections"]
     config["threads"] = value
-    write_social_config(config)
+    if persist:
+        write_social_config(config)
     return threads_status(value)
 
 
 def disconnect_threads() -> dict:
     config = read_social_config()
-    config.pop("threads", None)
+    section = config.get("threads")
+    connections = section.get("connections") if isinstance(section, dict) else None
+    if isinstance(connections, dict) and connections:
+        config["threads"] = {"connections": connections}
+    else:
+        config.pop("threads", None)
     write_social_config(config)
     return {"ok": True, "configured": False, "connected": False}
 
@@ -309,12 +350,18 @@ def threads_upload_video(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise TypeError("Threads upload payload must be an object.")
     project = str(payload.get("project") or "").strip()
-    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    project_dir = require_project(project)
+    brand = upload_brand_for_project(payload, project_dir, "Threads")
+    payload = {**payload, "brand": brand}
+    config = read_social_config()
+    connection_id, threads = resolve_social_brand_connection(config, brand, "threads")
+    if not threads_is_configured(threads):
+        raise ValueError(threads_config_hint(threads))
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
         queued = schedule_upload("threads", payload, scheduled)
-        return {"ok": True, "platform": "threads", "project": project, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Threads; worker sẽ publish đúng giờ."}
+        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Threads; worker sẽ publish đúng giờ."}
     supplied_text = str(payload.get("threadsText") or payload.get("threadsCaption") or "")
     text = threads_text_for_project(project, supplied_text)
 
@@ -332,10 +379,6 @@ def threads_upload_video(payload: dict) -> dict:
         if not video_path.is_file():
             raise FileNotFoundError(f"final_video.mp4 not found for project '{project}'.")
 
-    config = read_social_config()
-    threads = threads_config(config)
-    if not threads_is_configured(threads):
-        raise ValueError(threads_config_hint(threads))
     access_token = threads_access_token(threads)
 
     r2 = r2_config(config)
@@ -433,6 +476,7 @@ def threads_upload_video(payload: dict) -> dict:
         }
         if brand:
             record_details["brand"] = brand
+        record_details["connection_id"] = connection_id
         record_social_upload(project, "threads", record_details)
     except Exception as exc:
         metadata_error = _redact_sensitive(exc, *known_secrets)
@@ -446,6 +490,7 @@ def threads_upload_video(payload: dict) -> dict:
         "platform": "threads",
         "project": project,
         "brand": brand,
+        "connection_id": connection_id,
         "user_id": threads_user_id(threads),
         "container_id": container_id,
         "media_id": media_id,

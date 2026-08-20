@@ -7,7 +7,39 @@ from .config import (
     social_brand_routes,
     social_brand_routes_version,
     social_config_hint,
+    social_platform_connections,
 )
+
+
+def _account_statuses(config: dict, platform: str, status_factory) -> list[dict]:
+    """Return sanitized status records for Brand-scoped social accounts."""
+    accounts = []
+    for connection_id, connection in social_platform_connections(config, platform).items():
+        if not isinstance(connection, dict):
+            continue
+        status = dict(status_factory({**connection, "_brand_connection": True, "_connection_id": str(connection_id)}))
+        status["connection_id"] = str(connection_id)
+        status["brand"] = str(connection.get("brand") or "").strip().casefold()
+        status["display_name"] = str(
+            connection.get("display_name")
+            or connection.get("name")
+            or status.get("display_name")
+            or connection_id
+        ).strip()
+        accounts.append(status)
+    return accounts
+
+
+def _with_accounts(status: dict, accounts: list[dict]) -> dict:
+    status = dict(status)
+    status["accounts"] = accounts
+    if accounts:
+        for key in ("configured", "connected", "available", "ready"):
+            if key in status:
+                status[key] = any(bool(account.get(key)) for account in accounts)
+        if status.get("connected"):
+            status["message"] = ""
+    return status
 from .binance import (
     binance_config,
     binance_config_hint,
@@ -56,6 +88,9 @@ def social_status() -> dict:
     facebook_page = next((page for page in facebook_pages if page.get("active")), None)
     if not facebook_page and facebook_configured:
         facebook_page = facebook_page_profile(facebook)
+    instagram_accounts = _account_statuses(config, "instagram", lambda value: instagram_status(value, r2))
+    tiktok_accounts = _account_statuses(config, "tiktok", zernio_status)
+    threads_accounts = _account_statuses(config, "threads", threads_status)
     return {
         "config_path": str(SOCIAL_UPLOAD_CONFIG),
         "brand_routes": social_brand_routes(config),
@@ -83,9 +118,9 @@ def social_status() -> dict:
                 "video_state": str(facebook.get("video_state") or "PUBLISHED").upper(),
                 "message": "" if facebook_configured else facebook_config_hint(),
             },
-            "instagram": instagram_status(instagram, r2),
-            "threads": threads_status(threads),
-            "tiktok": zernio_status(tiktok),
+            "instagram": _with_accounts(instagram_status(instagram, r2), instagram_accounts),
+            "threads": _with_accounts(threads_status(threads), threads_accounts),
+            "tiktok": _with_accounts(zernio_status(tiktok), tiktok_accounts),
             "r2": r2_status(r2),
             "binance": {
                 "configured": binance_is_configured(binance),
