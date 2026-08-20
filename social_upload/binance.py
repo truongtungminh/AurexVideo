@@ -229,17 +229,15 @@ def binance_upload_video(payload: dict) -> dict:
         body["bodyTextOnly"] = text
 
     result = _binance_json_request("/content/add", api_key, body, base_url=BASE_URL_V1)
-    record_social_upload(
-        project,
-        "binance",
-        {
-            "url": str(result.get("shareLink") or ""),
-            "videoId": str(result.get("id") or file_ticket),
-            "postId": str(result.get("id") or ""),
-            "brand": brand,
-            "state": "published" if result.get("id") or result.get("shareLink") else "published_without_post_id",
-        },
-    )
+    record_details = {
+        "url": str(result.get("shareLink") or ""),
+        "videoId": str(result.get("id") or file_ticket),
+        "postId": str(result.get("id") or ""),
+        "state": "published" if result.get("id") or result.get("shareLink") else "published_without_post_id",
+    }
+    if brand:
+        record_details["brand"] = brand
+    record_social_upload(project, "binance", record_details)
     return {
         "ok": True,
         "platform": "binance",

@@ -448,7 +448,10 @@ def youtube_upload_video(payload: dict) -> dict:
         raise ValueError("privacyStatus must be private, unlisted, or public.")
     scheduled_publish_at = parse_scheduled_publish_at(payload)
     if not scheduled_publish_at:
-        stored = read_project_upload_metadata(project)
+        try:
+            stored = read_project_upload_metadata(project)
+        except (FileNotFoundError, ValueError):
+            stored = {}
         scheduled_publish_at = parse_scheduled_publish_at(stored.get('youtube', {}) if isinstance(stored, dict) else {})
     if scheduled_publish_at:
         # The YouTube API only accepts publishAt on a private video; the

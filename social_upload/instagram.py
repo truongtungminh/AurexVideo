@@ -291,11 +291,12 @@ def instagram_upload_video(payload: dict) -> dict:
         "url": permalink,
         "video_id": container_id,
         "post_id": published_id,
-        "brand": brand,
         "state": "PUBLISHED",
         "r2_key": object_key,
         "r2_url": public_url,
     }
+    if brand:
+        details["brand"] = brand
     record_social_upload(project, "instagram", details)
     message = "Đã đăng Instagram Reels."
     if cleanup_error:

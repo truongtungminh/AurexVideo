@@ -361,7 +361,10 @@ def facebook_upload_video(payload: dict) -> dict:
         raise ValueError("facebook.video_state must be DRAFT, PUBLISHED, or SCHEDULED.")
     scheduled_publish_at = parse_scheduled_publish_at(payload)
     if not scheduled_publish_at:
-        stored = read_project_upload_metadata(project)
+        try:
+            stored = read_project_upload_metadata(project)
+        except (FileNotFoundError, ValueError):
+            stored = {}
         scheduled_publish_at = parse_scheduled_publish_at(stored.get('facebook', {}) if isinstance(stored, dict) else {})
     if scheduled_publish_at:
         # Facebook Graph API schedules Reels via video_state=SCHEDULED plus
@@ -476,6 +479,12 @@ def facebook_upload_video(payload: dict) -> dict:
 def facebook_comment_source(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     metadata = build_upload_metadata(project) if project else {}
+    project_dir = require_project(project) if project else None
+    project_brand = project_brand_from_topic(project_dir) if project_dir else ""
+    declared_brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    brand = declared_brand or project_brand
+    if not brand:
+        raise ValueError("Chưa chọn brand cho Facebook source comment.")
     source_comment = str(payload.get("facebookSourceComment") or metadata.get("facebookSourceComment") or "").strip()
     if not source_comment:
         raise ValueError("Source comment is empty.")
@@ -497,8 +506,9 @@ def facebook_comment_source(payload: dict) -> dict:
     if not facebook_is_configured(facebook):
         raise ValueError(facebook_config_hint())
 
-    access_token = facebook_page_access_token(facebook)
-    target_id = facebook_full_post_id(facebook, target_id)
+    page = facebook_upload_page(config, facebook, {"brand": brand})
+    access_token = facebook_page_access_token(facebook, page)
+    target_id = facebook_full_post_id(facebook, target_id, page)
     comment_id, comment_error = post_facebook_source_comment(facebook, target_id, source_comment, access_token)
     if not comment_id:
         raise RuntimeError(f"Facebook source comment failed: {comment_error}")
@@ -507,6 +517,8 @@ def facebook_comment_source(payload: dict) -> dict:
         "ok": True,
         "platform": "facebook",
         "project": project,
+        "brand": brand,
+        "page_id": facebook_page_id(facebook, page),
         "source_comment_target_id": target_id,
         "source_comment_id": comment_id,
         "message": "Source link was posted as a Facebook comment.",

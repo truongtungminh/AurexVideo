@@ -386,6 +386,7 @@ def generated_upload_metadata(project_dir: Path, script_lines: list[str], existi
     existing_instagram = existing.get("instagram", {}) if isinstance(existing.get("instagram"), dict) else {}
     existing_tiktok = existing.get("tiktok", {}) if isinstance(existing.get("tiktok"), dict) else {}
     existing_social = existing.get("social", {}) if isinstance(existing.get("social"), dict) else {}
+    existing_publish = existing.get("publish", {}) if isinstance(existing.get("publish"), dict) else {}
     copy = default_upload_copy(language)
     binance_tags = list(DEFAULT_BINANCE_TAGS)
     return {
@@ -410,6 +411,11 @@ def generated_upload_metadata(project_dir: Path, script_lines: list[str], existi
         "binance": {
             "caption": copy["binanceCaption"],
             "tags": binance_tags,
+        },
+        "publish": {
+            "schemaVersion": 1,
+            "brand": str(existing_publish.get("brand") or project_brand_from_topic(project_dir)).strip().casefold(),
+            "caption": str(existing_publish.get("caption") or "").strip(),
         },
         "social": existing_social,
     }
@@ -496,6 +502,7 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
     instagram_caption = str(instagram.get("caption") or "").strip()
     tiktok_caption = str(tiktok.get("caption") or "").strip()
     binance_caption = str(binance.get("caption") or "").strip()
+    publish = metadata.get("publish", {}) if isinstance(metadata.get("publish"), dict) else {}
     # Prefer language-aware starter copy when the stored values are still the other-language defaults.
     vi = default_upload_copy("vi")
     en = default_upload_copy("en")
@@ -530,6 +537,8 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
         tags = vi["tags"]
         source_prefix = vi["sourcePrefix"]
     binance_tags = list(DEFAULT_BINANCE_TAGS)
+    publish_brand = str(publish.get("brand") or project_brand_from_topic(project_dir)).strip().casefold()
+    publish_caption = str(publish.get("caption") or caption).strip()
     return {
         "project": project_dir.name,
         "title": title,
@@ -545,6 +554,11 @@ def build_upload_metadata(project: str, language: str = "vi") -> dict:
         "source_url": source_url,
         "privacyStatus": str(youtube.get("privacyStatus") or "public"),
         "tags": tags,
+        "publish": {
+            "schemaVersion": 1,
+            "brand": publish_brand,
+            "caption": publish_caption,
+        },
         "upload_metadata_url": f"/project/{quote(project_dir.name)}/upload-metadata.json",
         "upload_metadata_exists": upload_metadata_path(project_dir).exists(),
         "video_url": final_video_url(project_dir.name),
