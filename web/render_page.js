@@ -2079,11 +2079,17 @@
     state.outputUrl = videoUrl || state.outputUrl;
     state.facebookCommentTargetId = '';
     state.uploadBrand = '';
+    state.uploadBrands = [];
+    state.brandRoutes = {};
+    state.socialStatus = {};
     state.uploadTargets.clear();
     state.uploadTargetsBrand = '';
     panel.hidden = false;
     setUploadEmpty(projectName, false);
     setUploadResult('');
+    setComposerCaption('');
+    renderComposerBrandPicker();
+    renderComposerDestinations();
     await loadUploadMetadata(projectName);
     await refreshSocialStatus();
   }
@@ -2589,7 +2595,7 @@
   }
 
   function updateProjectUrl(projectName) {
-    if (window.location.pathname !== '/') return;
+    if (!['/', '/upload', '/upload/'].includes(window.location.pathname)) return;
     const url = new URL(window.location.href);
     url.searchParams.set('project', projectName);
     window.history.replaceState(null, '', url);
