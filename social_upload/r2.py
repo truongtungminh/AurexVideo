@@ -41,6 +41,36 @@ def resolve_r2_config(r2: dict | None = None) -> dict:
     return result
 
 
+def merge_r2_config_values(payload: dict | None = None, r2: dict | None = None) -> dict:
+    """Merge a partial UI/API payload over the current effective R2 config."""
+    payload = payload if isinstance(payload, dict) else {}
+    current = resolve_r2_config(r2)
+
+    def value(*keys: str, fallback: object = "") -> str:
+        for key in keys:
+            candidate = str(payload.get(key) or "").strip()
+            if candidate:
+                return candidate
+        return str(fallback or "").strip()
+
+    return {
+        "account_id": value("r2AccountId", "accountId", "account_id", fallback=current.get("account_id")),
+        "bucket": value("r2Bucket", "bucket", fallback=current.get("bucket")),
+        "access_key_id": value("r2AccessKeyId", "accessKeyId", "access_key_id", fallback=current.get("access_key_id")),
+        "secret_access_key": value("r2SecretAccessKey", "secretAccessKey", "secret_access_key", fallback=current.get("secret_access_key")),
+        "public_base_url": value("r2PublicBaseUrl", "publicBaseUrl", "public_base_url", fallback=current.get("public_base_url")),
+        "region": value("r2Region", "region", fallback=current.get("region") or R2_REGION),
+        "object_prefix": value("r2ObjectPrefix", "objectPrefix", "object_prefix", fallback=current.get("object_prefix") or "instagram"),
+        "retain_media": bool(
+            payload.get("r2RetainMedia")
+            if "r2RetainMedia" in payload
+            else payload.get("retainMedia")
+            if "retainMedia" in payload
+            else current.get("retain_media")
+        ),
+    }
+
+
 def r2_is_configured(r2: dict | None = None) -> bool:
     value = resolve_r2_config(r2)
     required = ("account_id", "bucket", "access_key_id", "secret_access_key", "public_base_url")

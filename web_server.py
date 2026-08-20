@@ -37,6 +37,7 @@ from social_upload import (
     facebook_upload_video,
     finish_youtube_oauth,
     instagram_upload_video,
+    r2_config,
     publish_instagram_facebook_threads,
     threads_upload_video,
     tiktok_upload_video,
@@ -62,6 +63,7 @@ from social_upload.config import (
     save_social_brand_route,
     write_social_config,
 )
+from social_upload.r2 import merge_r2_config_values, resolve_r2_config
 from social_upload.scheduler import start_scheduler
 import m3_backend as m3
 from tts.elevenlabs import (
@@ -9173,15 +9175,16 @@ class WebHandler(SimpleHTTPRequestHandler):
                     )
                     has_r2_update = any(str(payload.get(key) or "").strip() for key in r2_fields)
                     if has_r2_update:
+                        r2_values = merge_r2_config_values(payload, resolve_r2_config(r2_config(config)))
                         update_r2_config(
-                            str(payload.get("r2AccountId") or payload.get("accountId") or ""),
-                            str(payload.get("r2Bucket") or payload.get("bucket") or ""),
-                            str(payload.get("r2AccessKeyId") or payload.get("accessKeyId") or ""),
-                            str(payload.get("r2SecretAccessKey") or payload.get("secretAccessKey") or ""),
-                            str(payload.get("r2PublicBaseUrl") or payload.get("publicBaseUrl") or ""),
-                            str(payload.get("r2Region") or payload.get("region") or "auto"),
-                            str(payload.get("r2ObjectPrefix") or payload.get("objectPrefix") or "instagram"),
-                            bool(payload.get("r2RetainMedia") or payload.get("retainMedia")),
+                            r2_values["account_id"],
+                            r2_values["bucket"],
+                            r2_values["access_key_id"],
+                            r2_values["secret_access_key"],
+                            r2_values["public_base_url"],
+                            r2_values["region"],
+                            r2_values["object_prefix"],
+                            r2_values["retain_media"],
                             config=config,
                             persist=False,
                         )
