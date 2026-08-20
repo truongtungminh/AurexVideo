@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from .config import read_social_config, social_brand_route, write_social_config
+from .config import canonical_brand, read_social_config, social_brand_route, write_social_config
 from .http import http_form_request, http_get_request
 from .metadata import (
     build_upload_metadata,
@@ -129,7 +129,7 @@ def facebook_full_post_id(facebook: dict, object_id: str, page: dict | None = No
 
 
 def facebook_upload_page(config: dict, facebook: dict, payload: dict) -> dict:
-    brand = str(payload.get("brand") or "").strip().casefold()
+    brand = canonical_brand(payload.get("brand"))
     requested_id = str(payload.get("pageId") or payload.get("page_id") or "").strip()
     if not brand:
         raise ValueError("Facebook upload thiếu brand; không được dùng active Page mặc định.")
@@ -336,7 +336,7 @@ def facebook_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     video_path = final_video_path_for_project(project)
     project_brand = project_brand_from_topic(video_path.parent.parent)
-    declared_brand = str(payload.get("brand") or "").strip().casefold()
+    declared_brand = canonical_brand(payload.get("brand"))
     brand = declared_brand or project_brand
     if not brand:
         raise ValueError("Chưa chọn brand; upload Facebook bị chặn để tránh dùng nhầm Page.")
@@ -481,7 +481,7 @@ def facebook_comment_source(payload: dict) -> dict:
     metadata = build_upload_metadata(project) if project else {}
     project_dir = require_project(project) if project else None
     project_brand = project_brand_from_topic(project_dir) if project_dir else ""
-    declared_brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    declared_brand = canonical_brand(payload.get("brand") or payload.get("brandId"))
     brand = declared_brand or project_brand
     if not brand:
         raise ValueError("Chưa chọn brand cho Facebook source comment.")

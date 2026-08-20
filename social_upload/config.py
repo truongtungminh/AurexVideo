@@ -17,6 +17,9 @@ SOCIAL_ROUTE_PLATFORMS = ("youtube", "facebook", "instagram", "tiktok", "threads
 SOCIAL_BRAND_ROUTES_VERSION = 1
 SOCIAL_BRAND_CONNECTIONS_VERSION = 1
 LEGACY_SOCIAL_BRAND = "popsy"
+BRAND_ALIASES = {
+    "tintucbitcoin": "july",
+}
 SOCIAL_CONNECTION_CONFIG_KEYS = {
     "instagram": "instagram",
     "tiktok": "zernio",
@@ -65,6 +68,68 @@ SOCIAL_CONNECTION_DEFAULT_NAMES = {
 }
 
 
+def canonical_brand(value: object) -> str:
+    """Return the canonical Brand id while keeping old ids backwards-compatible."""
+    brand = str(value or "").strip().casefold()
+    seen = set()
+    while brand in BRAND_ALIASES and brand not in seen:
+        seen.add(brand)
+        brand = BRAND_ALIASES[brand]
+    return brand
+
+
+def migrate_brand_aliases(config: dict) -> tuple[dict, bool]:
+    """Move legacy Brand aliases into their canonical route/connection owner."""
+    if not isinstance(config, dict):
+        return {}, False
+    changed = False
+    raw_routes = config.get("brand_routes")
+    if isinstance(raw_routes, dict):
+        normalized_routes: dict[str, dict] = {}
+        for raw_brand, raw_platforms in raw_routes.items():
+            brand = canonical_brand(raw_brand)
+            if not brand or not isinstance(raw_platforms, dict):
+                continue
+            target = normalized_routes.setdefault(brand, {})
+            if brand != str(raw_brand or "").strip().casefold():
+                changed = True
+            for platform, route in raw_platforms.items():
+                if not isinstance(route, dict):
+                    continue
+                if platform not in target:
+                    target[platform] = dict(route)
+                else:
+                    for key, value in route.items():
+                        target[platform].setdefault(key, value)
+        if normalized_routes != raw_routes:
+            config["brand_routes"] = normalized_routes
+            changed = True
+
+    for section_key in SOCIAL_CONNECTION_CONFIG_KEYS.values():
+        section = config.get(section_key)
+        if not isinstance(section, dict):
+            continue
+        connections = section.get("connections")
+        if not isinstance(connections, dict):
+            continue
+        for connection in connections.values():
+            if not isinstance(connection, dict):
+                continue
+            owner = str(connection.get("brand") or "").strip().casefold()
+            normalized_owner = canonical_brand(owner)
+            if owner and owner != normalized_owner:
+                connection["brand"] = normalized_owner
+                changed = True
+
+    if changed:
+        try:
+            config["brand_routes_version"] = int(config.get("brand_routes_version") or 0) + 1
+        except (TypeError, ValueError):
+            config["brand_routes_version"] = SOCIAL_BRAND_ROUTES_VERSION + 1
+        config["brand_connections_version"] = SOCIAL_BRAND_CONNECTIONS_VERSION
+    return config, changed
+
+
 def read_social_config() -> dict:
     if not SOCIAL_UPLOAD_CONFIG.exists():
         return {}
@@ -73,8 +138,9 @@ def read_social_config() -> dict:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Social upload config is invalid JSON: {SOCIAL_UPLOAD_CONFIG}") from exc
     data = data if isinstance(data, dict) else {}
-    data, changed = migrate_legacy_social_connections(data)
-    if changed:
+    data, aliases_changed = migrate_brand_aliases(data)
+    data, connections_changed = migrate_legacy_social_connections(data)
+    if aliases_changed or connections_changed:
         write_social_config(data)
     return data
 
@@ -101,7 +167,7 @@ def social_brand_routes(config: dict | None = None) -> dict[str, dict[str, dict[
 
     result: dict[str, dict[str, dict[str, str]]] = {}
     for raw_brand, raw_platforms in raw_routes.items():
-        brand = str(raw_brand or "").strip().casefold()
+        brand = canonical_brand(raw_brand)
         if not brand or not isinstance(raw_platforms, dict):
             continue
         for platform in SOCIAL_ROUTE_PLATFORMS:
@@ -121,7 +187,7 @@ def social_brand_routes(config: dict | None = None) -> dict[str, dict[str, dict[
             name = str(raw_route.get("name") or "").strip()
             if name:
                 route["name"] = name
-            result.setdefault(brand, {})[platform] = route
+            result.setdefault(brand, {}).setdefault(platform, route)
     return result
 
 
@@ -135,6 +201,7 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
     """
     config = read_social_config() if config is None else config
     if isinstance(config, dict):
+        migrate_brand_aliases(config)
         migrate_legacy_social_connections(config)
     raw_routes = config.get("brand_routes") if isinstance(config, dict) else None
     if not isinstance(raw_routes, dict):
@@ -142,7 +209,7 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
 
     result: dict[str, dict[str, dict[str, str]]] = {}
     for raw_brand, raw_platforms in raw_routes.items():
-        brand = str(raw_brand or "").strip().casefold()
+        brand = canonical_brand(raw_brand)
         if not brand or not isinstance(raw_platforms, dict):
             continue
         for platform in SOCIAL_ROUTE_PLATFORMS:
@@ -166,7 +233,7 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
                 connection = social_platform_connections(config, platform).get(identity, {})
                 if not isinstance(connection, dict):
                     connection = {}
-                owner = str(connection.get("brand") or "").strip().casefold()
+                owner = canonical_brand(connection.get("brand"))
                 required = SOCIAL_CONNECTION_REQUIRED_KEYS[platform]
                 configured = bool(connection) and owner == brand and all(
                     str(connection.get(key) or "").strip() for key in required
@@ -187,7 +254,7 @@ def social_brand_route_records(config: dict | None = None) -> dict[str, dict[str
             ).strip()
             if name:
                 route["name"] = name
-            result.setdefault(brand, {})[platform] = route
+            result.setdefault(brand, {}).setdefault(platform, route)
     return result
 
 
@@ -203,6 +270,7 @@ def social_platform_connections(config: dict, platform: str) -> dict[str, dict]:
 
 
 def _brand_route_connection_id(config: dict, brand: str, platform: str) -> str:
+    brand = canonical_brand(brand)
     routes = config.get("brand_routes") if isinstance(config, dict) else None
     brand_routes = routes.get(brand) if isinstance(routes, dict) else None
     route = brand_routes.get(platform) if isinstance(brand_routes, dict) else None
@@ -298,12 +366,13 @@ def store_social_brand_connection(
     name: str = "",
 ) -> str:
     """Store credentials in platform config and only the connection id in routes."""
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     platform = str(platform or "").strip().casefold()
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
         raise ValueError("Brand chỉ được dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.")
     if platform not in SOCIAL_CONNECTION_CONFIG_KEYS:
         raise ValueError(f"Unsupported Brand social platform: {platform or '<empty>'}.")
+    migrate_brand_aliases(config)
     public_id_key = SOCIAL_CONNECTION_PUBLIC_ID_KEYS[platform]
     public_id = str(connection.get(public_id_key) or "").strip()
     requested_id = str(connection_id or "").strip()
@@ -316,7 +385,7 @@ def store_social_brand_connection(
             (
                 key for key, value in connections.items()
                 if isinstance(value, dict)
-                and str(value.get("brand") or "").strip().casefold() == brand
+                and canonical_brand(value.get("brand")) == brand
                 and str(value.get(public_id_key) or "").strip() == public_id
             ),
             "",
@@ -331,14 +400,14 @@ def store_social_brand_connection(
         candidate_public_id = str(candidate.get(public_id_key) or "").strip()
         if not public_id or candidate_public_id != public_id:
             continue
-        candidate_owner = str(candidate.get("brand") or "").strip().casefold()
+        candidate_owner = canonical_brand(candidate.get("brand"))
         if candidate_owner != brand:
             raise ValueError(
                 f"Social account {public_id} đang thuộc brand {candidate_owner or 'khác'}."
             )
 
     existing = connections.get(requested_id)
-    existing_owner = str(existing.get("brand") or "").strip().casefold() if isinstance(existing, dict) else ""
+    existing_owner = canonical_brand(existing.get("brand")) if isinstance(existing, dict) else ""
     if isinstance(existing, dict) and existing_owner != brand:
         raise ValueError(f"Social connection {requested_id} đang thuộc brand {existing_owner}.")
 
@@ -379,12 +448,13 @@ def resolve_social_brand_connection(
     requested_connection_id: str = "",
 ) -> tuple[str, dict]:
     """Resolve one explicit Brand route with no global/active fallback."""
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     platform = str(platform or "").strip().casefold()
     if not brand:
         raise ValueError(f"{platform.capitalize()} upload thiếu Brand.")
     if platform not in SOCIAL_CONNECTION_CONFIG_KEYS:
         raise ValueError(f"Unsupported Brand social platform: {platform or '<empty>'}.")
+    migrate_brand_aliases(config)
     migrate_legacy_social_connections(config)
     connection_id = _brand_route_connection_id(config, brand, platform)
     if not connection_id:
@@ -395,7 +465,7 @@ def resolve_social_brand_connection(
     connection = social_platform_connections(config, platform).get(connection_id)
     if not isinstance(connection, dict):
         raise ValueError(f"Social connection {connection_id} không tồn tại cho {platform}.")
-    owner = str(connection.get("brand") or "").strip().casefold()
+    owner = canonical_brand(connection.get("brand"))
     if owner != brand:
         raise ValueError(f"Social connection {connection_id} không thuộc brand {brand}.")
     if not all(str(connection.get(key) or "").strip() for key in SOCIAL_CONNECTION_REQUIRED_KEYS[platform]):
@@ -415,7 +485,7 @@ def save_social_brand_route(
     config: dict | None = None,
 ) -> dict[str, dict[str, str]]:
     """Persist one non-secret destination mapping for a Brand."""
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     platform = str(platform or "").strip().casefold()
     connection_id = str(connection_id or "").strip()
     if not brand:
@@ -428,6 +498,8 @@ def save_social_brand_route(
         raise ValueError("Social connection không hợp lệ.")
 
     config = read_social_config() if config is None else config
+    if isinstance(config, dict):
+        migrate_brand_aliases(config)
     routes = config.get("brand_routes")
     if not isinstance(routes, dict):
         routes = {}
@@ -455,6 +527,8 @@ def save_social_brand_route(
 
 def social_brand_routes_version(config: dict | None = None) -> int:
     config = read_social_config() if config is None else config
+    if isinstance(config, dict):
+        migrate_brand_aliases(config)
     try:
         version = int(config.get("brand_routes_version") or 0) if isinstance(config, dict) else 0
     except (TypeError, ValueError):
@@ -468,7 +542,7 @@ def social_brand_route(config: dict, brand: str, platform: str) -> dict[str, str
     identity_key = SOCIAL_ROUTE_ID_KEYS.get(platform)
     if not identity_key:
         raise ValueError(f"Unsupported social platform: {platform or '<empty>'}.")
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     route = social_brand_routes(config).get(brand, {}).get(platform)
     if not route or not route.get(identity_key):
         raise ValueError(f"Social route chưa cấu hình cho brand {brand or '<empty>'} trên {platform}.")

@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote, quote_plus, urlsplit
 
 from .config import (
+    canonical_brand,
     read_social_config,
     resolve_social_brand_connection,
     store_social_brand_connection,
@@ -167,7 +168,7 @@ def update_threads_config(
         "poll_interval_seconds": _poll_interval_seconds(poll_interval_seconds, validate=True),
     }
     config = read_social_config() if config is None else config
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     if brand:
         saved_id = store_social_brand_connection(
             config,

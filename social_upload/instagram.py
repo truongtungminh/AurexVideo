@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .config import (
+    canonical_brand,
     read_social_config,
     resolve_social_brand_connection,
     store_social_brand_connection,
@@ -124,7 +125,7 @@ def update_instagram_config(
         "graph_version": graph_version if graph_version.startswith("v") else f"v{graph_version}",
         "display_name": str(display_name or "").strip(),
     }
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     if brand:
         saved_id = store_social_brand_connection(
             config,

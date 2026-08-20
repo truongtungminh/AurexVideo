@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .config import (
+    canonical_brand,
     read_social_config,
     resolve_social_brand_connection,
     store_social_brand_connection,
@@ -95,7 +96,7 @@ def update_zernio_config(
         raise ValueError("Zernio API URL phải bắt đầu bằng https://.")
     config = read_social_config() if config is None else config
     value = {"api_key": api_key, "account_id": account_id, "base_url": base_url, "display_name": str(display_name or "").strip()}
-    brand = str(brand or "").strip().casefold()
+    brand = canonical_brand(brand)
     if brand:
         saved_id = store_social_brand_connection(
             config,

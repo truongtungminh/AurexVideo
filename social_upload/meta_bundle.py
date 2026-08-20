@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from .config import canonical_brand
 from .facebook import facebook_comment_source, facebook_upload_video
 from .instagram import instagram_upload_video
 from .threads import threads_upload_video
@@ -55,7 +56,7 @@ def publish_instagram_facebook_threads(payload: dict) -> dict:
             or ""
         ).strip(),
     }
-    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    brand = canonical_brand(payload.get("brand") or payload.get("brandId"))
     if brand:
         instagram_payload["brand"] = brand
         facebook_payload["brand"] = brand

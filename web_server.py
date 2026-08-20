@@ -59,6 +59,7 @@ from social_upload import (
 import social_upload.metadata as social_metadata
 from social_upload.config import (
     SOCIAL_ROUTE_PLATFORMS,
+    canonical_brand,
     read_social_config,
     save_social_brand_route,
     write_social_config,
@@ -739,10 +740,11 @@ def upload_brand_context(project: str = "") -> dict:
         if not isinstance(topic, dict):
             continue
         raw_brand = str(topic.get("brand") or "").strip()
-        brand = raw_brand.casefold()
+        brand = canonical_brand(raw_brand)
         if not brand:
             continue
-        brand_display.setdefault(brand, raw_brand)
+        display_name = brand if raw_brand.casefold() != brand else raw_brand
+        brand_display.setdefault(brand, display_name)
         project_counts[brand] = project_counts.get(brand, 0) + 1
         if project and project_dir.name == project:
             project_brand = brand
@@ -9073,7 +9075,12 @@ class WebHandler(SimpleHTTPRequestHandler):
                     )
                 publish = existing.get("publish") if isinstance(existing.get("publish"), dict) else {}
                 publish = dict(publish)
-                brand = str(payload.get("brand") or payload.get("brandId") or publish.get("brand") or social_metadata.project_brand_from_topic(project_dir)).strip().casefold()
+                brand = canonical_brand(
+                    payload.get("brand")
+                    or payload.get("brandId")
+                    or publish.get("brand")
+                    or social_metadata.project_brand_from_topic(project_dir)
+                )
                 if brand and not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
                     raise ValueError("Brand chỉ được dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.")
                 caption = str(payload.get("caption") if "caption" in payload else payload.get("commonCaption") if "commonCaption" in payload else publish.get("caption") or "").strip()
@@ -9092,7 +9099,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/social/brand-route":
             try:
                 payload = self.read_json_body()
-                brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
                 platform = str(payload.get("platform") or "").strip().casefold()
                 connection_id = str(
                     payload.get("connectionId")
@@ -9125,7 +9132,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                     )
                     if not account:
                         raise ValueError(f"Không tìm thấy account {platform} để gán vào Brand.")
-                    account_brand = str(account.get("brand") or "").strip().casefold()
+                    account_brand = canonical_brand(account.get("brand"))
                     if account_brand != brand:
                         raise ValueError(f"Account {platform} đang thuộc brand {account_brand or 'khác'}.")
                     if not bool(account.get("connected") or account.get("available")):
@@ -9159,7 +9166,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/social/brand-connection":
             try:
                 payload = self.read_json_body()
-                brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
                 platform = str(payload.get("platform") or "").strip().casefold()
                 connection_id = str(payload.get("connectionId") or payload.get("connection_id") or "").strip()
                 display_name = str(payload.get("displayName") or payload.get("name") or "").strip()
