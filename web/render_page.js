@@ -59,6 +59,8 @@
     facebookActivePageId: '',
     defaultUploadTags: [],
     defaultUploadCaption: '',
+    composerBusy: false,
+    composerReady: false,
     renderOptions: {
       brandLogoFile: null,
       brandLogoName: '',
