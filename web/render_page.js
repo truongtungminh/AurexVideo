@@ -683,7 +683,7 @@
     style.textContent = [
       '.upload-redesigned { width: min(1180px, calc(100vw - 40px)) !important; max-width: none !important; margin: 22px auto 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; }',
       '.upload-redesigned .platform-grid, .upload-redesigned .final-upload-actions, .upload-redesigned > .upload-status, .upload-redesigned > .upload-result { display: none !important; }',
-      '.upload-brand-context { min-width: 210px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 8px 12px; border: 1px solid var(--control-line); border-radius: 14px; background: var(--surface); }',
+      '.upload-brand-context { width: 100%; min-width: 0; box-sizing: border-box; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 9px 12px; border: 1px solid var(--control-line); border-radius: 14px; background: var(--surface); }',
       '.upload-brand-context > span { grid-column: 1; color: var(--muted); font-size: 10px; font-weight: 950; letter-spacing: .14em; text-transform: uppercase; }',
       '.upload-brand-context select { grid-column: 2; min-width: 0; min-height: 34px; border: 0; padding: 0 24px 0 0; color: var(--text); background: transparent; font: inherit; font-size: 14px; font-weight: 950; }',
       '.upload-brand-context small { grid-column: 1 / -1; color: var(--muted); font-size: 10px; font-weight: 750; line-height: 1.25; }',
@@ -756,7 +756,7 @@
       '.brand-route-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }',
       '.brand-route-save.secondary { border-color: var(--control-line); color: var(--text-soft); background: var(--field-bg); }',
       '.brand-route-save:disabled { opacity: .45; cursor: not-allowed; }',
-      '@media (max-width: 1050px) { .upload-composer-layout { grid-template-columns: 1fr; } .upload-brand-context { min-width: 180px; } }',
+      '@media (max-width: 1050px) { .upload-composer-layout { grid-template-columns: 1fr; } .upload-context-cluster { grid-template-columns: 1fr; } .upload-brand-context { min-width: 180px; } }',
       '@media (max-width: 720px) { .upload-redesigned { width: min(100% - 24px, 680px) !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide { grid-column: auto; } .upload-destination-row { grid-template-columns: auto 1fr; } .destination-side { grid-column: 2; justify-content: flex-start; } .destination-schedule-wrap { grid-column: 2; } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
     ].join('\n');
     document.head.appendChild(style);
@@ -1203,8 +1203,10 @@
       context.id = 'uploadBrandContext';
       context.className = 'upload-brand-context';
       context.innerHTML = '<span>Brand đăng bài</span><select id="uploadBrandSelect" aria-label="Brand đăng bài"></select><small id="uploadBrandSummary">Đang tải social route...</small><button id="manageBrandSocial" type="button">Kết nối / quản lý social</button>';
+      const contextCluster = header.querySelector('#uploadContextCluster');
       const actions = header.querySelector('.top-upload-actions');
-      if (actions) header.insertBefore(context, actions);
+      if (contextCluster) contextCluster.appendChild(context);
+      else if (actions) header.insertBefore(context, actions);
       else header.appendChild(context);
     }
     const root = document.createElement('section');

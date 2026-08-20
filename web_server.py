@@ -6433,7 +6433,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260820-brand-composer4"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer5"></script>
 """,
     )
 
@@ -6463,11 +6463,14 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
             <h1>AurexVideo</h1>
           </div>
         </div>
-        <label class="field project-select-field field-project top-project-field">
-          <select id="projectSelect" {"disabled" if not projects else ""}>
-            {options}
-          </select>
-        </label>
+        <div class="upload-context-cluster" id="uploadContextCluster">
+          <label class="field project-select-field field-project top-project-field">
+            <span class="upload-context-label">Project đăng</span>
+            <select id="projectSelect" {"disabled" if not projects else ""}>
+              {options}
+            </select>
+          </label>
+        </div>
         <div class="top-upload-actions">
           <span class="ready-pill"><strong>{len(output_projects)}</strong><span>sẵn sàng</span></span>
           <button class="refresh-btn icon-btn header-nav-action" id="openDefaultTags" type="button">{ui_icon("pencil")}<span>Sửa caption</span></button>
@@ -7019,10 +7022,10 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
 
     .upload-machine { display: grid; gap: 14px; }
     .top-upload-bar {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(180px, 0.72fr) minmax(470px, 1.55fr) auto;
       align-items: center;
-      justify-content: space-between;
-      gap: 18px;
+      gap: 22px;
       width: 100%;
       margin: 0 0 8px;
       padding: 0;
@@ -7060,24 +7063,40 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       letter-spacing: -0.05em;
       white-space: nowrap;
     }
+    .upload-context-cluster {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.95fr) minmax(260px, 1.05fr);
+      align-items: stretch;
+      gap: 12px;
+      min-width: 0;
+    }
+    .upload-context-label {
+      display: block;
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0.14em;
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
     .top-project-field {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      align-items: center;
-      gap: 0;
-      width: auto;
+      align-content: center;
+      width: 100%;
       min-width: 0;
-      flex: 1 1 auto;
-      max-width: 360px;
+      max-width: none;
       margin: 0;
-      border: 0;
-      padding: 0;
-      background: transparent;
+      border: 1px solid var(--control-line);
+      border-radius: 14px;
+      padding: 9px 12px;
+      background: var(--surface);
     }
     body:not(.theme-light) .top-project-field {
-      border: 0;
-      padding: 0;
-      background: transparent;
+      border: 1px solid var(--control-line);
+      padding: 9px 12px;
+      background: var(--surface);
     }
     .top-project-field select {
       width: 100%;
@@ -7095,8 +7114,8 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       justify-content: flex-end;
       gap: 10px;
       min-width: 0;
-      flex: 0 0 auto;
-      margin-left: auto;
+      flex-wrap: wrap;
+      margin-left: 0;
     }
     .top-upload-actions .ready-pill {
       min-height: 40px;
@@ -7319,6 +7338,21 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       background:
         linear-gradient(135deg, rgba(242, 178, 101, 0.14), rgba(255, 255, 255, 0.035)),
         rgba(0, 0, 0, 0.70);
+    }
+    .top-project-field select,
+    body:not(.theme-light) .top-project-field select {
+      min-height: 34px;
+      border: 0;
+      border-radius: 0;
+      padding: 0 24px 0 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .top-project-field select:focus,
+    body:not(.theme-light) .top-project-field select:focus {
+      outline: none;
+      border: 0;
+      box-shadow: none;
     }
     body:not(.theme-light) .project-select-field:not(.top-project-field) {
       border: 1px solid var(--field-border);
@@ -8090,7 +8124,8 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .top-upload-bar .brand-mark,
       .top-upload-bar .upload-brand-mark { width: 68px; height: 68px; flex-basis: 68px; }
       .top-upload-bar h1 { font-size: clamp(34px, 3.6vw, 44px); }
-      .top-project-field { width: min(100%, 400px); max-width: 400px; grid-template-columns: minmax(0, 1fr); }
+      .upload-context-cluster { grid-template-columns: minmax(240px, 0.95fr) minmax(280px, 1.05fr); gap: 14px; }
+      .top-project-field { width: 100%; max-width: none; grid-template-columns: minmax(0, 1fr); }
       .top-project-field select { min-height: 50px; font-size: 16px; }
       .top-upload-actions .refresh-btn { min-height: 48px; padding: 10px 16px; font-size: 14px; }
       .ready-pill { padding: 10px 14px; font-size: 14px; }
@@ -8119,16 +8154,17 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .upload-header { display: grid; }
       .header-tools { justify-content: stretch; justify-self: stretch; width: 100%; }
       .top-upload-bar {
-        flex-wrap: wrap;
-        gap: 14px;
+        grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+        gap: 14px 18px;
       }
-      .top-project-field {
+      .upload-context-cluster {
+        grid-column: 1 / -1;
         order: 3;
-        flex: 1 1 100%;
-        max-width: none;
-        grid-template-columns: minmax(0, 1fr);
       }
-      .top-upload-actions { margin-left: 0; }
+      .top-upload-actions {
+        grid-column: 2;
+        justify-content: flex-end;
+      }
     }
     @media (max-width: 720px) {
       body { padding: 20px 14px; }
@@ -8138,7 +8174,15 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .upload-header { grid-template-columns: 1fr; gap: 16px; }
       .upload-title-block { min-height: 0; }
       .header-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .top-upload-bar { align-items: flex-start; }
+      .top-upload-bar {
+        grid-template-columns: 1fr;
+        align-items: flex-start;
+      }
+      .upload-context-cluster {
+        grid-column: auto;
+        grid-template-columns: 1fr;
+        width: 100%;
+      }
       .top-upload-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
       .platform-card-head { align-items: flex-start; flex-direction: column; }
       .platform-grid { grid-template-columns: 1fr; }
@@ -8154,7 +8198,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260820-brand-composer4"></script>
+  <script src="/web/render_page.js?v=20260820-brand-composer5"></script>
 """,
     )
 
