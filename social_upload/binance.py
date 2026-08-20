@@ -14,7 +14,13 @@ from aurexvideo_paths import ffmpeg_executable
 
 from .config import read_social_config, write_social_config
 from .http import http_form_request
-from .metadata import build_upload_metadata, final_video_path_for_project, record_social_upload, require_project
+from .metadata import (
+    build_upload_metadata,
+    final_video_path_for_project,
+    project_brand_from_topic,
+    record_social_upload,
+    require_project,
+)
 
 
 BASE_URL_V1 = "https://www.binance.com/bapi/composite/v1/public/pgc/openApi"
@@ -23,6 +29,7 @@ POLL_INTERVAL_MS = 3000
 MAX_POLL_RETRIES = 10
 BINANCE_SQUARE_OPENAPI_KEY_ENV = "BINANCE_SQUARE_OPENAPI_KEY"
 DEFAULT_OPENAPI_KEY_PATH = Path.home() / ".config" / "binance-square" / "openapi-key"
+BINANCE_BRAND = "july"
 
 
 def binance_config(config: dict | None = None) -> dict:
@@ -186,9 +193,20 @@ def disconnect_binance() -> dict:
     return {"ok": True}
 
 
+def resolve_binance_upload_brand(payload: dict) -> str:
+    """Return the Binance-eligible brand, rejecting non-July projects and payloads."""
+    project = str(payload.get("project") or "").strip()
+    declared_brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    project_brand = project_brand_from_topic(require_project(project))
+    effective_brand = declared_brand or project_brand
+    if project_brand not in {"", BINANCE_BRAND} or effective_brand != BINANCE_BRAND:
+        raise ValueError("Binance Square is only available for Brand july.")
+    return effective_brand
+
+
 def binance_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
-    brand = str(payload.get("brand") or payload.get("brandId") or "").strip().casefold()
+    brand = resolve_binance_upload_brand(payload)
     video_path = final_video_path_for_project(project)
     duration = float(payload.get("duration") or 0)
     if duration <= 0:
