@@ -689,6 +689,7 @@ function scheduleImportedPresenterLayout() {
   });
 }
 
+
 function setPose(event, time, allowSfx = false) {
   const poseChanged = event.index !== lastPoseIndex;
   if (poseChanged) {
@@ -709,10 +710,37 @@ function setPose(event, time, allowSfx = false) {
       lastPresenterSource = nextSrc;
     }
     if (useVideo) {
+      const config = poseMediaConfig(currentPose);
       teacher.muted = true;
-      teacher.loop = true;
+      teacher.loop = false;
       teacher.playsInline = true;
-      if (shouldResetVideo) teacher.currentTime = 0;
+
+      // Keep live preview playback inside the same configured loop window as
+      // offline rendering. Offline rendering has its own frame-by-frame seek.
+      if (!teacher.__aurexPreviewLoopBound) {
+        teacher.addEventListener("timeupdate", () => {
+          if (offlineRender) return;
+          const activeConfig = poseMediaConfig(currentPose);
+          if (!activeConfig.loop || activeConfig.loopEnd <= activeConfig.loopStart) return;
+          if (teacher.currentTime >= activeConfig.loopEnd - 0.02) {
+            teacher.currentTime = Math.min(activeConfig.loopStart, Math.max(0, (teacher.duration || activeConfig.loopStart + 0.001) - 0.001));
+          }
+        });
+        teacher.__aurexPreviewLoopBound = true;
+      }
+
+      const seekToLoopStart = () => {
+        if (offlineRender || !shouldResetVideo) return;
+        const duration = Number(teacher.duration);
+        const start = Math.max(0, Number(config.loopStart) || 0);
+        teacher.currentTime = Number.isFinite(duration) && duration > 0
+          ? Math.min(start, Math.max(0, duration - 0.001))
+          : start;
+      };
+      if (shouldResetVideo) {
+        if (teacher.readyState >= 1 && currentSrc === nextSrc) seekToLoopStart();
+        else teacher.addEventListener("loadedmetadata", seekToLoopStart, { once: true });
+      }
       // Offline capture paints decoded frames to a canvas, so the video must
       // actually be playing (not paused) for headless Chromium to produce frames.
       teacher.play().catch(() => {});
