@@ -565,6 +565,7 @@
     { id: 'threads', label: 'Threads', icon: '@', className: 'threads', routeScope: 'global', legacyButton: '#uploadThreads', configButton: '#openThreadsConfig' },
     { id: 'binance', label: 'Binance Square', icon: 'B', className: 'binance', routeScope: 'global', legacyButton: '#uploadBinance', configButton: '#openBinanceConfig' },
   ]);
+  const BINANCE_COMPOSER_BRAND = 'july';
 
   function composerEscape(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -572,6 +573,14 @@
 
   function composerPlatformSpec(platform) {
     return COMPOSER_PLATFORMS.find((item) => item.id === platform) || null;
+  }
+
+  function composerPlatformAllowedForBrand(platform) {
+    return platform !== 'binance' || String(state.uploadBrand || '').trim().toLowerCase() === BINANCE_COMPOSER_BRAND;
+  }
+
+  function composerPlatformsForActiveBrand() {
+    return COMPOSER_PLATFORMS.filter((platform) => composerPlatformAllowedForBrand(platform.id));
   }
 
   function composerPlatformStatus(platform) {
@@ -592,7 +601,7 @@
 
   function composerTargetAvailable(platform) {
     const spec = composerPlatformSpec(platform);
-    if (!spec || !state.uploadBrand || !composerPlatformReady(platform)) return false;
+    if (!spec || !composerPlatformAllowedForBrand(platform) || !state.uploadBrand || !composerPlatformReady(platform)) return false;
     return spec.routeScope === 'global' || Boolean(composerRoute(platform));
   }
 
@@ -808,7 +817,7 @@
     });
     select.disabled = !state.uploadBrands.length;
     if (state.uploadBrand && state.uploadBrands.some((brand) => brand.id === state.uploadBrand)) select.value = state.uploadBrand;
-    const routeCount = COMPOSER_PLATFORMS.filter((item) => composerRoute(item.id)).length;
+    const routeCount = composerPlatformsForActiveBrand().filter((item) => composerRoute(item.id)).length;
     if (summary) summary.textContent = state.uploadBrand ? `${routeCount} kết nối đã gán · ${state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.project_count || 0} project` : 'Chưa có Brand trong project';
   }
 
@@ -817,7 +826,8 @@
     const title = $('#destinationBrandTitle');
     const count = $('#destinationCount');
     if (!list) return;
-    const availableIds = COMPOSER_PLATFORMS.filter((item) => composerTargetAvailable(item.id)).map((item) => item.id);
+    const platforms = composerPlatformsForActiveBrand();
+    const availableIds = platforms.filter((item) => composerTargetAvailable(item.id)).map((item) => item.id);
     if (state.uploadTargetsBrand !== state.uploadBrand || !state.uploadTargets.size) {
       state.uploadTargets = new Set(availableIds);
       state.uploadTargetsBrand = state.uploadBrand;
@@ -827,7 +837,7 @@
     if (title) title.textContent = state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.name || state.uploadBrand || 'Chọn Brand';
     if (count) count.textContent = `${state.uploadTargets.size}/${availableIds.length} đã chọn`;
     list.textContent = '';
-    COMPOSER_PLATFORMS.forEach((platform) => {
+    platforms.forEach((platform) => {
       const ready = composerTargetAvailable(platform.id);
       const connected = composerPlatformReady(platform.id);
       const selected = state.uploadTargets.has(platform.id);
@@ -930,7 +940,7 @@
     const modal = $('#brandSocialModal');
     if (!modal) return;
     const brandOptions = state.uploadBrands.map((brand) => '<option value="' + composerEscape(brand.id) + '" ' + (brand.id === state.uploadBrand ? 'selected' : '') + '>' + composerEscape(brand.name || brand.id) + '</option>').join('');
-    const routeRows = COMPOSER_PLATFORMS.map((platform) => {
+    const routeRows = composerPlatformsForActiveBrand().map((platform) => {
       const ready = composerPlatformReady(platform.id);
       const options = routeOptionsForPlatform(platform.id);
       const route = composerRoute(platform.id);
@@ -942,7 +952,7 @@
         : '<button class="brand-route-save" type="button" data-brand-social-config="' + composerEscape(platform.id) + '">Kết nối</button>';
       return '<div class="brand-route-item"><div class="brand-route-platform"><span class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</span><span>' + composerEscape(platform.label) + '<em>' + composerEscape(scopeNote) + '</em></span></div><select data-route-select="' + composerEscape(platform.id) + '" ' + (!ready ? 'disabled' : '') + '>' + (optionMarkup || '<option value="">Chưa có account</option>') + '</select>' + action + '</div>';
     }).join('');
-    modal.innerHTML = '<div class="brand-social-modal-card" role="dialog" aria-modal="true" aria-labelledby="brandSocialTitle"><button class="brand-social-modal-close" type="button" data-close-brand-social aria-label="Đóng">×</button><p class="kicker">Brand Social Center</p><h3 id="brandSocialTitle">Kênh đăng của Brand</h3><p>Gán channel/page cho Brand để mỗi lần đăng dùng đúng social. Instagram, TikTok, Threads và Binance hiện dùng account chung của cấu hình nền tảng.</p><label class="brand-social-brand-select"><span>Brand đang quản lý</span><select id="brandSocialBrandSelect">' + brandOptions + '</select></label><div class="brand-route-list">' + routeRows + '</div></div>';
+    modal.innerHTML = '<div class="brand-social-modal-card" role="dialog" aria-modal="true" aria-labelledby="brandSocialTitle"><button class="brand-social-modal-close" type="button" data-close-brand-social aria-label="Đóng">×</button><p class="kicker">Brand Social Center</p><h3 id="brandSocialTitle">Kênh đăng của Brand</h3><p>Gán channel/page cho Brand để mỗi lần đăng dùng đúng social. Instagram, TikTok và Threads hiện dùng account chung của cấu hình nền tảng; Binance Square chỉ áp dụng cho Brand july.</p><label class="brand-social-brand-select"><span>Brand đang quản lý</span><select id="brandSocialBrandSelect">' + brandOptions + '</select></label><div class="brand-route-list">' + routeRows + '</div></div>';
   }
 
   function openBrandSocialModal(platform = '') {
@@ -1007,8 +1017,9 @@
         return;
       }
       if (target.dataset.destinationToggle) {
-        if (target.checked) state.uploadTargets.add(target.dataset.destinationToggle);
-        else state.uploadTargets.delete(target.dataset.destinationToggle);
+        const platform = target.dataset.destinationToggle;
+        if (target.checked && composerTargetAvailable(platform)) state.uploadTargets.add(platform);
+        else state.uploadTargets.delete(platform);
         renderComposerDestinations();
         return;
       }
@@ -1037,7 +1048,7 @@
       }
       if (event.target.closest('#publishSelectedTargets')) { publishComposerTargets(); return; }
       if (event.target.closest('#publishAllTargets')) {
-        state.uploadTargets = new Set(COMPOSER_PLATFORMS.filter((item) => composerTargetAvailable(item.id)).map((item) => item.id));
+        state.uploadTargets = new Set(composerPlatformsForActiveBrand().filter((item) => composerTargetAvailable(item.id)).map((item) => item.id));
         renderComposerDestinations();
         publishComposerTargets();
       }
