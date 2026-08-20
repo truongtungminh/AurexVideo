@@ -681,11 +681,11 @@
     const style = document.createElement('style');
     style.id = 'upload-composer-styles';
     style.textContent = [
-      '.upload-redesigned { width: min(1180px, calc(100vw - 40px)) !important; max-width: none !important; margin: 22px auto 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; }',
+      '.upload-redesigned { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; }',
       '.upload-redesigned .platform-grid, .upload-redesigned .final-upload-actions, .upload-redesigned > .upload-status, .upload-redesigned > .upload-result { display: none !important; }',
-      '.upload-brand-context { width: 100%; min-width: 0; box-sizing: border-box; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 9px 12px; border: 1px solid var(--control-line); border-radius: 14px; background: var(--surface); }',
+      '.upload-brand-context { width: 100%; min-width: 0; box-sizing: border-box; display: grid; grid-template-columns: 1fr; align-content: start; gap: 7px; padding: 0; border: 0; border-radius: 0; background: transparent; }',
       '.upload-brand-context > span { grid-column: 1; color: var(--muted); font-size: 10px; font-weight: 950; letter-spacing: .14em; text-transform: uppercase; }',
-      '.upload-brand-context select { grid-column: 2; min-width: 0; min-height: 34px; border: 0; padding: 0 24px 0 0; color: var(--text); background: transparent; font: inherit; font-size: 14px; font-weight: 950; }',
+      '.upload-brand-context select { grid-column: 1; min-width: 0; min-height: 46px; border: 1px solid var(--control-line); border-radius: 11px; padding: 11px 13px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 14px; font-weight: 850; }',
       '.upload-brand-context small { grid-column: 1 / -1; color: var(--muted); font-size: 10px; font-weight: 750; line-height: 1.25; }',
       '.upload-brand-context button { grid-column: 1 / -1; justify-self: start; min-height: 28px; border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; font-size: 11px; font-weight: 950; cursor: pointer; }',
       '.upload-brand-context button:hover { text-decoration: underline; }',
@@ -862,6 +862,31 @@
     if (summary) summary.textContent = state.uploadBrand ? `${routeCount} kết nối đã gán · ${state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.project_count || 0} project` : 'Chưa có Brand trong project';
   }
 
+  function renderComposerSocialSummary() {
+    const container = $('#uploadSocialChips');
+    if (!container) return;
+    container.textContent = '';
+    const platforms = composerPlatformsForActiveBrand();
+    if (!state.uploadBrand || !platforms.length) {
+      const empty = document.createElement('span');
+      empty.className = 'upload-social-chip is-off';
+      empty.textContent = 'Chọn Brand để xem social';
+      container.appendChild(empty);
+      return;
+    }
+    platforms.forEach((platform) => {
+      const ready = composerTargetAvailable(platform.id);
+      const connected = composerPlatformReady(platform.id);
+      const chip = document.createElement('div');
+      chip.className = `upload-social-chip ${ready ? '' : connected ? 'is-pending' : 'is-off'}`.trim();
+      const status = ready ? 'Đã gán' : connected ? 'Đã kết nối · chưa gán' : 'Chưa kết nối';
+      chip.innerHTML = '<span class="upload-social-chip-icon">' + composerEscape(platform.icon) + '</span>'
+        + '<span class="upload-social-chip-copy"><strong>' + composerEscape(platform.label) + '</strong><small>' + composerEscape(composerAccountName(platform.id)) + '</small></span>'
+        + '<span class="upload-social-chip-dot" aria-hidden="true"></span><span class="upload-social-chip-status">' + composerEscape(status) + '</span>';
+      container.appendChild(chip);
+    });
+  }
+
   function renderComposerDestinations() {
     const list = $('#uploadDestinations');
     const title = $('#destinationBrandTitle');
@@ -904,6 +929,7 @@
     const allButton = $('#publishAllTargets');
     if (selectedButton) selectedButton.disabled = !state.uploadTargets.size || state.composerBusy;
     if (allButton) allButton.disabled = !availableIds.length || state.composerBusy;
+    renderComposerSocialSummary();
   }
 
   function openLegacySocialConfig(platform) {
@@ -1203,9 +1229,11 @@
       context.id = 'uploadBrandContext';
       context.className = 'upload-brand-context';
       context.innerHTML = '<span>Brand đăng bài</span><select id="uploadBrandSelect" aria-label="Brand đăng bài"></select><small id="uploadBrandSummary">Đang tải social route...</small><button id="manageBrandSocial" type="button">Kết nối / quản lý social</button>';
-      const contextCluster = header.querySelector('#uploadContextCluster');
+      const contextSlot = document.querySelector('#uploadBrandContextSlot');
+      const contextCluster = header?.querySelector('#uploadContextCluster');
       const actions = header.querySelector('.top-upload-actions');
-      if (contextCluster) contextCluster.appendChild(context);
+      if (contextSlot) contextSlot.appendChild(context);
+      else if (contextCluster) contextCluster.appendChild(context);
       else if (actions) header.insertBefore(context, actions);
       else header.appendChild(context);
     }
