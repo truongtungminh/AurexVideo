@@ -1273,7 +1273,7 @@
     renderComposerDestinations();
     try {
       for (const platform of targets) {
-        setUploadStatus(`Đang đăng ${platform.label}...`, 'warn');
+        setUploadStatus(`${scheduledPublishAt ? 'Đang xếp lịch' : 'Đang đăng'} ${platform.label}...`, 'warn');
         try {
           const data = await uploadComposerPlatform(platform.id, project, scheduledPublishAt);
           if (!data) throw new Error('Nền tảng không trả về kết quả upload.');
@@ -1305,9 +1305,10 @@
         }
       }
       const level = failed.length ? (succeeded.length ? 'warn' : 'bad') : 'good';
+      const completedVerb = scheduledPublishAt ? 'Đã lên lịch' : 'Đã đăng';
       const summary = failed.length
-        ? `Đã đăng: ${succeeded.join(', ') || 'chưa có nền tảng nào'}\n${failed.join('\n')}`
-        : `Đã đăng ${succeeded.join(', ')}.`;
+        ? `${completedVerb}: ${succeeded.join(', ') || 'chưa có nền tảng nào'}\n${failed.join('\n')}`
+        : `${completedVerb} ${succeeded.join(', ')}.`;
       setUploadStatus(summary, level);
       setUploadResult(summary, level, links);
     } finally {
