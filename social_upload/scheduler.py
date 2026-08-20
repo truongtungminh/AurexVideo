@@ -83,6 +83,9 @@ def _run_item(item: dict) -> None:
         elif platform == "threads":
             from .threads import threads_upload_video
             result = threads_upload_video(payload)
+        elif platform == "binance":
+            from .binance import binance_upload_video
+            result = binance_upload_video(payload)
         else:
             raise ValueError(f"Unsupported scheduled platform: {platform}")
         status = "completed"

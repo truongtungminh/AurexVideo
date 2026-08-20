@@ -44,6 +44,26 @@ class BinanceBrandGuardTests(unittest.TestCase):
                 binance.binance_upload_video({"project": "demo", "brand": "july", "duration": 10})
         video_path.assert_not_called()
 
+    def test_scheduled_upload_queues_before_external_video_calls(self) -> None:
+        payload = {
+            "project": "demo",
+            "brand": "july",
+            "duration": 10,
+            "text": "Scheduled post",
+            "scheduledPublishAt": "2030-01-01T00:00:00Z",
+        }
+        with patch.object(binance, "require_project", return_value=Path("/tmp/project")), \
+             patch.object(binance, "project_brand_from_topic", return_value="july"), \
+             patch.object(binance, "final_video_path_for_project", return_value=Path("/tmp/video.mp4")), \
+             patch.object(binance, "schedule_upload", return_value={"id": "schedule_1", "scheduledPublishAt": payload["scheduledPublishAt"]}) as schedule_upload, \
+             patch.object(binance, "resolve_binance_api_key") as api_key:
+            result = binance.binance_upload_video(payload)
+
+        schedule_upload.assert_called_once_with("binance", payload, payload["scheduledPublishAt"])
+        api_key.assert_not_called()
+        self.assertEqual(result["state"], "SCHEDULED")
+        self.assertEqual(result["schedule_id"], "schedule_1")
+
 
 if __name__ == "__main__":
     unittest.main()
