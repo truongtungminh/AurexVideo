@@ -857,7 +857,10 @@
 
   function openLegacySocialConfig(platform) {
     const spec = composerPlatformSpec(platform);
-    const button = $(spec?.configButton || spec?.connectButton || '');
+    const selector = platform === 'youtube'
+      ? (state.socialConfigured.youtube ? spec?.connectButton : spec?.configButton)
+      : (spec?.configButton || spec?.connectButton);
+    const button = $(selector || '');
     if (button) button.click();
   }
 
