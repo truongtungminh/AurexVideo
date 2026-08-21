@@ -1843,10 +1843,11 @@
     const accountIdInput = $('#tiktokAccountId');
     const apiKeyInput = $('#tiktokApiKey');
     const modalOpen = Boolean($('#tiktokConfigModal') && !$('#tiktokConfigModal').hidden);
-    if (displayNameInput && document.activeElement !== displayNameInput) {
+    const brandTarget = brandConnectionTargetFor('tiktok');
+    if (!brandTarget && displayNameInput && document.activeElement !== displayNameInput) {
       displayNameInput.value = String(tiktok.display_name || tiktok.name || '');
     }
-    if (accountIdInput && document.activeElement !== accountIdInput) {
+    if (!brandTarget && accountIdInput && document.activeElement !== accountIdInput) {
       accountIdInput.value = String(tiktok.account_id || '');
     }
     if (apiKeyInput) {
@@ -1954,9 +1955,26 @@
     const r2RetainInput = $('#r2RetainMedia');
     const displayNameInput = $('#instagramDisplayName');
     const modalOpen = Boolean($('#instagramConfigModal') && !$('#instagramConfigModal').hidden);
+    const brandTarget = brandConnectionTargetFor('instagram');
     const r2 = instagram.r2 || {};
-    if (igUserIdInput && document.activeElement !== igUserIdInput) igUserIdInput.value = String(instagram.ig_user_id || '');
-    if (displayNameInput && document.activeElement !== displayNameInput) displayNameInput.value = String(instagram.display_name || instagram.name || '');
+    const r2Fields = $('#instagramR2ConfigFields');
+    const r2SharedNote = $('#instagramR2SharedNote');
+    const r2SharedState = $('#instagramR2SharedState');
+    const configDescription = $('#instagramConfigDescription');
+    if (r2Fields) r2Fields.hidden = Boolean(brandTarget);
+    if (r2SharedNote) r2SharedNote.hidden = !brandTarget;
+    if (r2SharedState) {
+      r2SharedState.textContent = r2.configured
+        ? 'R2 chung đã sẵn sàng. Account Brand này sẽ dùng kho R2 hiện tại.'
+        : 'R2 chung chưa được cấu hình. Hãy cấu hình R2 một lần trước khi thêm account Brand.';
+    }
+    if (configDescription) {
+      configDescription.textContent = brandTarget
+        ? 'Account Instagram này dùng R2 chung của hệ thống. Chỉ cần nhập thông tin Instagram riêng cho Brand.'
+        : 'Instagram sẽ kéo video từ public HTTPS URL trên R2 chung. Access token và Secret Key được lưu trong file config local với quyền hạn chế.';
+    }
+    if (!brandTarget && igUserIdInput && document.activeElement !== igUserIdInput) igUserIdInput.value = String(instagram.ig_user_id || '');
+    if (!brandTarget && displayNameInput && document.activeElement !== displayNameInput) displayNameInput.value = String(instagram.display_name || instagram.name || '');
     if (apiModeInput && document.activeElement !== apiModeInput) apiModeInput.value = String(instagram.api_mode || 'instagram_login');
     if (graphVersionInput && document.activeElement !== graphVersionInput) graphVersionInput.value = String(instagram.graph_version || 'v25.0');
     if (r2AccountIdInput && !modalOpen && document.activeElement !== r2AccountIdInput) r2AccountIdInput.value = '';
@@ -1971,6 +1989,7 @@
     if (r2AccountIdInput) r2AccountIdInput.placeholder = r2.configured ? 'Đã lưu Account ID, dán ID mới nếu muốn đổi' : 'Cloudflare Account ID';
     if (r2AccessKeyInput) r2AccessKeyInput.placeholder = r2.configured ? 'Đã lưu Access Key ID, dán key mới nếu muốn đổi' : 'Access Key ID';
     if (r2SecretInput) r2SecretInput.placeholder = r2.configured ? 'Đã lưu Secret Key, dán key mới nếu muốn đổi' : 'Secret Access Key';
+    setButtonLabel($('#saveInstagramConfig'), brandTarget ? 'Lưu Instagram account' : 'Lưu Instagram + R2');
   }
 
   function openInstagramConfigModal(brand = '') {
@@ -2026,8 +2045,12 @@
     const brandTarget = brandConnectionTargetFor('instagram');
     const r2Ready = Boolean(state.instagramConfig?.r2?.configured);
     const missingR2 = !r2Ready && (!payload.r2AccountId || !payload.r2Bucket || !payload.r2AccessKeyId || !payload.r2SecretAccessKey || !payload.r2PublicBaseUrl);
-    if (!payload.igUserId || !payload.accessToken || missingR2) {
-      setUploadStatus(brandTarget ? 'Nhập đủ Instagram ID/token; nếu R2 chưa cấu hình thì nhập thêm toàn bộ thông tin R2.' : 'Nhập đủ Instagram ID/token và toàn bộ thông tin R2 trước khi lưu.', 'bad');
+    if (brandTarget && !r2Ready) {
+      setUploadStatus('R2 dùng chung chưa cấu hình. Hãy bấm “Cấu hình R2 chung”, lưu R2 một lần rồi thêm Instagram cho Brand.', 'bad');
+      return;
+    }
+    if (!payload.igUserId || !payload.accessToken || (!brandTarget && missingR2)) {
+      setUploadStatus(brandTarget ? 'Nhập đủ Instagram IG User ID và access token.' : 'Nhập đủ Instagram ID/token và toàn bộ thông tin R2 trước khi lưu.', 'bad');
       return;
     }
     if (instagramConfigSaving) return;
@@ -2038,7 +2061,17 @@
       const response = await fetch(brandTarget ? '/api/social/brand-connection' : '/api/social/instagram/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(brandTarget ? { ...payload, platform: 'instagram', brand: brandTarget.brand } : payload),
+        body: JSON.stringify(brandTarget
+          ? {
+            platform: 'instagram',
+            brand: brandTarget.brand,
+            igUserId: payload.igUserId,
+            accessToken: payload.accessToken,
+            apiMode: payload.apiMode,
+            graphVersion: payload.graphVersion,
+            displayName: payload.displayName,
+          }
+          : payload),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -2061,8 +2094,9 @@
     const displayNameInput = $('#threadsDisplayName');
     const configState = $('#threadsConfigState');
     const userId = String(threads.threads_user_id || threads.user_id || '').trim();
-    if (userIdInput && document.activeElement !== userIdInput) userIdInput.value = userId;
-    if (displayNameInput && document.activeElement !== displayNameInput) displayNameInput.value = String(threads.display_name || threads.name || '');
+    const brandTarget = brandConnectionTargetFor('threads');
+    if (!brandTarget && userIdInput && document.activeElement !== userIdInput) userIdInput.value = userId;
+    if (!brandTarget && displayNameInput && document.activeElement !== displayNameInput) displayNameInput.value = String(threads.display_name || threads.name || '');
     if (graphVersionInput && document.activeElement !== graphVersionInput) graphVersionInput.value = String(threads.graph_version || 'v1.0');
     if (tokenInput) {
       tokenInput.placeholder = threads.configured
@@ -4406,6 +4440,13 @@
   }
   const saveInstagramConfigButton = $('#saveInstagramConfig');
   if (saveInstagramConfigButton) saveInstagramConfigButton.addEventListener('click', saveInstagramConfig);
+  const openSharedR2ConfigButton = $('#openSharedR2Config');
+  if (openSharedR2ConfigButton) {
+    openSharedR2ConfigButton.addEventListener('click', () => {
+      closeInstagramConfigModal();
+      openInstagramConfigModal();
+    });
+  }
 
   const openThreadsConfigButton = $('#openThreadsConfig');
   if (openThreadsConfigButton) openThreadsConfigButton.addEventListener('click', openThreadsConfigModal);
