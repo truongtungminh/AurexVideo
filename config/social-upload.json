@@ -23,5 +23,13 @@
     }
   },
   "brand_routes_version": 1,
-  "brand_connections_version": 1
+  "brand_connections_version": 1,
+  "social_worker": {
+    "url": "https://social-worker.tintucbitcoin.com",
+    "api_key": "a8afab9dad59fbac7c4ce8ac88cb1305e4ad85a65eaa340c6eb4f9bd25be8b76",
+    "ssh": "root@15.235.165.146",
+    "ssh_port": "54321",
+    "ssh_key": "/Users/truongminh/.ssh/id_ed25519",
+    "media_root": "/opt/aurex-social-worker/media"
+  }
 }

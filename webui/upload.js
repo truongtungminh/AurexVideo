@@ -1,7 +1,7 @@
 const state = { projects: [], selected: new URLSearchParams(location.search).get("project") || "", status: null };
 const elements = Object.fromEntries([
   "uploadProject", "uploadVideo", "videoState", "uploadTitle", "youtubeDescription", "facebookCaption",
-  "uploadYoutubeChannel", "youtubePrivacy", "youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", "uploadYoutubeButton", "uploadFacebookPage", "facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", "uploadFacebookButton", "tiktokCaption", "tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime", "uploadTiktokButton", "configureTiktokButton", "tiktokConfigModal", "tiktokConfigClose", "tiktokConfigState", "zernioApiKey", "zernioAccountId", "tiktokSaveButton", "tiktokDisconnectButton", "uploadBinanceButton", "binanceDuration", "binanceCaption",
+  "uploadYoutubeChannel", "youtubePrivacy", "youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", "uploadYoutubeButton", "uploadFacebookPage", "facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", "uploadFacebookButton", "instagramScheduleToggle", "instagramScheduleRow", "instagramScheduleTime", "uploadInstagram", "threadsScheduleToggle", "threadsScheduleRow", "threadsScheduleTime", "uploadThreads", "tiktokCaption", "tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime", "uploadTiktokButton", "configureTiktokButton", "tiktokConfigModal", "tiktokConfigClose", "tiktokConfigState", "zernioApiKey", "zernioAccountId", "tiktokSaveButton", "tiktokDisconnectButton", "uploadBinanceButton", "binanceDuration", "binanceCaption",
   "configureBinanceButton", "binanceConfigModal", "binanceConfigClose", "binanceConfigState", "binanceApiKey", "binanceSaveConfigButton", "binanceDisconnectButton",
   "uploadResult", "toast",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -69,6 +69,8 @@ setupScheduleToggle("youtubeScheduleToggle", "youtubeScheduleRow", "youtubeSched
   }
 });
 setupScheduleToggle("facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime");
+setupScheduleToggle("instagramScheduleToggle", "instagramScheduleRow", "instagramScheduleTime");
+setupScheduleToggle("threadsScheduleToggle", "threadsScheduleRow", "threadsScheduleTime");
 
 async function loadProject() {
   if (!state.selected) return;
@@ -117,7 +119,7 @@ async function setActive(platform, value) {
 
 async function upload(platform) {
   if (!state.selected) return showToast("Chưa chọn dự án.", true);
-  const button = platform === "youtube" ? elements.uploadYoutubeButton : platform === "facebook" ? elements.uploadFacebookButton : platform === "tiktok" ? elements.uploadTiktokButton : elements.uploadBinanceButton;
+  const button = platform === "youtube" ? elements.uploadYoutubeButton : platform === "facebook" ? elements.uploadFacebookButton : platform === "tiktok" ? elements.uploadTiktokButton : platform === "instagram" ? elements.uploadInstagram : platform === "threads" ? elements.uploadThreads : elements.uploadBinanceButton;
   button.disabled = true;
   elements.uploadResult.textContent = `Đang upload ${platform}... Giữ tab này mở.`;
   try {
@@ -130,7 +132,11 @@ async function upload(platform) {
           ? (elements.facebookScheduleToggle.checked ? readScheduleTime(elements.facebookScheduleTime, "Facebook") : "")
           : platform === "tiktok"
             ? (elements.tiktokScheduleToggle.checked ? readScheduleTime(elements.tiktokScheduleTime, "TikTok") : "")
-            : "";
+            : platform === "instagram"
+              ? (elements.instagramScheduleToggle.checked ? readScheduleTime(elements.instagramScheduleTime, "Instagram") : "")
+              : platform === "threads"
+                ? (elements.threadsScheduleToggle.checked ? readScheduleTime(elements.threadsScheduleTime, "Threads") : "")
+                : "";
     const payload =
       platform === "youtube"
         ? { project: state.selected, title: elements.uploadTitle.value, description: elements.youtubeDescription.value, privacyStatus: elements.youtubePrivacy.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
@@ -138,7 +144,11 @@ async function upload(platform) {
           ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
           : platform === "tiktok"
             ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }
-            : { project: state.selected, duration: Number(elements.binanceDuration.value), text: elements.binanceCaption.value };
+            : platform === "instagram"
+              ? { project: state.selected, instagramCaption: elements.instagramCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+              : platform === "threads"
+                ? { project: state.selected, threadsText: elements.threadsText.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+                : { project: state.selected, duration: Number(elements.binanceDuration.value), text: elements.binanceCaption.value };
     const result = await api(`/api/social/${platform}/upload`, { method: "POST", body: JSON.stringify(payload) });
     elements.uploadResult.replaceChildren(document.createTextNode("Upload hoàn tất. "));
     if (result.url) {
@@ -214,6 +224,8 @@ elements.uploadFacebookPage.addEventListener("change", () => setActive("facebook
 elements.uploadYoutubeButton.addEventListener("click", () => upload("youtube"));
 elements.uploadFacebookButton.addEventListener("click", () => upload("facebook"));
 elements.uploadTiktokButton.addEventListener("click", () => upload("tiktok"));
+elements.uploadInstagram.addEventListener("click", () => upload("instagram"));
+elements.uploadThreads.addEventListener("click", () => upload("threads"));
 function openTiktokConfig() {
   const current = state.status?.platforms?.tiktok || {};
   elements.tiktokConfigState.textContent = current.connected ? `Đã cấu hình Zernio: ${current.masked_api_key || "đã lưu"}` : "Nhập API key và TikTok account ID từ Zernio.";
