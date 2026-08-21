@@ -56,6 +56,7 @@
     socialReady: { youtube: false, facebook: false, instagram: false, threads: false },
     socialConfigured: { youtube: false, facebook: false, instagram: false, threads: false },
     instagramConfig: {},
+    r2Config: {},
     tiktokConfig: {},
     threadsConfig: {},
     youtubeRedirectUri: `${window.location.origin}/api/social/youtube/callback`,
@@ -1956,7 +1957,7 @@
     const displayNameInput = $('#instagramDisplayName');
     const modalOpen = Boolean($('#instagramConfigModal') && !$('#instagramConfigModal').hidden);
     const brandTarget = brandConnectionTargetFor('instagram');
-    const r2 = instagram.r2 || {};
+    const r2 = Object.keys(state.r2Config || {}).length ? state.r2Config : (instagram.r2 || {});
     const r2Fields = $('#instagramR2ConfigFields');
     const r2SharedNote = $('#instagramR2SharedNote');
     const r2SharedState = $('#instagramR2SharedState');
@@ -2043,7 +2044,7 @@
       r2RetainMedia: $('#r2RetainMedia')?.checked === true,
     };
     const brandTarget = brandConnectionTargetFor('instagram');
-    const r2Ready = Boolean(state.instagramConfig?.r2?.configured);
+    const r2Ready = Boolean(state.r2Config?.configured || state.instagramConfig?.r2?.configured);
     const missingR2 = !r2Ready && (!payload.r2AccountId || !payload.r2Bucket || !payload.r2AccessKeyId || !payload.r2SecretAccessKey || !payload.r2PublicBaseUrl);
     if (brandTarget && !r2Ready) {
       setUploadStatus('R2 dùng chung chưa cấu hình. Hãy bấm “Cấu hình R2 chung”, lưu R2 một lần rồi thêm Instagram cho Brand.', 'bad');
@@ -2252,12 +2253,14 @@
       const instagram = data.platforms?.instagram || {};
       const threads = data.platforms?.threads || {};
       const tiktok = data.platforms?.tiktok || {};
+      const r2 = data.platforms?.r2 || instagram.r2 || {};
       const canYoutube = Boolean(youtube.configured && youtube.connected);
       const canFacebook = Boolean(facebook.available);
       const canInstagram = Boolean(instagram.available);
       const canThreads = Boolean(threads.available);
       const canTiktok = Boolean(tiktok.connected);
-      state.instagramConfig = instagram;
+      state.instagramConfig = { ...instagram, r2 };
+      state.r2Config = r2;
       state.tiktokConfig = tiktok;
       state.threadsConfig = threads;
       state.socialReady = { youtube: canYoutube, facebook: canFacebook, instagram: canInstagram, threads: canThreads, tiktok: canTiktok };
@@ -2338,6 +2341,7 @@
       state.socialReady = { youtube: false, facebook: false, instagram: false, threads: false };
       state.socialConfigured = { youtube: false, facebook: false, instagram: false, threads: false };
       state.instagramConfig = {};
+      state.r2Config = {};
       state.tiktokConfig = {};
       state.threadsConfig = {};
       state.socialStatus = {};
@@ -2375,6 +2379,7 @@
     state.uploadBrands = [];
     state.brandRoutes = {};
     state.socialStatus = {};
+    state.r2Config = {};
     state.uploadTargets.clear();
     state.uploadTargetsBrand = '';
     setComposerPublishMode('now', '');
