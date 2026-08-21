@@ -27,6 +27,7 @@ from .metadata import (
 from .r2 import delete_file, r2_config, r2_config_hint, r2_is_configured, resolve_r2_config, upload_file
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 from .scheduler import schedule_upload
+from .remote_worker import schedule_on_vps
 
 
 THREADS_API_HOST = "https://graph.threads.net"
@@ -359,12 +360,13 @@ def threads_upload_video(payload: dict) -> dict:
     if not threads_is_configured(threads):
         raise ValueError(threads_config_hint(threads))
     scheduled = parse_scheduled_publish_at(payload)
-    if scheduled:
-        validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
-        queued = schedule_upload("threads", payload, scheduled)
-        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Threads; worker sẽ publish đúng giờ."}
     supplied_text = str(payload.get("threadsText") or payload.get("threadsCaption") or "")
     text = threads_text_for_project(project, supplied_text)
+    if scheduled:
+        validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
+        video_path = Path(final_video_path_for_project(project))
+        queued = schedule_on_vps("threads", video_path, text, scheduled)
+        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Threads lên VPS; worker sẽ publish đúng giờ."}
 
     supplied_url = (
         payload.get("publicUrl")

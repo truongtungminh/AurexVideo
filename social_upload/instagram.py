@@ -33,6 +33,7 @@ from .r2 import (
 )
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 from .scheduler import schedule_upload
+from .remote_worker import schedule_on_vps
 
 
 DEFAULT_INSTAGRAM_GRAPH_VERSION = "v25.0"
@@ -263,16 +264,16 @@ def instagram_upload_video(payload: dict) -> dict:
     if not instagram_is_configured(instagram) or not r2_is_configured(r2):
         raise ValueError(instagram_config_hint(instagram, r2))
     scheduled = parse_scheduled_publish_at(payload)
-    if scheduled:
-        validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
-        queued = schedule_upload("instagram", payload, scheduled)
-        return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "message": "Đã xếp lịch Instagram; worker sẽ publish đúng giờ."}
     video_path = final_video_path_for_project(project)
     if video_path.stat().st_size > MAX_INSTAGRAM_REEL_BYTES:
         raise ValueError("Instagram Reels chỉ nhận video tối đa 1 GB.")
     caption = instagram_caption_for_project(project, str(payload.get("instagramCaption") or ""))
     if len(caption) > MAX_INSTAGRAM_CAPTION_LENGTH:
         raise ValueError("Instagram caption tối đa 2.200 ký tự.")
+    if scheduled:
+        validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
+        queued = schedule_on_vps("instagram", video_path, caption, scheduled)
+        return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Instagram lên VPS; worker sẽ publish đúng giờ."}
 
     access_token = instagram_access_token(instagram)
     object_key = instagram_object_key(project, r2)

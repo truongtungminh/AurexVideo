@@ -6616,6 +6616,8 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
               </span>
               <textarea id="instagramCaption" rows="7" maxlength="2200" placeholder="Caption Instagram, tối đa 2.200 ký tự"></textarea>
             </div>
+            <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="instagramScheduleToggle" /><span>Hẹn giờ đăng qua VPS</span></span></label>
+            <div class="field upload-field compact schedule-row" id="instagramScheduleRow" hidden><input type="datetime-local" id="instagramScheduleTime" /><p class="form-note">Video sẽ được copy lên VPS và đăng đúng giờ, không cần giữ app mở.</p></div>
             <p class="form-note platform-config-note" id="instagramConfigState">Cần cấu hình Instagram API và Cloudflare R2.</p>
             <div class="platform-actions">
               <button class="upload-btn instagram secondary" id="openInstagramConfig" type="button">{ui_icon("key")}<span>Cấu hình Instagram + R2</span></button>
@@ -6634,6 +6636,8 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
               </span>
               <textarea id="threadsText" rows="7" maxlength="500" placeholder="Nội dung Threads, tối đa 500 ký tự"></textarea>
             </div>
+            <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="threadsScheduleToggle" /><span>Hẹn giờ đăng qua VPS</span></span></label>
+            <div class="field upload-field compact schedule-row" id="threadsScheduleRow" hidden><input type="datetime-local" id="threadsScheduleTime" /><p class="form-note">Video sẽ được copy lên VPS và đăng đúng giờ, không cần giữ app mở.</p></div>
             <p class="form-note platform-config-note" id="threadsConfigState">Cần cấu hình Threads API.</p>
             <div class="platform-actions">
               <button class="upload-btn threads secondary" id="openThreadsConfig" type="button">{ui_icon("key")}<span>Cấu hình Threads</span></button>
