@@ -64,7 +64,7 @@ from social_upload.config import (
     save_social_brand_route,
     write_social_config,
 )
-from social_upload.r2 import merge_r2_config_values, resolve_r2_config
+from social_upload.r2 import resolve_r2_config
 from social_upload.scheduler import start_scheduler
 import m3_backend as m3
 from tts.elevenlabs import (
@@ -6433,7 +6433,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer12"></script>
+  <script src="/web/render_page.js?v=20260821-brand-composer14"></script>
 """,
     )
 
@@ -6734,7 +6734,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           <p class="kicker">Instagram API + Cloudflare R2</p>
           <h3 id="instagramConfigTitle">Cấu hình Instagram Reels</h3>
           <p class="modal-copy" id="instagramConfigScope" hidden></p>
-          <p class="modal-copy">Instagram sẽ kéo video từ public HTTPS URL trên R2. Access token và Secret Key được lưu trong file config local với quyền hạn chế.</p>
+          <p class="modal-copy" id="instagramConfigDescription">Instagram sẽ kéo video từ public HTTPS URL trên R2 chung. Access token và Secret Key được lưu trong file config local với quyền hạn chế.</p>
           <div class="instagram-config-grid">
             <div class="field upload-field compact instagram-config-field">
               <span class="field-label"><span class="field-icon">ID</span><span>Instagram IG User ID</span></span>
@@ -6756,34 +6756,41 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
               <span class="field-label"><span>Graph API version</span></span>
               <input id="instagramGraphVersion" type="text" autocomplete="off" value="v25.0" placeholder="v25.0" />
             </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span class="field-icon">R2</span><span>R2 Account ID</span></span>
-              <input id="r2AccountId" type="text" autocomplete="off" placeholder="Cloudflare Account ID" />
+            <div class="instagram-r2-shared-note instagram-config-wide" id="instagramR2SharedNote" hidden>
+              <span>R2 dùng chung cho toàn bộ Brand.</span>
+              <small id="instagramR2SharedState">Mỗi account Instagram chỉ cần nhập thông tin Instagram; video sẽ dùng kho R2 chung.</small>
+              <button class="small-link" id="openSharedR2Config" type="button">Cấu hình R2 chung</button>
             </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span>R2 bucket</span></span>
-              <input id="r2Bucket" type="text" autocomplete="off" placeholder="instagram-media" />
+            <div class="instagram-r2-config-fields instagram-config-wide" id="instagramR2ConfigFields">
+              <div class="field upload-field compact instagram-config-field">
+                <span class="field-label"><span class="field-icon">R2</span><span>R2 Account ID</span></span>
+                <input id="r2AccountId" type="text" autocomplete="off" placeholder="Cloudflare Account ID" />
+              </div>
+              <div class="field upload-field compact instagram-config-field">
+                <span class="field-label"><span>R2 bucket</span></span>
+                <input id="r2Bucket" type="text" autocomplete="off" placeholder="instagram-media" />
+              </div>
+              <div class="field upload-field compact instagram-config-field">
+                <span class="field-label"><span>R2 Access Key ID</span></span>
+                <input id="r2AccessKeyId" type="text" autocomplete="off" placeholder="Access Key ID" />
+              </div>
+              <div class="field upload-field compact instagram-config-field">
+                <span class="field-label">{ui_icon("key", "field-icon")}<span>R2 Secret Access Key</span></span>
+                <input id="r2SecretAccessKey" type="password" autocomplete="off" placeholder="Secret Access Key" />
+              </div>
+              <div class="field upload-field compact instagram-config-field instagram-config-wide">
+                <span class="field-label"><span>R2 public base URL</span></span>
+                <input id="r2PublicBaseUrl" type="url" autocomplete="off" placeholder="https://media.example.com" />
+              </div>
+              <div class="field upload-field compact instagram-config-field">
+                <span class="field-label"><span>Object prefix</span></span>
+                <input id="r2ObjectPrefix" type="text" autocomplete="off" value="instagram" placeholder="instagram" />
+              </div>
+              <label class="field upload-field compact instagram-config-field instagram-retain-field">
+                <span class="field-label"><span>Giữ file trên R2 sau khi đăng</span></span>
+                <input id="r2RetainMedia" type="checkbox" />
+              </label>
             </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span>R2 Access Key ID</span></span>
-              <input id="r2AccessKeyId" type="text" autocomplete="off" placeholder="Access Key ID" />
-            </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label">{ui_icon("key", "field-icon")}<span>R2 Secret Access Key</span></span>
-              <input id="r2SecretAccessKey" type="password" autocomplete="off" placeholder="Secret Access Key" />
-            </div>
-            <div class="field upload-field compact instagram-config-field instagram-config-wide">
-              <span class="field-label"><span>R2 public base URL</span></span>
-              <input id="r2PublicBaseUrl" type="url" autocomplete="off" placeholder="https://media.example.com" />
-            </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span>Object prefix</span></span>
-              <input id="r2ObjectPrefix" type="text" autocomplete="off" value="instagram" placeholder="instagram" />
-            </div>
-            <label class="field upload-field compact instagram-config-field instagram-retain-field">
-              <span class="field-label"><span>Giữ file trên R2 sau khi đăng</span></span>
-              <input id="r2RetainMedia" type="checkbox" />
-            </label>
           </div>
           <div class="modal-actions">
             <button class="upload-btn secondary" id="cancelInstagramConfig" type="button">{ui_icon("x")}<span>Huỷ</span></button>
@@ -8035,6 +8042,50 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     .instagram-config-wide {
       grid-column: 1 / -1;
     }
+    .instagram-r2-config-fields {
+      display: contents;
+    }
+    .instagram-r2-shared-note {
+      display: grid;
+      gap: 4px;
+      border: 1px solid rgba(232, 160, 96, 0.42);
+      border-radius: 14px;
+      padding: 11px 13px;
+      color: #8d4e1e;
+      background: rgba(242, 178, 101, 0.14);
+    }
+    .instagram-r2-shared-note > span {
+      font-size: 13px;
+      font-weight: 950;
+    }
+    .instagram-r2-shared-note small {
+      color: rgba(75, 48, 27, 0.72);
+      font-size: 11px;
+      font-weight: 750;
+      line-height: 1.45;
+    }
+    .instagram-r2-shared-note .small-link {
+      justify-self: start;
+      margin-top: 3px;
+      border: 0;
+      padding: 0;
+      color: #c96c27;
+      background: transparent;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 950;
+      cursor: pointer;
+    }
+    body:not(.theme-light) .instagram-r2-shared-note {
+      color: #ffc08f;
+      background: rgba(242, 178, 101, 0.12);
+    }
+    body:not(.theme-light) .instagram-r2-shared-note small {
+      color: rgba(255, 247, 237, 0.76);
+    }
+    body:not(.theme-light) .instagram-r2-shared-note .small-link {
+      color: #ffb47e;
+    }
     .instagram-retain-field {
       display: flex;
       align-items: center;
@@ -8449,7 +8500,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer12"></script>
+  <script src="/web/render_page.js?v=20260821-brand-composer14"></script>
 """,
     )
 
@@ -9471,25 +9522,9 @@ class WebHandler(SimpleHTTPRequestHandler):
                     raise ValueError("Brand không được để trống.")
                 config = read_social_config()
                 if platform == "instagram":
-                    r2_fields = (
-                        "r2AccountId", "accountId", "r2Bucket", "bucket", "r2AccessKeyId", "accessKeyId",
-                        "r2SecretAccessKey", "secretAccessKey", "r2PublicBaseUrl", "publicBaseUrl",
-                    )
-                    has_r2_update = any(str(payload.get(key) or "").strip() for key in r2_fields)
-                    if has_r2_update:
-                        r2_values = merge_r2_config_values(payload, resolve_r2_config(r2_config(config)))
-                        update_r2_config(
-                            r2_values["account_id"],
-                            r2_values["bucket"],
-                            r2_values["access_key_id"],
-                            r2_values["secret_access_key"],
-                            r2_values["public_base_url"],
-                            r2_values["region"],
-                            r2_values["object_prefix"],
-                            r2_values["retain_media"],
-                            config=config,
-                            persist=False,
-                        )
+                    shared_r2 = resolve_r2_config(r2_config(config))
+                    if not all(shared_r2.get(key) for key in ("account_id", "bucket", "access_key_id", "secret_access_key", "public_base_url")):
+                        raise ValueError("Cloudflare R2 dùng chung chưa được cấu hình. Hãy lưu R2 ở cấu hình Instagram chung trước.")
                     account = update_instagram_config(
                         str(payload.get("igUserId") or payload.get("ig_user_id") or ""),
                         str(payload.get("accessToken") or payload.get("access_token") or ""),
@@ -10079,7 +10114,12 @@ class WebHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/social/tiktok/config":
                 try:
                     payload = self.read_json_body()
-                    result = update_zernio_config(str(payload.get("apiKey") or ""), str(payload.get("accountId") or ""), base_url=str(payload.get("baseUrl") or "https://zernio.com/api/v1"))
+                    result = update_zernio_config(
+                        str(payload.get("apiKey") or ""),
+                        str(payload.get("accountId") or ""),
+                        base_url=str(payload.get("baseUrl") or "https://zernio.com/api/v1"),
+                        display_name=str(payload.get("displayName") or payload.get("display_name") or ""),
+                    )
                 except Exception as exc:
                     self.send_json(400, {"error": str(exc)})
                     return
