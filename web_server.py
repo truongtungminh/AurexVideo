@@ -6433,7 +6433,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer11"></script>
+  <script src="/web/render_page.js?v=20260821-brand-composer12"></script>
 """,
     )
 
@@ -6817,6 +6817,31 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           <div class="modal-actions">
             <button class="upload-btn secondary" id="cancelThreadsConfig" type="button">{ui_icon("x")}<span>Huỷ</span></button>
             <button class="upload-btn threads" id="saveThreadsConfig" type="button">{ui_icon("check")}<span>Lưu Threads</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop" id="tiktokConfigModal" hidden>
+        <div class="modal-card facebook-config-modal tiktok-config-modal" role="dialog" aria-modal="true" aria-labelledby="tiktokConfigTitle">
+          <button class="modal-close" id="closeTiktokConfig" type="button" aria-label="Đóng">×</button>
+          <p class="kicker">TikTok · Zernio</p>
+          <h3 id="tiktokConfigTitle">Cấu hình TikTok</h3>
+          <p class="modal-copy" id="tiktokConfigScope" hidden></p>
+          <p class="modal-copy">Nhập Zernio API key và TikTok account ID. Khi thêm từ Brand Social Center, account này chỉ được lưu và sử dụng cho Brand đang chọn.</p>
+          <div class="field upload-field compact tiktok-config-field">
+            <span class="field-label"><span>Tên account</span></span>
+            <input id="tiktokDisplayName" type="text" autocomplete="off" maxlength="160" placeholder="Ví dụ: Popsy TikTok" />
+          </div>
+          <div class="field upload-field compact tiktok-config-field">
+            <span class="field-label">{ui_icon("key", "field-icon")}<span>Zernio API key</span></span>
+            <input id="tiktokApiKey" type="password" autocomplete="off" placeholder="Dán Zernio API key" />
+          </div>
+          <div class="field upload-field compact tiktok-config-field">
+            <span class="field-label"><span class="field-icon">ID</span><span>TikTok account ID trong Zernio</span></span>
+            <input id="tiktokAccountId" type="text" autocomplete="off" placeholder="Dán TikTok account ID" />
+          </div>
+          <div class="modal-actions">
+            <button class="upload-btn secondary" id="cancelTiktokConfig" type="button">{ui_icon("x")}<span>Huỷ</span></button>
+            <button class="upload-btn tiktok" id="saveTiktokConfig" type="button">{ui_icon("check")}<span>Lưu TikTok</span></button>
           </div>
         </div>
       </div>
@@ -8424,7 +8449,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer11"></script>
+  <script src="/web/render_page.js?v=20260821-brand-composer12"></script>
 """,
     )
 

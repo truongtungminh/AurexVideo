@@ -56,6 +56,7 @@
     socialReady: { youtube: false, facebook: false, instagram: false, threads: false },
     socialConfigured: { youtube: false, facebook: false, instagram: false, threads: false },
     instagramConfig: {},
+    tiktokConfig: {},
     threadsConfig: {},
     youtubeRedirectUri: `${window.location.origin}/api/social/youtube/callback`,
     facebookCommentTargetId: '',
@@ -73,6 +74,7 @@
 
   let youtubeConfigSaving = false;
   let facebookConfigSaving = false;
+  let tiktokConfigSaving = false;
   let threadsConfigSaving = false;
   let maziaoPreviewAudio = null;
   let maziaoPreviewButton = null;
@@ -1094,7 +1096,13 @@
   function renderBrandSocialModal() {
     const modal = $('#brandSocialModal');
     if (!modal) return;
-    const brandOptions = state.uploadBrands.map((brand) => '<option value="' + composerEscape(brand.id) + '" ' + (brand.id === state.uploadBrand ? 'selected' : '') + '>' + composerEscape(brand.name || brand.id) + '</option>').join('');
+    const brandRecords = state.uploadBrands.length
+      ? state.uploadBrands
+      : Array.from($('#uploadBrandSelect')?.options || []).map((option) => ({
+        id: String(option.value || '').trim().toLowerCase(),
+        name: String(option.textContent || option.value || '').trim(),
+      })).filter((brand) => brand.id);
+    const brandOptions = brandRecords.map((brand) => '<option value="' + composerEscape(brand.id) + '" ' + (brand.id === state.uploadBrand ? 'selected' : '') + '>' + composerEscape(brand.name || brand.id) + '</option>').join('');
     const routeRows = composerPlatformsForActiveBrand().map((platform) => {
       const ready = composerPlatformReady(platform.id);
       const options = routeOptionsForPlatform(platform.id);
@@ -1122,6 +1130,9 @@
     const modal = ensureBrandSocialModal();
     renderBrandSocialModal();
     modal.hidden = false;
+    if (!state.uploadBrands.length) {
+      refreshSocialStatus().catch(() => {});
+    }
     if (platform) modal.querySelector('[data-route-select="' + platform + '"]')?.focus();
   }
 
@@ -1827,30 +1838,91 @@
     label.textContent = target ? `Đang thêm account ${platform} cho Brand ${target.brand}.` : '';
   }
 
-  async function openBrandTiktokConfig(brand) {
-    if (!brand) {
-      setUploadStatus('Chọn Brand trước khi thêm TikTok account.', 'bad');
+  function syncTiktokConfigUi(tiktok = {}) {
+    const displayNameInput = $('#tiktokDisplayName');
+    const accountIdInput = $('#tiktokAccountId');
+    const apiKeyInput = $('#tiktokApiKey');
+    const modalOpen = Boolean($('#tiktokConfigModal') && !$('#tiktokConfigModal').hidden);
+    if (displayNameInput && document.activeElement !== displayNameInput) {
+      displayNameInput.value = String(tiktok.display_name || tiktok.name || '');
+    }
+    if (accountIdInput && document.activeElement !== accountIdInput) {
+      accountIdInput.value = String(tiktok.account_id || '');
+    }
+    if (apiKeyInput) {
+      apiKeyInput.placeholder = tiktok.configured
+        ? 'Đã lưu API key, dán key mới nếu muốn đổi'
+        : 'Dán Zernio API key';
+      if (!modalOpen && document.activeElement !== apiKeyInput) apiKeyInput.value = '';
+    }
+  }
+
+  function openTiktokConfigModal(brand = '') {
+    const modal = $('#tiktokConfigModal');
+    if (!modal) return;
+    if (brand) state.brandConnectionTarget = { platform: 'tiktok', brand: String(brand).trim().toLowerCase() };
+    modal.hidden = false;
+    syncTiktokConfigUi(state.socialStatus?.platforms?.tiktok || {});
+    setBrandConnectionScopeLabel('#tiktokConfigScope', 'tiktok');
+    const apiKeyInput = $('#tiktokApiKey');
+    if (apiKeyInput) {
+      apiKeyInput.value = '';
+      apiKeyInput.focus();
+    } else {
+      $('#tiktokAccountId')?.focus();
+    }
+    if (brand) {
+      const accountIdInput = $('#tiktokAccountId');
+      const displayNameInput = $('#tiktokDisplayName');
+      if (accountIdInput) accountIdInput.value = '';
+      if (displayNameInput) displayNameInput.value = '';
+    }
+  }
+
+  function closeTiktokConfigModal() {
+    const modal = $('#tiktokConfigModal');
+    const apiKeyInput = $('#tiktokApiKey');
+    if (apiKeyInput) apiKeyInput.value = '';
+    if (modal) modal.hidden = true;
+    if (brandConnectionTargetFor('tiktok')) state.brandConnectionTarget = null;
+  }
+
+  async function saveTiktokConfig() {
+    const apiKeyInput = $('#tiktokApiKey');
+    const accountIdInput = $('#tiktokAccountId');
+    const displayNameInput = $('#tiktokDisplayName');
+    const button = $('#saveTiktokConfig');
+    const apiKey = apiKeyInput?.value.trim() || '';
+    const accountId = accountIdInput?.value.trim() || '';
+    const displayName = displayNameInput?.value.trim() || '';
+    const brandTarget = brandConnectionTargetFor('tiktok');
+    if (!apiKey || !accountId) {
+      setUploadStatus('Nhập đủ Zernio API key và TikTok account ID trước khi lưu.', 'bad');
       return;
     }
-    const displayName = window.prompt(`Tên account TikTok cho Brand ${brand} (tuỳ chọn):`, '') || '';
-    const apiKey = window.prompt('Zernio API key:');
-    if (!apiKey) return;
-    const accountId = window.prompt('TikTok account ID trong Zernio:');
-    if (!accountId) return;
-    setUploadStatus(`Đang lưu TikTok account cho Brand ${brand}...`, 'warn');
+    if (tiktokConfigSaving) return;
+    tiktokConfigSaving = true;
+    if (button) button.disabled = true;
+    setUploadStatus(brandTarget ? `Đang lưu TikTok account cho Brand ${brandTarget.brand}...` : 'Đang lưu cấu hình Zernio TikTok...', 'warn');
     try {
-      const response = await fetch('/api/social/brand-connection', {
+      const response = await fetch(brandTarget ? '/api/social/brand-connection' : '/api/social/tiktok/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: 'tiktok', brand, displayName, apiKey, accountId }),
+        body: JSON.stringify(brandTarget
+          ? { platform: 'tiktok', brand: brandTarget.brand, displayName, apiKey, accountId }
+          : { displayName, apiKey, accountId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      closeTiktokConfigModal();
       await refreshSocialStatus();
-      setUploadStatus(`Đã thêm TikTok account cho Brand ${brand}.`, 'good');
-      openBrandSocialModal();
+      setUploadStatus(brandTarget ? `Đã thêm TikTok account cho Brand ${brandTarget.brand}.` : 'Đã lưu cấu hình Zernio TikTok.', 'good');
+      if (brandTarget) openBrandSocialModal();
     } catch (error) {
       setUploadStatus(error.message || String(error), 'bad');
+    } finally {
+      tiktokConfigSaving = false;
+      if (button) button.disabled = false;
     }
   }
 
@@ -1861,7 +1933,7 @@
       return;
     }
     if (platform === 'tiktok') {
-      openBrandTiktokConfig(normalizedBrand);
+      openTiktokConfigModal(normalizedBrand);
       return;
     }
     state.brandConnectionTarget = { platform, brand: normalizedBrand };
@@ -2152,6 +2224,7 @@
       const canThreads = Boolean(threads.available);
       const canTiktok = Boolean(tiktok.connected);
       state.instagramConfig = instagram;
+      state.tiktokConfig = tiktok;
       state.threadsConfig = threads;
       state.socialReady = { youtube: canYoutube, facebook: canFacebook, instagram: canInstagram, threads: canThreads, tiktok: canTiktok };
       state.socialConfigured = { youtube: Boolean(youtube.configured), facebook: Boolean(facebook.configured), instagram: Boolean(instagram.configured), threads: Boolean(threads.configured) };
@@ -2160,6 +2233,7 @@
       syncYoutubeConfigUi(youtube);
       syncFacebookConfigUi(facebook);
       syncInstagramConfigUi(instagram);
+      syncTiktokConfigUi(tiktok);
       syncThreadsConfigUi(threads);
       if (tiktokConfigState) tiktokConfigState.textContent = tiktok.message || (canTiktok ? 'Zernio đã kết nối.' : 'Cần cấu hình Zernio API key và TikTok account ID.');
       setButtonLabel(connectYoutube, 'Thêm channel');
@@ -2225,10 +2299,12 @@
       updateMetaAllButton();
       renderComposerBrandPicker();
       renderComposerDestinations();
+      if ($('#brandSocialModal') && !$('#brandSocialModal').hidden) renderBrandSocialModal();
     } catch (error) {
       state.socialReady = { youtube: false, facebook: false, instagram: false, threads: false };
       state.socialConfigured = { youtube: false, facebook: false, instagram: false, threads: false };
       state.instagramConfig = {};
+      state.tiktokConfig = {};
       state.threadsConfig = {};
       state.socialStatus = {};
       state.uploadBrands = [];
@@ -2250,6 +2326,7 @@
       updateFacebookCommentButton();
       renderComposerBrandPicker();
       renderComposerDestinations();
+      if ($('#brandSocialModal') && !$('#brandSocialModal').hidden) renderBrandSocialModal();
       setUploadStatus(error.message || String(error), 'bad');
     }
   }
@@ -4250,11 +4327,20 @@
   }
 
   const openTiktokConfig = $('#openTiktokConfig');
-  if (openTiktokConfig) openTiktokConfig.addEventListener('click', async () => {
-    const apiKey = window.prompt('Zernio API key:'); if (!apiKey) return;
-    const accountId = window.prompt('TikTok account ID trong Zernio:'); if (!accountId) return;
-    try { const response = await fetch('/api/social/tiktok/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, accountId }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setUploadStatus('Đã lưu cấu hình Zernio TikTok.', 'good'); await refreshSocialStatus(); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); }
+  if (openTiktokConfig) openTiktokConfig.addEventListener('click', () => openTiktokConfigModal());
+
+  ['#closeTiktokConfig', '#cancelTiktokConfig'].forEach((selector) => {
+    const button = $(selector);
+    if (button) button.addEventListener('click', closeTiktokConfigModal);
   });
+  const tiktokConfigModal = $('#tiktokConfigModal');
+  if (tiktokConfigModal) {
+    tiktokConfigModal.addEventListener('click', (event) => {
+      if (event.target === tiktokConfigModal) closeTiktokConfigModal();
+    });
+  }
+  const saveTiktokConfigButton = $('#saveTiktokConfig');
+  if (saveTiktokConfigButton) saveTiktokConfigButton.addEventListener('click', saveTiktokConfig);
 
   const uploadInstagram = $('#uploadInstagram');
   if (uploadInstagram) {
@@ -4633,6 +4719,7 @@
       closePlatformAccountMenus();
       closeFacebookConfigModal();
       closeBrandConfigModal();
+      closeTiktokConfigModal();
       closeThreadsConfigModal();
       closeRenameProjectModal();
     }
