@@ -1106,8 +1106,12 @@
       const addAccount = isBrandAccount
         ? '<button class="brand-route-save secondary" type="button" data-add-brand-connection="' + composerEscape(platform.id) + '">Thêm account</button>'
         : '';
+      const needsLegacyConnection = ['youtube', 'facebook'].includes(platform.id);
+      const connectAction = needsLegacyConnection
+        ? '<button class="brand-route-save secondary" type="button" data-brand-social-config="' + composerEscape(platform.id) + '">Kết nối</button>'
+        : '';
       const action = ready
-        ? '<div class="brand-route-actions"><button class="brand-route-save" type="button" data-save-brand-route="' + composerEscape(platform.id) + '" ' + (!options.length ? 'disabled' : '') + '>Lưu</button>' + addAccount + '</div>'
+        ? '<div class="brand-route-actions">' + connectAction + '<button class="brand-route-save" type="button" data-save-brand-route="' + composerEscape(platform.id) + '" ' + (!options.length ? 'disabled' : '') + '>Lưu</button>' + addAccount + '</div>'
         : '<div class="brand-route-actions"><button class="brand-route-save" type="button" data-brand-social-config="' + composerEscape(platform.id) + '">Kết nối</button>' + addAccount + '</div>';
       return '<div class="brand-route-item"><div class="brand-route-platform"><span class="destination-icon ' + composerEscape(platform.className) + '">' + composerEscape(platform.icon) + '</span><span>' + composerEscape(platform.label) + '<em>' + composerEscape(scopeNote) + '</em></span></div><select data-route-select="' + composerEscape(platform.id) + '" ' + (!ready ? 'disabled' : '') + '>' + (optionMarkup || '<option value="">Chưa có account</option>') + '</select>' + action + '</div>';
     }).join('');
