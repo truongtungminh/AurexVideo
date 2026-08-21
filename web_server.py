@@ -64,7 +64,7 @@ from social_upload.config import (
     save_social_brand_route,
     write_social_config,
 )
-from social_upload.r2 import resolve_r2_config
+from social_upload.r2 import merge_r2_config_values, resolve_r2_config
 from social_upload.scheduler import start_scheduler
 import m3_backend as m3
 from tts.elevenlabs import (
@@ -6433,7 +6433,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer14"></script>
+  <script src="/web/render_page.js?v=20260821-brand-composer15"></script>
 """,
     )
 
@@ -6731,7 +6731,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       <div class="modal-backdrop" id="instagramConfigModal" hidden>
         <div class="modal-card facebook-config-modal instagram-config-modal" role="dialog" aria-modal="true" aria-labelledby="instagramConfigTitle">
           <button class="modal-close" id="closeInstagramConfig" type="button" aria-label="Đóng">×</button>
-          <p class="kicker">Instagram API + Cloudflare R2</p>
+          <p class="kicker">Instagram API + R2 chung</p>
           <h3 id="instagramConfigTitle">Cấu hình Instagram Reels</h3>
           <p class="modal-copy" id="instagramConfigScope" hidden></p>
           <p class="modal-copy" id="instagramConfigDescription">Instagram sẽ kéo video từ public HTTPS URL trên R2 chung. Access token và Secret Key được lưu trong file config local với quyền hạn chế.</p>
@@ -8500,7 +8500,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer14"></script>
+  <script src="/web/render_page.js?v=20260821-brand-composer15"></script>
 """,
     )
 
@@ -10156,15 +10156,16 @@ class WebHandler(SimpleHTTPRequestHandler):
                 try:
                     payload = self.read_json_body()
                     config = read_social_config()
+                    r2_values = merge_r2_config_values(payload, resolve_r2_config(r2_config(config)))
                     r2_result = update_r2_config(
-                        str(payload.get("r2AccountId") or payload.get("accountId") or ""),
-                        str(payload.get("r2Bucket") or payload.get("bucket") or ""),
-                        str(payload.get("r2AccessKeyId") or payload.get("accessKeyId") or ""),
-                        str(payload.get("r2SecretAccessKey") or payload.get("secretAccessKey") or ""),
-                        str(payload.get("r2PublicBaseUrl") or payload.get("publicBaseUrl") or ""),
-                        str(payload.get("r2Region") or payload.get("region") or "auto"),
-                        str(payload.get("r2ObjectPrefix") or payload.get("objectPrefix") or "instagram"),
-                        bool(payload.get("r2RetainMedia") or payload.get("retainMedia")),
+                        r2_values["account_id"],
+                        r2_values["bucket"],
+                        r2_values["access_key_id"],
+                        r2_values["secret_access_key"],
+                        r2_values["public_base_url"],
+                        r2_values["region"],
+                        r2_values["object_prefix"],
+                        r2_values["retain_media"],
                         config=config,
                         persist=False,
                     )
