@@ -406,6 +406,44 @@ def _ffmpeg_command() -> str:
         return shutil.which("ffmpeg") or "ffmpeg"
 
 
+def _uses_mps(device: str, tts: Any = None) -> bool:
+    requested = str(device or "").strip().lower()
+    if "mps" in requested:
+        return True
+    engine = getattr(tts, "engine", None)
+    return "mps" in str(getattr(engine, "device", "")).strip().lower()
+
+
+def _is_mps_numerical_failure(error: BaseException) -> bool:
+    """Recognize the known MPS sampling failure without hiding other errors."""
+    current: Optional[BaseException] = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).lower()
+        if (
+            "probability tensor contains either" in message
+            or "mps produced non-finite acoustic" in message
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _infer_with_tieneu(
+    tts: Any,
+    text: str,
+    actual_ref: Optional[Path],
+    actual_voice: Optional[str],
+    infer_kwargs: Dict[str, Any],
+) -> Any:
+    if actual_ref is not None:
+        return tts.infer(text, ref_audio=str(actual_ref), **infer_kwargs)
+    if actual_voice:
+        return tts.infer(text, voice=actual_voice, **infer_kwargs)
+    return tts.infer(text, **infer_kwargs)
+
+
 def generate_vieneu_voiceover(
     text: str,
     output_mp3: Path,
@@ -470,12 +508,21 @@ def generate_vieneu_voiceover(
         "max_chars": int(delivery.get("max_chars_per_chunk", 256)),
         "apply_watermark": True,
     }
-    if actual_ref is not None:
-        wav = tts.infer(processed_text, ref_audio=str(actual_ref), **infer_kwargs)
-    elif actual_voice:
-        wav = tts.infer(processed_text, voice=actual_voice, **infer_kwargs)
-    else:
-        wav = tts.infer(processed_text, **infer_kwargs)
+    try:
+        wav = _infer_with_tieneu(
+            tts, processed_text, actual_ref, actual_voice, infer_kwargs
+        )
+    except Exception as exc:
+        if not (_uses_mps(device, tts) and _is_mps_numerical_failure(exc)):
+            raise
+        logger.warning(
+            "VieNeu gặp lỗi số học khi chạy MPS (%s); tự chuyển sang CPU để render ổn định.",
+            exc,
+        )
+        tts = Vieneu(mode=mode, device="cpu")
+        wav = _infer_with_tieneu(
+            tts, processed_text, actual_ref, actual_voice, infer_kwargs
+        )
 
     output_mp3 = Path(output_mp3)
     output_mp3.parent.mkdir(parents=True, exist_ok=True)
