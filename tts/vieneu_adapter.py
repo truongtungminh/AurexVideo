@@ -9,6 +9,7 @@ profile and reference audio owned by the VieNeu-TTS checkout.
 from __future__ import annotations
 
 import logging
+import json
 import os
 import shutil
 import subprocess
@@ -176,13 +177,18 @@ def _profile_path() -> Optional[Path]:
 
 def _load_profile() -> Tuple[Optional[Dict[str, Any]], Optional[Path]]:
     path = _profile_path()
-    if path is None or load_profile is None:
+    if path is None:
         return None, path
     try:
-        return load_profile(path), path
+        if load_profile is not None:
+            return load_profile(path), path
+        return json.loads(path.read_text(encoding="utf-8")), path
     except Exception as exc:
         logger.warning("Không đọc được profile AurexVideo %s: %s", path, exc)
-        return None, path
+        try:
+            return json.loads(path.read_text(encoding="utf-8")), path
+        except Exception:
+            return None, path
 
 
 def _profile_voice_key(voice_id: str, profile: Optional[Dict[str, Any]]) -> str:
@@ -206,16 +212,27 @@ def _resolve_profile_reference(
     profile_path: Optional[Path],
     profile_voice_id: str,
 ) -> Optional[Path]:
-    if not profile or resolve_reference is None or profile_path is None:
+    if not profile or profile_path is None:
         return None
     references = profile.get("reference_voices", {})
     if profile_voice_id not in references:
         return None
-    return resolve_reference(
-        voice_id=profile_voice_id,
-        profile=profile,
-        profile_path=profile_path,
-    )
+    if resolve_reference is not None:
+        return resolve_reference(
+            voice_id=profile_voice_id,
+            profile=profile,
+            profile_path=profile_path,
+        )
+    spec = references.get(profile_voice_id, {})
+    audio_name = str(spec.get("audio") or "").strip()
+    audio_root = str(profile.get("dataset", {}).get("audio_root") or "").strip()
+    if not audio_name or not audio_root:
+        return None
+    candidates = [
+        profile_path.parent / audio_root / audio_name,
+        profile_path.parent.parent / audio_root / audio_name,
+    ]
+    return next((candidate.resolve() for candidate in candidates if candidate.is_file()), None)
 
 
 def list_available_voices() -> List[Dict[str, str]]:
@@ -325,12 +342,26 @@ def check_vieneu_health() -> Dict[str, Any]:
 def _delivery_settings(
     profile: Optional[Dict[str, Any]], profile_path: Optional[Path], voice_id: str
 ) -> Dict[str, Any]:
-    if not profile or get_delivery_settings is None:
+    if not profile:
         return {}
+    profile_voice_id = _profile_voice_key(voice_id, profile)
+    if get_delivery_settings is None:
+        engine = profile.get("engine", {})
+        settings = {
+            key: engine[key]
+            for key in ("temperature", "top_k", "top_p", "repetition_penalty", "max_chars_per_chunk")
+            if key in engine
+        }
+        voice_spec = profile.get("reference_voices", {}).get(profile_voice_id, {})
+        delivery_name = voice_spec.get("delivery_profile")
+        selected = profile.get("delivery_profiles", {}).get(delivery_name, {})
+        if isinstance(selected, dict):
+            settings.update(selected)
+        return settings
     try:
         return get_delivery_settings(
             profile,
-            voice_id=_profile_voice_key(voice_id, profile),
+            voice_id=profile_voice_id,
             profile_path=profile_path,
         )
     except Exception as exc:
