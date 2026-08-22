@@ -3445,12 +3445,25 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div class="status warn" id="renderStatus" hidden></div>
 
       <div class="tabs">
-        <button class="tab active" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
+        <button class="tab active" data-engine="vieneu" type="button">{ui_icon("mic", "tab-icon")}<span>VieNeu TTS</span></button>
+        <button class="tab" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
         <button class="tab" data-engine="edgetts" type="button">{ui_icon("audio-lines", "tab-icon")}<span>Edge TTS</span></button>
-        <button class="tab" data-engine="vieneu" type="button">{ui_icon("mic", "tab-icon")}<span>VieNeu TTS</span></button>
       </div>
 
-      <div data-pane="maziao">
+      <div data-pane="vieneu">
+        <div class="field">
+          <span class="field-label">{ui_icon("message", "field-icon")}<span>Giọng VieNeu</span></span>
+          <select id="vieneuVoice"><option value="">Đang tải giọng...</option></select>
+        </div>
+        <div class="advanced-check-grid">
+          <label class="check">
+            <input id="vieneuForce" type="checkbox" />
+            Tạo lại audio cache
+          </label>
+        </div>
+      </div>
+
+      <div data-pane="maziao" hidden>
         <label class="field maziao-mode-field">
           <span class="field-label">{ui_icon("users", "field-icon")}<span>Chế độ TTS Maziao</span></span>
           <select id="maziaoTtsMode" aria-label="Chế độ TTS Maziao">
@@ -3479,19 +3492,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
 
       <div data-pane="edgetts" hidden>
-      </div>
-
-      <div data-pane="vieneu" hidden>
-        <div class="field">
-          <span class="field-label">{ui_icon("message", "field-icon")}<span>Giọng VieNeu</span></span>
-          <select id="vieneuVoice"><option value="">Đang tải giọng...</option></select>
-        </div>
-        <div class="advanced-check-grid">
-          <label class="check">
-            <input id="vieneuForce" type="checkbox" />
-            Tạo lại audio cache
-          </label>
-        </div>
       </div>
 
       <div class="form-actions render-primary-actions">
@@ -3557,7 +3557,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             </div>
           </div>
 
-          <div data-advanced-engine="vieneu" hidden>
+          <div data-advanced-engine="vieneu">
             <label class="field">
               <span class="field-label">
                 {ui_icon("message", "field-icon advanced-field-icon")}
@@ -6479,7 +6479,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260822-project-filter"></script>
+  <script src="/web/render_page.js?v=20260822-vieneu-default"></script>
 """,
     )
 
@@ -8550,7 +8550,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260821-brand-composer15"></script>
+  <script src="/web/render_page.js?v=20260822-vieneu-default"></script>
 """,
     )
 
