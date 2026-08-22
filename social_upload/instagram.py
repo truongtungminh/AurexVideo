@@ -19,6 +19,7 @@ from .http import http_form_request, http_get_request
 from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
+    record_scheduled_social_upload,
     record_social_upload,
     require_project,
     upload_brand_for_project,
@@ -273,6 +274,13 @@ def instagram_upload_video(payload: dict) -> dict:
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
         queued = schedule_on_vps("instagram", video_path, caption, scheduled)
+        record_scheduled_social_upload(
+            project_dir,
+            "instagram",
+            queued["scheduledPublishAt"],
+            brand=brand,
+            connection_id=connection_id,
+        )
         return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Instagram lên VPS; worker sẽ publish đúng giờ."}
 
     access_token = instagram_access_token(instagram)

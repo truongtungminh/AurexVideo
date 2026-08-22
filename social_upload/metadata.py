@@ -5,7 +5,7 @@ import json
 import re
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -443,21 +443,24 @@ def write_project_upload_metadata(project_dir: Path, metadata: dict) -> None:
     upload_metadata_path(project_dir).write_bytes(encoded + b"\n")
 
 
-def record_social_upload(project: str, platform: str, details: dict) -> dict:
-    project_dir = require_project(project)
+def _record_social_upload(project_dir: Path, platform: str, details: dict) -> dict:
     existing = read_project_upload_metadata(project_dir)
     if not existing:
         existing = generated_upload_metadata(project_dir, read_script_lines(project_dir), {}, language="vi")
     social = existing.get("social", {}) if isinstance(existing.get("social"), dict) else {}
+    state = str(details.get("state") or details.get("video_state") or "published").strip().upper()
     entry = {
-        "postedAt": now_iso(),
         "platform": platform,
         "url": str(details.get("url") or "").strip(),
         "videoId": str(details.get("videoId") or details.get("video_id") or "").strip(),
         "postId": str(details.get("postId") or details.get("post_id") or "").strip(),
-        "state": str(details.get("state") or details.get("video_state") or "published").strip().upper(),
+        "state": state,
         "scheduledAt": str(details.get("scheduledAt") or details.get("scheduled_at") or "").strip(),
     }
+    if state == "SCHEDULED":
+        entry["queuedAt"] = now_iso()
+    else:
+        entry["postedAt"] = now_iso()
     brand = canonical_brand(details.get("brand") or details.get("brandId"))
     if brand:
         entry["brand"] = brand
@@ -470,21 +473,121 @@ def record_social_upload(project: str, platform: str, details: dict) -> dict:
     return entry
 
 
+def record_social_upload(project: str, platform: str, details: dict) -> dict:
+    return _record_social_upload(require_project(project), platform, details)
+
+
+def record_scheduled_social_upload(
+    project_dir: Path,
+    platform: str,
+    scheduled_at: str,
+    *,
+    brand: str = "",
+    connection_id: str = "",
+) -> dict:
+    """Persist the dashboard-safe part of a queued social upload.
+
+    Queued workers must not write their job payloads to project metadata: those can
+    contain credentials or temporary media URLs.  This record intentionally keeps
+    only state needed by the dashboard.
+    """
+    project_dir = Path(project_dir)
+    if not project_dir.is_dir():
+        # A project removed after queuing cannot be shown on the dashboard.
+        return {}
+    details = {"state": "SCHEDULED", "scheduled_at": scheduled_at, "brand": brand}
+    if connection_id:
+        details["connection_id"] = connection_id
+    return _record_social_upload(project_dir, platform, details)
+
+
+def normalize_scheduled_social_time(value: object) -> str:
+    """Return an ISO UTC timestamp for a stored scheduled social upload."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        if raw.replace(".", "", 1).isdigit():
+            parsed = datetime.fromtimestamp(float(raw), tz=timezone.utc)
+        else:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except (OverflowError, TypeError, ValueError):
+        return ""
+
+
+def localized_scheduled_social_label(value: object) -> str:
+    """Format a stored scheduled timestamp for the Vietnamese dashboard."""
+    normalized = normalize_scheduled_social_time(value)
+    if not normalized:
+        return ""
+    local_time = datetime.fromisoformat(normalized.replace("Z", "+00:00")).astimezone()
+    return f"Lúc {local_time:%H:%M} · {local_time:%d/%m/%Y}"
+
+
+def scheduled_social_details(entry: object) -> dict:
+    """Extract a normalized, dashboard-safe schedule payload from a social entry."""
+    if not isinstance(entry, dict):
+        return {}
+    for key in ("scheduledAt", "scheduled_at", "scheduledPublishAt", "scheduled_publish_at"):
+        scheduled_at = normalize_scheduled_social_time(entry.get(key))
+        if scheduled_at:
+            return {
+                "scheduled_at": scheduled_at,
+                "scheduled_label": localized_scheduled_social_label(scheduled_at),
+            }
+    return {}
+
+
 def project_social_status(project_dir: Path) -> dict:
     metadata = read_project_upload_metadata(project_dir)
     social = metadata.get("social", {}) if isinstance(metadata.get("social"), dict) else {}
-    platforms: list[str] = []
-    for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("binance", "Binance Square")):
+    published_platforms: list[str] = []
+    scheduled_platforms: list[tuple[str, dict]] = []
+    for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("threads", "Threads"), ("binance", "Binance Square")):
         entry = social.get(platform)
+        schedule = scheduled_social_details(entry)
+        if schedule:
+            scheduled_platforms.append((label, schedule))
+            continue
         if isinstance(entry, dict) and any(str(entry.get(key) or "").strip() for key in ("url", "videoId", "postId")):
-            platforms.append(label if not str(entry.get("scheduledAt") or "").strip() else f"{label} (hẹn giờ)")
-    if not platforms:
-        return {"posted": False, "label": "Pending", "title": "Chưa có video nào được đăng social", "platforms": []}
+            published_platforms.append(label)
+    if scheduled_platforms:
+        scheduled_platforms.sort(key=lambda item: item[1]["scheduled_at"])
+        next_label, next_schedule = scheduled_platforms[0]
+        platforms = [label for label, _ in scheduled_platforms] + published_platforms
+        return {
+            "posted": bool(published_platforms),
+            "scheduled": True,
+            "state": "scheduled",
+            "label": "Đã lên lịch",
+            "title": f"{next_label} · {next_schedule['scheduled_label']}",
+            "platforms": platforms,
+            "scheduled_platforms": [label for label, _ in scheduled_platforms],
+            **next_schedule,
+        }
+    if not published_platforms:
+        return {
+            "posted": False,
+            "scheduled": False,
+            "state": "pending",
+            "label": "Pending",
+            "title": "Chưa có video nào được đăng social",
+            "platforms": [],
+            "scheduled_at": "",
+            "scheduled_label": "",
+        }
     return {
         "posted": True,
+        "scheduled": False,
+        "state": "complete",
         "label": "Complete",
-        "title": " · ".join(platforms),
-        "platforms": platforms,
+        "title": " · ".join(published_platforms),
+        "platforms": published_platforms,
+        "scheduled_at": "",
+        "scheduled_label": "",
     }
 
 

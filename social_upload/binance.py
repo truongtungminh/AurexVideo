@@ -18,6 +18,7 @@ from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
     project_brand_from_topic,
+    record_scheduled_social_upload,
     record_social_upload,
     require_project,
 )
@@ -208,6 +209,7 @@ def resolve_binance_upload_brand(payload: dict) -> str:
 
 def binance_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
+    project_dir = require_project(project)
     brand = resolve_binance_upload_brand(payload)
     video_path = final_video_path_for_project(project)
     duration = float(payload.get("duration") or 0)
@@ -217,6 +219,12 @@ def binance_upload_video(payload: dict) -> dict:
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         queued = schedule_upload("binance", payload, scheduled)
+        record_scheduled_social_upload(
+            project_dir,
+            "binance",
+            queued["scheduledPublishAt"],
+            brand=brand,
+        )
         return {
             "ok": True,
             "platform": "binance",
