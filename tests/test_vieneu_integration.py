@@ -10,16 +10,17 @@ import tools.render_project as render_project
 def test_vieneu_exposes_aurexvideo_reference_voices():
     voices = {voice["id"]: voice for voice in list_available_voices()}
 
-    assert {"chautinhtri", "adam_elevenlabs"}.issubset(voices)
+    assert {"chautinhtri", "adam_elevenlabs", "adam_voiceai_vn"}.issubset(voices)
     assert Path(voices["chautinhtri"]["ref_audio"]).is_file()
     assert Path(voices["adam_elevenlabs"]["ref_audio"]).is_file()
+    assert Path(voices["adam_voiceai_vn"]["ref_audio"]).is_file()
 
 
 def test_vieneu_health_reports_shared_profile():
     health = check_vieneu_health()
 
     assert health["ok"] is True
-    assert health["profile_voice_ids"] == ["chautinhtri", "adam_elevenlabs"]
+    assert health["profile_voice_ids"] == ["chautinhtri", "adam_elevenlabs", "adam_voiceai_vn"]
     assert health["profile_path"].endswith("config/aurexvideo_voice.json")
 
 
