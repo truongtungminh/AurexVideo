@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,6 +13,8 @@ from social_upload import metadata
 
 
 class DashboardSocialStatusTests(unittest.TestCase):
+    NOW = datetime(2030, 1, 1, tzinfo=timezone.utc)
+
     def _project_with_metadata(self, social: dict) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temp_dir = tempfile.TemporaryDirectory()
         project_dir = Path(temp_dir.name) / "demo"
@@ -31,35 +34,55 @@ class DashboardSocialStatusTests(unittest.TestCase):
             r"^Lúc \d{2}:\d{2} · 01/01/2030$",
         )
 
-    def test_scheduled_status_has_machine_time_and_display_label(self) -> None:
+    def test_future_scheduled_status_has_machine_time_and_display_label(self) -> None:
         temp_dir, project_dir = self._project_with_metadata(
-            {"threads": {"state": "SCHEDULED", "scheduledAt": "2030-01-01T00:00:00Z"}}
+            {"threads": {"state": "SCHEDULED", "scheduledAt": "2030-01-01T07:30:00+07:00"}}
         )
         try:
-            status = metadata.project_social_status(project_dir)
+            status = metadata.project_social_status(project_dir, now=self.NOW)
         finally:
             temp_dir.cleanup()
 
         self.assertEqual(status["label"], "Đã lên lịch")
         self.assertTrue(status["scheduled"])
-        self.assertEqual(status["scheduled_at"], "2030-01-01T00:00:00Z")
+        self.assertEqual(status["scheduled_at"], "2030-01-01T00:30:00Z")
         self.assertTrue(status["scheduled_label"].startswith("Lúc "))
         self.assertEqual(status["scheduled_platforms"], ["Threads"])
 
-    def test_scheduled_status_precedes_completed_social_upload(self) -> None:
+    def test_past_scheduled_status_is_published_without_post_metadata(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata(
+            {"threads": {"state": "SCHEDULED", "scheduledAt": "2030-01-01T07:00:00+07:00"}}
+        )
+        try:
+            status = metadata.project_social_status(project_dir, now=self.NOW)
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(status["label"], "Published")
+        self.assertTrue(status["posted"])
+        self.assertFalse(status["scheduled"])
+        self.assertEqual(status["title"], "Threads")
+        self.assertEqual(status["platforms"], ["Threads"])
+        self.assertEqual(status["scheduled_at"], "")
+        self.assertEqual(status["scheduled_label"], "")
+
+    def test_future_scheduled_status_keeps_past_scheduled_platform_published(self) -> None:
         temp_dir, project_dir = self._project_with_metadata(
             {
-                "youtube": {"videoId": "published-video", "state": "PUBLISHED"},
-                "instagram": {"scheduled_publish_at": "2030-02-01T00:00:00Z"},
+                "youtube": {"state": "SCHEDULED", "scheduledAt": "2030-01-01T00:00:00Z"},
+                "instagram": {"scheduled_publish_at": "2030-01-01T07:30:00+07:00"},
             }
         )
         try:
-            status = metadata.project_social_status(project_dir)
+            status = metadata.project_social_status(project_dir, now=self.NOW)
         finally:
             temp_dir.cleanup()
 
         self.assertEqual(status["label"], "Đã lên lịch")
         self.assertTrue(status["posted"])
+        self.assertTrue(status["scheduled"])
+        self.assertEqual(status["scheduled_at"], "2030-01-01T00:30:00Z")
+        self.assertEqual(status["scheduled_platforms"], ["Instagram"])
         self.assertEqual(status["platforms"], ["Instagram", "YouTube"])
 
     def test_queued_record_stores_only_dashboard_safe_schedule_fields(self) -> None:
@@ -84,16 +107,16 @@ class DashboardSocialStatusTests(unittest.TestCase):
         self.assertNotIn("schedule_id", saved)
         self.assertNotIn("postedAt", saved)
 
-    def test_complete_and_pending_labels_remain_unchanged(self) -> None:
-        complete_dir, complete_project = self._project_with_metadata(
+    def test_published_and_pending_labels(self) -> None:
+        published_dir, published_project = self._project_with_metadata(
             {"binance": {"postId": "post-1", "state": "PUBLISHED"}}
         )
         pending_dir, pending_project = self._project_with_metadata({})
         try:
-            self.assertEqual(metadata.project_social_status(complete_project)["label"], "Complete")
+            self.assertEqual(metadata.project_social_status(published_project, now=self.NOW)["label"], "Published")
             self.assertEqual(metadata.project_social_status(pending_project)["label"], "Pending")
         finally:
-            complete_dir.cleanup()
+            published_dir.cleanup()
             pending_dir.cleanup()
 
 
