@@ -699,6 +699,18 @@ def list_projects() -> list[dict]:
         has_output = output_dir.is_dir() and any(output_dir.iterdir())
         output_url = final_video_url(project_dir.name)
         brand = social_metadata.project_brand_from_topic(project_dir)
+        character_id = ""
+        try:
+            topic = json.loads((project_dir / "topic.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            topic = {}
+        if isinstance(topic, dict):
+            character_id = str(
+                topic.get("characterId")
+                or topic.get("character_id")
+                or topic.get("character")
+                or ""
+            ).strip()
         social_status = social_metadata.project_social_status(project_dir)
         projects.append(
             {
@@ -715,6 +727,7 @@ def list_projects() -> list[dict]:
                 "output_url": output_url,
                 "video_url": output_url if final_video.exists() else None,
                 "brand": brand,
+                "character": character_id,
                 "social_status": social_status["label"],
                 "social_status_class": "warn" if social_status.get("scheduled") else ("ok" if social_status.get("posted") else "bad"),
                 "social_status_title": social_status["title"],
@@ -3322,6 +3335,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         name = html.escape(project["name"])
         href = html.escape(project["url"])
         brand = html.escape(project.get("brand") or "", quote=True)
+        character = html.escape(project.get("character") or "", quote=True)
         has_video = bool(project["video_url"])
         video_link = (
             f'<a class="small-link icon-btn" href="{html.escape(player_url(project["name"]))}">{ui_icon("play")}<span>Mở</span></a>'
@@ -3339,7 +3353,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         )
         rows.append(
             f"""
-            <li class="project-row{selected_class}" data-project="{name}" data-brand="{brand}">
+            <li class="project-row{selected_class}" data-project="{name}" data-brand="{brand}" data-character="{character}">
               <div class="project-main">
                 <span class="project-name">{name}</span>
                 <div class="project-meta-row">
@@ -3659,7 +3673,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <span>Sắp xếp</span>
           <select id="projectSort" aria-label="Sắp xếp dự án">
             <option value="recent">Mới cập nhật</option>
-            <option value="brand">Brand (A–Z)</option>
+            <option value="brand-character">Brand/Character (A–Z)</option>
           </select>
         </label>
       </div>
