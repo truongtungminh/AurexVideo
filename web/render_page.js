@@ -28,6 +28,7 @@
     ? window.__PROJECTS__
     : (fallbackProject ? [{ name: fallbackProject, url: `/project/${fallbackProject}/`, output_url: fallbackOutputUrl, video_url: fallbackOutputUrl, script_count: 0 }] : []);
   const projectMap = new Map(projects.map((project) => [project.name, project]));
+  const PROJECT_SORT_STORAGE_KEY = 'aurexvideo-dashboard-project-sort';
   const MAZIAO_PREVIEW_FALLBACKS = {
     clone_8ci7vkGMoJLyKe9IJ7MfV: 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice_TKAC9TA2IZKeB9iUgHrke.mp3',
     'clone_fY2_e5-7EbOgfEQlggwg0': 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice__kDkJCtGB4qx1fPI8XqgO.mp3',
@@ -194,6 +195,37 @@
     return $all('.project-row[data-project]').find((element) => element.dataset.project === projectName) || null;
   }
 
+  function projectSortPreference() {
+    try {
+      return localStorage.getItem(PROJECT_SORT_STORAGE_KEY) === 'brand' ? 'brand' : 'recent';
+    } catch (_) {
+      return 'recent';
+    }
+  }
+
+  function applyProjectSort(preference) {
+    const list = $('#projectList');
+    if (!list) return;
+    const rows = $all('.project-row[data-project]', list);
+    rows.forEach((row, index) => {
+      if (row.dataset.defaultSortIndex === undefined) row.dataset.defaultSortIndex = String(index);
+    });
+    const ordered = rows.sort((left, right) => {
+      if (preference !== 'brand') {
+        return Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
+      }
+      const leftBrand = String(left.dataset.brand || '').trim();
+      const rightBrand = String(right.dataset.brand || '').trim();
+      if (!leftBrand || !rightBrand) {
+        if (!leftBrand && !rightBrand) return Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
+        return leftBrand ? -1 : 1;
+      }
+      const byBrand = leftBrand.localeCompare(rightBrand, 'vi', { sensitivity: 'base' });
+      return byBrand || Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
+    });
+    ordered.forEach((row) => list.appendChild(row));
+  }
+
   function projectRenderState(project, jobs) {
     const projectJobs = (Array.isArray(jobs) ? jobs : []).filter((job) => job.project === project?.name);
     const active = projectJobs.find((job) => ['authorizing', 'queued', 'running', 'cancelling'].includes(job.status));
@@ -215,6 +247,45 @@
     row.dataset.renderState = status.state;
     badge.textContent = status.label;
     badge.className = `status-pill ${status.tone}`;
+  }
+
+  function applyProjectSocialStatus(project) {
+    const row = rowForProject(project?.name);
+    const cell = row?.querySelector('.social-status-cell');
+    if (!row || !cell) return;
+    const detail = project.social_status_detail || {};
+    const label = String(project.social_status || detail.label || 'Pending');
+    const tone = String(project.social_status_class || (detail.scheduled ? 'warn' : detail.posted ? 'ok' : 'bad'));
+    cell.title = String(project.social_status_title || detail.title || '');
+    let badge = cell.querySelector('.social-status');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.classList.add('social-status');
+      cell.prepend(badge);
+    }
+    badge.className = `status-pill ${tone} social-status`;
+    badge.textContent = label;
+    cell.querySelector('.social-schedule-time')?.remove();
+    const scheduledLabel = String(project.social_status_scheduled_label || detail.scheduled_label || '');
+    if (scheduledLabel) {
+      const time = document.createElement('small');
+      time.className = 'social-schedule-time';
+      time.dateTime = String(project.social_status_scheduled_at || detail.scheduled_at || '');
+      time.textContent = scheduledLabel;
+      cell.appendChild(time);
+    }
+  }
+
+  async function refreshDashboardProjectSocialStatuses() {
+    if (!$('#projectList')) return;
+    const response = await fetch('/api/projects', { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    (Array.isArray(data.projects) ? data.projects : []).forEach((project) => {
+      const current = projectMap.get(project?.name);
+      if (current) Object.assign(current, project);
+      applyProjectSocialStatus(project);
+    });
   }
 
   async function refreshProjectStatuses() {
@@ -1331,6 +1402,7 @@
       state.composerBusy = false;
       renderComposerDestinations();
       await refreshSocialStatus().catch(() => {});
+      await refreshDashboardProjectSocialStatuses().catch(() => {});
     }
   }
 
@@ -4779,6 +4851,22 @@
   const refreshProjects = $('#refreshProjects');
   if (refreshProjects) {
     refreshProjects.addEventListener('click', () => window.location.reload());
+  }
+
+  const projectSort = $('#projectSort');
+  if (projectSort) {
+    const preference = projectSortPreference();
+    projectSort.value = preference;
+    applyProjectSort(preference);
+    projectSort.addEventListener('change', () => {
+      const nextPreference = projectSort.value === 'brand' ? 'brand' : 'recent';
+      try {
+        localStorage.setItem(PROJECT_SORT_STORAGE_KEY, nextPreference);
+      } catch (_) {
+        // Sorting remains available when browser storage is disabled.
+      }
+      applyProjectSort(nextPreference);
+    });
   }
 
   $all('[data-source-root-select]').forEach((button) => {

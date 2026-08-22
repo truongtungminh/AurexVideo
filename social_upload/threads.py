@@ -20,6 +20,7 @@ from .http import http_form_request, http_get_request
 from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
+    record_scheduled_social_upload,
     record_social_upload,
     require_project,
     upload_brand_for_project,
@@ -366,6 +367,13 @@ def threads_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
         video_path = Path(final_video_path_for_project(project))
         queued = schedule_on_vps("threads", video_path, text, scheduled)
+        record_scheduled_social_upload(
+            project_dir,
+            "threads",
+            queued["scheduledPublishAt"],
+            brand=brand,
+            connection_id=connection_id,
+        )
         return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Threads lên VPS; worker sẽ publish đúng giờ."}
 
     supplied_url = (
