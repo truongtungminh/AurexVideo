@@ -3,6 +3,27 @@
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
   const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v2';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
+  const RENDER_ENGINE_STORAGE_KEY = 'aurexvideo-render-engine-v1';
+  const RENDER_ENGINES = new Set(['vieneu', 'maziao', 'edgetts']);
+
+  function normalizeRenderEngine(value) {
+    const engine = String(value || '').trim().toLowerCase();
+    if (engine === 'aurextts') return 'vieneu';
+    if (engine === 'edge' || engine === 'edgetts' || engine === 'edtts' || engine === 'edge_tts' || engine === 'edge-tts') return 'edgetts';
+    return RENDER_ENGINES.has(engine) ? engine : '';
+  }
+
+  function readRememberedRenderEngine() {
+    try {
+      return normalizeRenderEngine(localStorage.getItem(RENDER_ENGINE_STORAGE_KEY));
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function rememberRenderEngine(engine) {
+    try { localStorage.setItem(RENDER_ENGINE_STORAGE_KEY, engine); } catch (_) {}
+  }
 
   function clearLegacyRenderPreferencesIfDefault() {
     let legacy = null;
@@ -38,7 +59,7 @@
     'clone_fY2_e5-7EbOgfEQlggwg0': 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice__kDkJCtGB4qx1fPI8XqgO.mp3',
   };
   const state = {
-    engine: 'maziao',
+    engine: 'vieneu',
     jobId: null,
     pollTimer: null,
     project: null,
@@ -2591,16 +2612,19 @@
     return progress;
   }
 
-  function setEngine(engine) {
-    state.engine = engine;
+  function setEngine(engine, options = {}) {
+    const nextEngine = normalizeRenderEngine(engine);
+    if (!nextEngine) return;
+    state.engine = nextEngine;
+    if (options.remember !== false) rememberRenderEngine(nextEngine);
     $all('[data-engine]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.engine === engine);
+      button.classList.toggle('active', button.dataset.engine === nextEngine);
     });
     $all('[data-pane]').forEach((pane) => {
-      pane.hidden = pane.dataset.pane !== engine;
+      pane.hidden = pane.dataset.pane !== nextEngine;
     });
     syncAdvancedSettings();
-    if (engine === 'vieneu' || engine === 'aurextts') loadVieneuVoices();
+    if (nextEngine === 'vieneu') loadVieneuVoices();
   }
 
   function syncAdvancedSettings() {
@@ -3855,6 +3879,8 @@
     button.addEventListener('click', () => setEngine(button.dataset.engine));
   });
 
+  const rememberedRenderEngine = readRememberedRenderEngine();
+  if (rememberedRenderEngine) setEngine(rememberedRenderEngine, { remember: false });
   syncAdvancedSettings();
   syncMaziaoTtsMode();
   const maziaoTtsModeInput = $('#maziaoTtsMode');
@@ -4956,6 +4982,8 @@
 
   // Restore the render options saved by the previous render.
   async function restoreRenderPreferences() {
+    const rememberedEngineBeforeFetch = readRememberedRenderEngine();
+    if (rememberedEngineBeforeFetch) setEngine(rememberedEngineBeforeFetch, { remember: false });
     let preferences = null;
     try {
       const response = await fetch('/api/render-preferences', { cache: 'no-store' });
@@ -4983,8 +5011,14 @@
       const field = $(selector);
       if (field && typeof rebuildAudioCache === 'boolean') field.checked = rebuildAudioCache;
     });
-    if (preferences.engine && typeof setEngine === 'function') {
-      try { setEngine(preferences.engine); } catch (error) { /* engine tab may be fixed */ }
+    if (typeof setEngine === 'function') {
+      const rememberedEngine = readRememberedRenderEngine();
+      const savedEngine = normalizeRenderEngine(preferences.engine);
+      try {
+        if (rememberedEngine) setEngine(rememberedEngine, { remember: false });
+        else if (savedEngine && savedEngine !== 'maziao') setEngine(savedEngine);
+        else if (savedEngine === 'maziao') setEngine('vieneu');
+      } catch (error) { /* engine tab may be fixed */ }
     }
     syncSpeedPresets();
     syncMaziaoTtsMode();

@@ -1624,6 +1624,11 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
     ]
+    rebuild_audio_cache = bool(
+        payload.get("force", False)
+        or payload.get("rebuildAudioCache", False)
+        or payload.get("rebuild_audio_cache", False)
+    )
 
     if engine in {"elevenlabs"}:
         mode = str(payload.get("mode") or "tts").strip().lower()
@@ -1663,6 +1668,25 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
             cmd.append("--force-tts")
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "edgetts"
+
+    if engine in {"vieneu", "aurextts"}:
+        config = m3.vieneu_public_config()
+        voice = str(payload.get("voice") or config.get("voice") or "chautinhtri").strip()
+        mode = str(payload.get("mode") or config.get("mode") or "v3turbo").strip()
+        device = str(payload.get("device") or config.get("device") or "cpu").strip()
+        ref_audio = str(payload.get("refAudio") or payload.get("ref_audio") or config.get("refAudio") or "").strip()
+        cmd.extend(["--engine", "vieneu", "--voice", voice])
+        cmd.extend([
+            "--tts-config-json",
+            json.dumps(
+                {"mode": mode, "device": device, "refAudio": ref_audio},
+                ensure_ascii=False,
+            ),
+        ])
+        if rebuild_audio_cache:
+            cmd.append("--force-tts")
+        append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
+        return cmd, "vieneu"
 
     if engine in {"project", "local"}:
         cmd.extend(["--engine", "project"])
@@ -3251,11 +3275,25 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       <div class="status warn" id="renderStatus" hidden></div>
 
       <div class="tabs">
-        <button class="tab active" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
+        <button class="tab active" data-engine="vieneu" type="button">{ui_icon("mic", "tab-icon")}<span>VieNeu TTS</span></button>
+        <button class="tab" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
         <button class="tab" data-engine="edgetts" type="button">{ui_icon("audio-lines", "tab-icon")}<span>Edge TTS</span></button>
       </div>
 
-      <div data-pane="maziao">
+      <div data-pane="vieneu">
+        <div class="field">
+          <span class="field-label">{ui_icon("message", "field-icon")}<span>Giọng VieNeu</span></span>
+          <select id="vieneuVoice"><option value="">Đang tải giọng...</option></select>
+        </div>
+        <div class="advanced-check-grid">
+          <label class="check">
+            <input id="vieneuForce" type="checkbox" />
+            Tạo lại audio cache
+          </label>
+        </div>
+      </div>
+
+      <div data-pane="maziao" hidden>
         <div class="field maziao-voice-field">
           <span class="field-label">{ui_icon("message", "field-icon")}<span>TTS Voice</span></span>
           <div class="maziao-voice-control">
@@ -3302,6 +3340,33 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <span class="advanced-heading-title">Cài đặt nâng cao</span>
         </div>
         <div class="advanced-body">
+
+          <div data-advanced-engine="vieneu">
+            <label class="field">
+              <span class="field-label">
+                {ui_icon("message", "field-icon advanced-field-icon")}
+                <span>Model Mode</span>
+              </span>
+              <select id="vieneuMode">
+                <option value="v3turbo" selected>VieNeu-TTS-v3-Turbo (Khuyên dùng, 48kHz)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">
+                {ui_icon("gauge", "field-icon advanced-field-icon")}
+                <span>Device</span>
+              </span>
+              <select id="vieneuDevice">
+                <option value="cpu" selected>CPU (Ổn định)</option>
+                <option value="mps">Apple Silicon GPU (MPS)</option>
+                <option value="cuda">NVIDIA GPU (CUDA)</option>
+              </select>
+            </label>
+            <div class="advanced-check-grid">
+              <button class="start" id="checkVieneu" type="button">Kiểm tra VieNeu-TTS</button>
+            </div>
+            <p class="engine-note" id="vieneuConfigState">VieNeu-TTS chạy trực tiếp trong máy.</p>
+          </div>
 
           <div data-advanced-engine="edgetts" hidden>
             <label class="field">
@@ -6178,7 +6243,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260822-project-filter"></script>
+  <script src="/web/render_page.js?v=20260822-vieneu-default"></script>
 """,
     )
 
@@ -7665,7 +7730,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260725-audio-volume"></script>
+  <script src="/web/render_page.js?v=20260822-vieneu-default"></script>
 """,
     )
 
@@ -8214,6 +8279,13 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_json(200, {"projects": list_projects()})
             return
 
+        if path == "/api/render-preferences":
+            try:
+                self.send_json(200, {"preferences": m3.read_render_preferences()})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if path == "/api/characters":
             try:
                 characters = m3.list_characters()
@@ -8247,6 +8319,20 @@ class WebHandler(SimpleHTTPRequestHandler):
         if path == "/api/tts/elevenlabs/config":
             try:
                 self.send_json(200, elevenlabs_public_config())
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
+            try:
+                self.send_json(200, m3.vieneu_public_config())
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path in {"/api/tts/vieneu/health", "/api/tts/aurextts/health"}:
+            try:
+                self.send_json(200, m3.vieneu_health())
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -8685,6 +8771,15 @@ class WebHandler(SimpleHTTPRequestHandler):
                         result = update_elevenlabs_voice_id(voice_id)
                     else:
                         raise ValueError("Missing ElevenLabs voice_id or api_key.")
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
+                try:
+                    result = m3.update_vieneu_config(self.read_json_body())
                 except Exception as exc:
                     self.send_json(400, {"error": str(exc)})
                     return
