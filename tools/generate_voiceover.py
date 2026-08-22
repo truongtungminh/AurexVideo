@@ -75,7 +75,7 @@ def generate_vieneu(
     text: str, output: Path, config: dict, voice: str, tts_config: dict
 ) -> None:
     """Synthesize voiceover using VieNeu-TTS directly."""
-    from tts.vieneu import generate_vieneu_voiceover
+    from tts.vieneu_adapter import generate_vieneu_voiceover
 
     vieneu_cfg = config.get("vieneu") if isinstance(config.get("vieneu"), dict) else {}
     mode = str(tts_config.get("mode") or vieneu_cfg.get("mode") or "v3turbo").strip()

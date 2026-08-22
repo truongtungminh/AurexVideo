@@ -246,7 +246,7 @@ def update_vieneu_config(payload: dict) -> dict:
 def vieneu_health() -> dict:
     """Check local VieNeu-TTS availability and list voices."""
     try:
-        from tts.vieneu import check_vieneu_health
+        from tts.vieneu_adapter import check_vieneu_health
         return check_vieneu_health()
     except Exception as exc:
         return {"ok": False, "installed": False, "error": str(exc), "voices": []}
