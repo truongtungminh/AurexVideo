@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -48,6 +49,82 @@ def _find_vieneu_root() -> Optional[Path]:
 
 
 _vieneu_root = _find_vieneu_root()
+
+
+def _vieneu_python() -> Optional[Path]:
+    candidates: List[Path] = []
+    for env_name in ("AUREX_VIENEU_PYTHON", "VIENEU_PYTHON"):
+        value = str(os.environ.get(env_name) or "").strip()
+        if value:
+            candidates.append(Path(value).expanduser())
+    if _vieneu_root:
+        candidates.extend(
+            [
+                _vieneu_root / ".venv" / "bin" / "python",
+                _vieneu_root / ".venv" / "bin" / "python3",
+            ]
+        )
+    candidates.extend(
+        [
+            Path("/Users/truongminh/VieNeu-TTS/.venv/bin/python"),
+            Path.home() / "VieNeu-TTS" / ".venv" / "bin" / "python",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+_PROBE_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
+
+
+def _probe_vieneu_runtime() -> Dict[str, Any]:
+    """Verify the dependencies used by the real render subprocess."""
+    global _PROBE_CACHE
+    now = time.monotonic()
+    if _PROBE_CACHE and now - _PROBE_CACHE[0] < 30:
+        return dict(_PROBE_CACHE[1])
+
+    python = _vieneu_python()
+    if python is None or _vieneu_root is None:
+        result = {
+            "ok": False,
+            "python": str(python or ""),
+            "error": "Không tìm thấy VieNeu-TTS/.venv để chạy dependency probe.",
+        }
+        _PROBE_CACHE = (now, result)
+        return dict(result)
+
+    env = os.environ.copy()
+    env["VIENEU_HOME"] = str(_vieneu_root)
+    env["VIENEU_TTS_ROOT"] = str(_vieneu_root)
+    src_path = str(_vieneu_root / "src")
+    env["PYTHONPATH"] = src_path + os.pathsep + str(env.get("PYTHONPATH") or "")
+    probe_code = (
+        "import sea_g2p, onnxruntime, soundfile, soxr, kaldi_native_fbank; "
+        "import vieneu.v3turbo; print('ok')"
+    )
+    try:
+        completed = subprocess.run(
+            [str(python), "-c", probe_code],
+            cwd=str(_vieneu_root),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception as exc:
+        result = {"ok": False, "python": str(python), "error": str(exc)}
+    else:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        result = {
+            "ok": completed.returncode == 0,
+            "python": str(python),
+            "error": detail[-1200:] if completed.returncode else "",
+        }
+    _PROBE_CACHE = (now, result)
+    return dict(result)
 
 from vieneu.anhtinh import (  # noqa: E402
     DEFAULT_TONE,
@@ -217,6 +294,7 @@ def check_vieneu_health() -> Dict[str, Any]:
     """Check VieNeu and expose the loaded AurexVideo voice profile."""
     try:
         health = anhtinh_check_health()
+        runtime = _probe_vieneu_runtime()
         profile, profile_path = _load_profile()
         profile_voice_ids = []
         if profile:
@@ -225,10 +303,11 @@ def check_vieneu_health() -> Dict[str, Any]:
                 for voice_id in profile.get("reference_voices", {})
             ]
         return {
-            "ok": health["ok"],
-            "installed": health["installed"],
+            "ok": bool(health["ok"] and runtime["ok"]),
+            "installed": bool(health["installed"] and runtime["ok"]),
             "version": health.get("version", "v3turbo-48kHz"),
             "root": str(_vieneu_root) if _vieneu_root else "installed_package",
+            "runtime": runtime,
             "profile_path": str(profile_path or ""),
             "profile_voice_ids": profile_voice_ids,
             "voices": list_available_voices(),
