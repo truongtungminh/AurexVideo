@@ -541,16 +541,30 @@ def scheduled_social_details(entry: object) -> dict:
     return {}
 
 
-def project_social_status(project_dir: Path) -> dict:
+def project_social_status(project_dir: Path, *, now: datetime | None = None) -> dict:
+    """Return the dashboard social status using a UTC-aware current time.
+
+    A scheduled entry becomes published for dashboard purposes when its due time
+    is reached, even if its upload worker has not yet recorded a URL or post ID.
+    """
     metadata = read_project_upload_metadata(project_dir)
     social = metadata.get("social", {}) if isinstance(metadata.get("social"), dict) else {}
+    current_time = now if now is not None else datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    else:
+        current_time = current_time.astimezone(timezone.utc)
     published_platforms: list[str] = []
     scheduled_platforms: list[tuple[str, dict]] = []
     for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("threads", "Threads"), ("binance", "Binance Square")):
         entry = social.get(platform)
         schedule = scheduled_social_details(entry)
         if schedule:
-            scheduled_platforms.append((label, schedule))
+            scheduled_time = datetime.fromisoformat(schedule["scheduled_at"].replace("Z", "+00:00"))
+            if scheduled_time > current_time:
+                scheduled_platforms.append((label, schedule))
+            else:
+                published_platforms.append(label)
             continue
         if isinstance(entry, dict) and any(str(entry.get(key) or "").strip() for key in ("url", "videoId", "postId")):
             published_platforms.append(label)
@@ -583,7 +597,7 @@ def project_social_status(project_dir: Path) -> dict:
         "posted": True,
         "scheduled": False,
         "state": "complete",
-        "label": "Complete",
+        "label": "Published",
         "title": " · ".join(published_platforms),
         "platforms": published_platforms,
         "scheduled_at": "",
