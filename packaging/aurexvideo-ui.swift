@@ -89,6 +89,26 @@ final class AppState: ObservableObject {
         return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private func isVieNeuServiceReady() -> Bool {
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        checker.arguments = ["-fsS", "--max-time", "2", "http://127.0.0.1:7860/"]
+        let pipe = Pipe()
+        checker.standardOutput = pipe
+        checker.standardError = Pipe()
+        do {
+            try checker.run()
+            checker.waitUntilExit()
+        } catch {
+            return false
+        }
+        guard checker.terminationStatus == 0,
+              let page = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) else {
+            return false
+        }
+        return page.localizedCaseInsensitiveContains("VieNeu")
+    }
+
     private func logVieNeu(_ message: String) {
         let logURL = engineBase.appendingPathComponent("vieneu.log")
         let fm = FileManager.default
@@ -109,7 +129,11 @@ final class AppState: ObservableObject {
             return
         }
         if isPortListening(7860) {
-            logVieNeu("[start] đã có VieNeu đang chạy ở http://127.0.0.1:7860")
+            if isVieNeuServiceReady() {
+                logVieNeu("[start] đã có VieNeu đang chạy ở http://127.0.0.1:7860")
+            } else {
+                logVieNeu("[start] port 7860 đang được dùng bởi dịch vụ khác; AurexVideo vẫn render trực tiếp bằng VieNeu")
+            }
             return
         }
 
@@ -164,7 +188,7 @@ final class AppState: ObservableObject {
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             for _ in 0..<60 {
-                if self?.isPortListening(7860) == true {
+                if self?.isVieNeuServiceReady() == true {
                     self?.logVieNeu("[ready] VieNeu-TTS UI sẵn sàng tại http://127.0.0.1:7860")
                     return
                 }
@@ -795,7 +819,7 @@ final class WebViewUIDelegate: NSObject, WKUIDelegate {
 // MARK: - Window behavior
 // The app intentionally hides the title bar, which also removes macOS's
 // standard double-click zoom target. Re-create that small interaction in the
-// top drag band while keeping the native green-button zoom/full-screen action.
+// top drag band while keeping the native green-button zoom action.
 final class AurexWindowController: NSObject {
     static let shared = AurexWindowController()
 

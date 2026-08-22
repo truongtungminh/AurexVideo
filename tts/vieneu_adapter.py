@@ -314,19 +314,29 @@ def check_vieneu_health() -> Dict[str, Any]:
         runtime = _probe_vieneu_runtime()
         profile, profile_path = _load_profile()
         profile_voice_ids = []
+        reference_audio: Dict[str, str] = {}
+        references_ok = True
         if profile:
-            profile_voice_ids = [
-                _public_profile_voice_id(str(voice_id))
-                for voice_id in profile.get("reference_voices", {})
-            ]
+            for voice_id in profile.get("reference_voices", {}):
+                profile_voice_id = str(voice_id)
+                public_id = _public_profile_voice_id(profile_voice_id)
+                profile_voice_ids.append(public_id)
+                try:
+                    reference = _resolve_profile_reference(profile, profile_path, profile_voice_id)
+                except Exception as exc:
+                    logger.warning("Không resolve được reference voice %s: %s", profile_voice_id, exc)
+                    reference = None
+                reference_audio[public_id] = str(reference or "")
+                references_ok = references_ok and reference is not None and reference.is_file()
         return {
-            "ok": bool(health["ok"] and runtime["ok"]),
-            "installed": bool(health["installed"] and runtime["ok"]),
+            "ok": bool(health["ok"] and runtime["ok"] and references_ok),
+            "installed": bool(health["installed"] and runtime["ok"] and references_ok),
             "version": health.get("version", "v3turbo-48kHz"),
             "root": str(_vieneu_root) if _vieneu_root else "installed_package",
             "runtime": runtime,
             "profile_path": str(profile_path or ""),
             "profile_voice_ids": profile_voice_ids,
+            "reference_audio": reference_audio,
             "voices": list_available_voices(),
             "tone_references": health.get("tone_references", {}),
         }
@@ -422,10 +432,17 @@ def generate_vieneu_voiceover(
         actual_ref = None
 
     if actual_ref is None and profile and profile_voice_id in profile.get("reference_voices", {}):
-        actual_ref = _resolve_profile_reference(profile, profile_path, profile_voice_id)
-    elif actual_ref is None and voice_id == "chautinhtri":
+        try:
+            actual_ref = _resolve_profile_reference(profile, profile_path, profile_voice_id)
+        except Exception as exc:
+            logger.warning("Không resolve được reference voice %s: %s", profile_voice_id, exc)
+    if actual_ref is None and voice_id == "chautinhtri":
         actual_ref = Path(get_default_ref()) if get_default_ref() else None
-    elif actual_ref is None and voice_id.startswith("v3turbo_"):
+    if actual_ref is None and profile and profile_voice_id in profile.get("reference_voices", {}):
+        raise FileNotFoundError(
+            f"Không tìm thấy reference audio cho giọng VieNeu '{voice_id}' trong profile {profile_path}"
+        )
+    if actual_ref is None and voice_id.startswith("v3turbo_"):
         preset_name = voice_id.replace("v3turbo_", "")
         preset_map = {
             "xuanvinh": "Xuân Vĩnh",
@@ -434,7 +451,7 @@ def generate_vieneu_voiceover(
             "maiphuong": "Mai Phương",
         }
         actual_voice = preset_map.get(preset_name, preset_name)
-    elif actual_ref is None:
+    if actual_ref is None and not actual_voice:
         actual_voice = voice_id or None
 
     logger.info(

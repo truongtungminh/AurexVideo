@@ -3536,7 +3536,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               </span>
               <select id="vieneuMode">
                 <option value="v3turbo" selected>VieNeu-TTS-v3-Turbo (Khuyên dùng, 48kHz)</option>
-                <option value="0.3b">VieNeu-TTS-0.3B</option>
               </select>
             </label>
             <label class="field">
