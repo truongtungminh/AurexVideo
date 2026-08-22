@@ -45,7 +45,44 @@ AUREX_ROOT = ROOT
 AUREX_TTS_CONFIG_PATH = TTS_CONFIG_PATH
 AUREX_SOCIAL_CONFIG_PATH = SOCIAL_CONFIG_PATH
 AUREX_PYTHON = PYTHON_EXECUTABLE
-VIENEU_PYTHON = Path("/Users/truongminh/VieNeu-TTS/.venv/bin/python")
+
+
+def resolve_vieneu_python() -> Path:
+    """Find the VieNeu interpreter exposed by the desktop app."""
+    direct_candidates = [
+        os.environ.get("AUREX_VIENEU_PYTHON"),
+        os.environ.get("VIENEU_PYTHON"),
+    ]
+    root_candidates = [
+        os.environ.get("VIENEU_HOME"),
+        os.environ.get("VIENEU_TTS_ROOT"),
+        "/Users/truongminh/VieNeu-TTS",
+        str(Path.home() / "VieNeu-TTS"),
+    ]
+
+    candidates: list[Path] = [
+        Path(value).expanduser()
+        for value in direct_candidates
+        if str(value or "").strip()
+    ]
+    for root in root_candidates:
+        if not str(root or "").strip():
+            continue
+        root_path = Path(root).expanduser()
+        candidates.extend(
+            [
+                root_path / ".venv" / "bin" / "python",
+                root_path / ".venv" / "bin" / "python3",
+            ]
+        )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return AUREX_PYTHON if AUREX_PYTHON.is_file() else Path(sys.executable)
+
+
+VIENEU_PYTHON = resolve_vieneu_python()
 TTS_PYTHON = VIENEU_PYTHON if VIENEU_PYTHON.is_file() else (AUREX_PYTHON if AUREX_PYTHON.is_file() else Path(sys.executable))
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 DEFAULT_YOUTUBE_TITLE = "Sự khác nhau là gì?, Phần 1"

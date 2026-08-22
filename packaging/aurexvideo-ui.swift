@@ -22,6 +22,9 @@ final class AppState: ObservableObject {
     @Published var etaText: String = ""
     @Published var errorText: String = ""
     @Published private(set) var serverProcessPID: pid_t?
+    @Published private(set) var vieneuProcessPID: pid_t?
+
+    private var vieneuLogHandle: FileHandle?
 
     enum Stage { case language, downloading, ready, failed }
 
@@ -50,8 +53,143 @@ final class AppState: ObservableObject {
         if AppState.shared === self { AppState.shared = nil }
     }
 
+    private func vieneuRuntime() -> (root: URL, python: URL)? {
+        let fm = FileManager.default
+        var roots: [URL] = []
+        for key in ["VIENEU_HOME", "VIENEU_TTS_ROOT"] {
+            if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
+                roots.append(URL(fileURLWithPath: value).standardizedFileURL)
+            }
+        }
+        roots.append(URL(fileURLWithPath: "/Users/truongminh/VieNeu-TTS"))
+        roots.append(URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("VieNeu-TTS"))
+
+        var seen = Set<String>()
+        for root in roots {
+            if seen.contains(root.path) { continue }
+            seen.insert(root.path)
+            let python = root.appendingPathComponent(".venv/bin/python")
+            let entrypoint = root.appendingPathComponent("apps/gradio_main.py")
+            if fm.fileExists(atPath: python.path) && fm.fileExists(atPath: entrypoint.path) {
+                return (root, python)
+            }
+        }
+        return nil
+    }
+
+    private func isPortListening(_ port: Int) -> Bool {
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/bin/sh")
+        checker.arguments = ["-c", "lsof -nP -iTCP:\(port) -sTCP:LISTEN -t 2>/dev/null | head -n 1"]
+        let pipe = Pipe()
+        checker.standardOutput = pipe
+        try? checker.run()
+        checker.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func logVieNeu(_ message: String) {
+        let logURL = engineBase.appendingPathComponent("vieneu.log")
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: logURL.path) {
+            fm.createFile(atPath: logURL.path, contents: Data())
+        }
+        guard let handle = FileHandle(forWritingAtPath: logURL.path),
+              let data = (message + "\n").data(using: .utf8) else { return }
+        handle.seekToEndOfFile()
+        handle.write(data)
+        handle.closeFile()
+    }
+
+    private func startVieNeu() {
+        guard vieneuProcessPID == nil else { return }
+        guard let runtime = vieneuRuntime() else {
+            logVieNeu("[start] bỏ qua: không tìm thấy VieNeu-TTS/.venv hoặc apps/gradio_main.py")
+            return
+        }
+        if isPortListening(7860) {
+            logVieNeu("[start] đã có VieNeu đang chạy ở http://127.0.0.1:7860")
+            return
+        }
+
+        let fm = FileManager.default
+        let logURL = engineBase.appendingPathComponent("vieneu.log")
+        try? fm.createDirectory(at: engineBase, withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: logURL.path) {
+            fm.createFile(atPath: logURL.path, contents: Data())
+        }
+        let proc = Process()
+        proc.executableURL = runtime.python
+        proc.arguments = [runtime.root.appendingPathComponent("apps/gradio_main.py").path]
+        proc.currentDirectoryURL = runtime.root
+
+        var env = ProcessInfo.processInfo.environment
+        env["VIENEU_HOME"] = runtime.root.path
+        env["VIENEU_TTS_ROOT"] = runtime.root.path
+        env["AUREX_VIENEU_PYTHON"] = runtime.python.path
+        env["GRADIO_SERVER_NAME"] = "127.0.0.1"
+        env["GRADIO_SERVER_PORT"] = "7860"
+        env["GRADIO_SHARE"] = "0"
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PATH"] = runtime.root.appendingPathComponent(".venv/bin").path + ":" + (env["PATH"] ?? "")
+        let srcPath = runtime.root.appendingPathComponent("src").path
+        env["PYTHONPATH"] = srcPath + ":" + (env["PYTHONPATH"] ?? "")
+        proc.environment = env
+
+        vieneuLogHandle = FileHandle(forWritingAtPath: logURL.path)
+        vieneuLogHandle?.seekToEndOfFile()
+        proc.standardOutput = vieneuLogHandle
+        proc.standardError = vieneuLogHandle
+        do {
+            try proc.run()
+        } catch {
+            vieneuLogHandle?.closeFile()
+            vieneuLogHandle = nil
+            logVieNeu("[start] lỗi khởi động: \(error.localizedDescription)")
+            return
+        }
+        vieneuProcessPID = proc.processIdentifier
+        logVieNeu("[start] VieNeu-TTS UI đang khởi động, PID=\(proc.processIdentifier), port=7860")
+        proc.terminationHandler = { [weak self] process in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if self.vieneuProcessPID == process.processIdentifier {
+                    self.vieneuProcessPID = nil
+                    self.vieneuLogHandle?.closeFile()
+                    self.vieneuLogHandle = nil
+                }
+            }
+        }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            for _ in 0..<60 {
+                if self?.isPortListening(7860) == true {
+                    self?.logVieNeu("[ready] VieNeu-TTS UI sẵn sàng tại http://127.0.0.1:7860")
+                    return
+                }
+                usleep(500_000)
+            }
+            self?.logVieNeu("[ready] VieNeu chưa báo listen sau 30 giây; AurexVideo vẫn dùng engine trực tiếp khi render")
+        }
+    }
+
+    private func stopVieNeu() {
+        if let pid = vieneuProcessPID {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+            proc.arguments = ["-c", "kill -TERM \(pid) 2>/dev/null; sleep 0.2; kill -KILL \(pid) 2>/dev/null || true"]
+            try? proc.run()
+            proc.waitUntilExit()
+            vieneuProcessPID = nil
+        }
+        vieneuLogHandle?.closeFile()
+        vieneuLogHandle = nil
+    }
+
     func stopServer() {
         let fm = FileManager.default
+        stopVieNeu()
         if let pid = serverProcessPID {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -453,6 +591,8 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async { self.errorText = m; self.stage = .failed }
             return
         }
+        let vieneu = vieneuRuntime()
+        startVieNeu()
         if let s = try? String(contentsOf: URL(string: "http://127.0.0.1:4173/")!), s.contains("<") {
             DispatchQueue.main.async { self.stage = .ready }
             return
@@ -467,6 +607,14 @@ final class AppState: ObservableObject {
         env["AUREXVIDEO_DESKTOP"] = "1"
         env["AUREX_DATA_ROOT"] = studioDir.path
         env["AUREX_BOOTSTRAP_DATA_ROOT"] = studioDir.path
+        if let vieneu {
+            env["VIENEU_HOME"] = vieneu.root.path
+            env["VIENEU_TTS_ROOT"] = vieneu.root.path
+            env["AUREX_VIENEU_PYTHON"] = vieneu.python.path
+            let vieneuSrc = vieneu.root.appendingPathComponent("src").path
+            env["PYTHONPATH"] = vieneuSrc + ":" + (env["PYTHONPATH"] ?? "")
+            env["PATH"] = vieneu.root.appendingPathComponent(".venv/bin").path + ":" + (env["PATH"] ?? "")
+        }
         // KHÔNG set PYTHONHOME — gây lỗi import engine modules. Chỉ PATH + AUREX_FFMPEG.
         env["PATH"] = engineBase.appendingPathComponent("runtime/bin").path + ":" + (env["PATH"] ?? "")
         env["AUREX_FFMPEG"] = engineBase.appendingPathComponent("runtime/bin/ffmpeg").path
@@ -644,6 +792,70 @@ final class WebViewUIDelegate: NSObject, WKUIDelegate {
     }
 }
 
+// MARK: - Window behavior
+// The app intentionally hides the title bar, which also removes macOS's
+// standard double-click zoom target. Re-create that small interaction in the
+// top drag band while keeping the native green-button zoom/full-screen action.
+final class AurexWindowController: NSObject, NSWindowDelegate {
+    static let shared = AurexWindowController()
+
+    private weak var window: NSWindow?
+    private var localMonitor: Any?
+
+    private override init() {
+        super.init()
+    }
+
+    func attach(to window: NSWindow) {
+        if self.window === window { return }
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+        self.window = window
+        window.delegate = self
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.styleMask.insert(.resizable)
+
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  event.window === window,
+                  event.clickCount == 2,
+                  !window.styleMask.contains(.fullScreen) else { return event }
+            let topBand = max(40, window.frame.height - 56)
+            guard event.locationInWindow.y >= topBand else { return event }
+            window.zoom(nil)
+            return nil
+        }
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        true
+    }
+
+    deinit {
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+        }
+    }
+}
+
+struct WindowAccessor: NSViewRepresentable {
+    final class ProbeView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            AurexWindowController.shared.attach(to: window)
+        }
+    }
+
+    func makeNSView(context: Context) -> ProbeView { ProbeView(frame: .zero) }
+    func updateNSView(_ nsView: ProbeView, context: Context) {}
+}
+
 struct WebContentView: NSViewRepresentable {
     let url: URL
     final class Coordinator: NSObject, WKUIDelegate {
@@ -686,6 +898,7 @@ struct AurexVideoApp: App {
                     .frame(minWidth: 1100, minHeight: 720)
                 }
             }
+            .background(WindowAccessor())
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
