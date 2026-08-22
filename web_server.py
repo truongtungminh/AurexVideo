@@ -698,6 +698,7 @@ def list_projects() -> list[dict]:
         final_video = project_dir / "output" / "final_video.mp4"
         has_output = output_dir.is_dir() and any(output_dir.iterdir())
         output_url = final_video_url(project_dir.name)
+        brand = social_metadata.project_brand_from_topic(project_dir)
         social_status = social_metadata.project_social_status(project_dir)
         projects.append(
             {
@@ -713,9 +714,13 @@ def list_projects() -> list[dict]:
                 "has_output": has_output,
                 "output_url": output_url,
                 "video_url": output_url if final_video.exists() else None,
+                "brand": brand,
                 "social_status": social_status["label"],
-                "social_status_class": "ok" if social_status.get("posted") else "bad",
+                "social_status_class": "warn" if social_status.get("scheduled") else ("ok" if social_status.get("posted") else "bad"),
                 "social_status_title": social_status["title"],
+                "social_status_detail": social_status,
+                "social_status_scheduled_at": social_status.get("scheduled_at", ""),
+                "social_status_scheduled_label": social_status.get("scheduled_label", ""),
             }
         )
     return projects
@@ -3316,6 +3321,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     for project in projects:
         name = html.escape(project["name"])
         href = html.escape(project["url"])
+        brand = html.escape(project.get("brand") or "", quote=True)
         has_video = bool(project["video_url"])
         video_link = (
             f'<a class="small-link icon-btn" href="{html.escape(player_url(project["name"]))}">{ui_icon("play")}<span>Mở</span></a>'
@@ -3325,9 +3331,15 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         status = "Đã render" if has_video else ("Chưa render" if project["has_script"] else "Thiếu script")
         status_class = "ok" if has_video else ("bad" if project["has_script"] else "bad")
         selected_class = " selected" if project["name"] == selected_project else ""
+        social_schedule = (
+            f'<small class="social-schedule-time" datetime="{html.escape(project["social_status_scheduled_at"], quote=True)}">'
+            f'{html.escape(project["social_status_scheduled_label"])}</small>'
+            if project.get("social_status_scheduled_label")
+            else ""
+        )
         rows.append(
             f"""
-            <li class="project-row{selected_class}" data-project="{name}">
+            <li class="project-row{selected_class}" data-project="{name}" data-brand="{brand}">
               <div class="project-main">
                 <span class="project-name">{name}</span>
                 <div class="project-meta-row">
@@ -3337,7 +3349,10 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
                 </div>
               </div>
               <span class="status-pill {status_class}">{status}</span>
-              <span class="status-pill {project['social_status_class']} social-status" title="{html.escape(project['social_status_title'], quote=True)}">{html.escape(project['social_status'])}</span>
+              <div class="social-status-cell" title="{html.escape(project['social_status_title'], quote=True)}">
+                <span class="status-pill {project['social_status_class']} social-status">{html.escape(project['social_status'])}</span>
+                {social_schedule}
+              </div>
               <div class="actions">
                 <button class="select-btn icon-btn" type="button" data-project="{name}">{ui_icon("check")}<span>Chọn</span></button>
                 <a class="small-link icon-btn" href="{href}">{ui_icon("external-link")}<span>Xem</span></a>
@@ -3640,6 +3655,13 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <p class="kicker">Thư viện</p>
           <h2>Dự án của bạn</h2>
         </div>
+        <label class="project-sort-control" for="projectSort">
+          <span>Sắp xếp</span>
+          <select id="projectSort" aria-label="Sắp xếp dự án">
+            <option value="recent">Mới cập nhật</option>
+            <option value="brand">Brand (A–Z)</option>
+          </select>
+        </label>
       </div>
       <div class="list-head">
         <span>Dự án</span>
@@ -5840,6 +5862,11 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       background: rgba(34, 197, 94, 0.08);
       box-shadow: none;
     }
+    .status-pill.warn { color: #4d3100; background: rgba(251, 191, 36, 0.20); border: 1px solid rgba(217, 119, 6, 0.38); }
+    .social-status-cell { display: grid; gap: 4px; justify-self: start; min-width: 0; }
+    .social-schedule-time { color: var(--muted); font-size: 11px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
+    .project-sort-control { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .project-sort-control select { min-height: 34px; min-width: 148px; border: 1px solid var(--control-line); border-radius: 9px; padding: 6px 9px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 12px; font-weight: 800; letter-spacing: normal; text-transform: none; }
     body.theme-light .speed-preset:not(.active),
     body.theme-light .mode-toggle label:not(:has(input:checked)),
     body.theme-light .tab:not(.active) {
@@ -6094,6 +6121,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       border-color: rgba(34, 197, 94, 0.46);
       background: rgba(134, 239, 172, 0.24);
     }
+    body.theme-light .status-pill.warn { color: #713f12; border-color: rgba(217, 119, 6, 0.36); background: rgba(253, 230, 138, 0.42); }
     .dashboard-header .header-tools a[href="/new-project"] .btn-icon,
     .project-row .actions .select-btn .btn-icon,
     .project-row .actions .row-video-slot .btn-icon {
@@ -6272,6 +6300,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         align-items: start;
       }
       .project-row .status-pill { justify-self: end; }
+      .project-row .social-status-cell { justify-self: end; }
       .project-row .actions {
         grid-column: 1 / -1;
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -6294,6 +6323,9 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       body { padding: 20px 14px; }
       .dashboard-header { display: grid; }
       .header-tools { justify-content: flex-start; }
+      .panel-head { align-items: flex-start; gap: 12px; }
+      .project-sort-control { min-width: 0; }
+      .project-sort-control select { min-width: 136px; }
       .update-slot-placeholder { display: none; }
       .render-guide-links { grid-template-columns: 1fr; }
       .list-head { display: none; }
