@@ -32,6 +32,41 @@ def bundled_python() -> Path:
 PYTHON_EXECUTABLE = bundled_python()
 
 
+def resolve_vieneu_python() -> Path:
+    """Resolve the interpreter that has the local VieNeu dependencies."""
+    direct_candidates = [
+        os.environ.get("AUREX_VIENEU_PYTHON"),
+        os.environ.get("VIENEU_PYTHON"),
+    ]
+    root_candidates = [
+        os.environ.get("VIENEU_HOME"),
+        os.environ.get("VIENEU_TTS_ROOT"),
+        "/Users/truongminh/VieNeu-TTS",
+        str(Path.home() / "VieNeu-TTS"),
+    ]
+
+    candidates: list[Path] = [
+        Path(value).expanduser()
+        for value in direct_candidates
+        if str(value or "").strip()
+    ]
+    for root in root_candidates:
+        if not str(root or "").strip():
+            continue
+        root_path = Path(root).expanduser()
+        candidates.extend(
+            [
+                root_path / ".venv" / "bin" / "python",
+                root_path / ".venv" / "bin" / "python3",
+            ]
+        )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return PYTHON_EXECUTABLE if PYTHON_EXECUTABLE.is_file() else Path(sys.executable)
+
+
 def ffmpeg_executable() -> Path:
     """Resolve the bundled FFmpeg binary; do not rely on a bare PATH lookup alone."""
     configured = str(os.environ.get("AUREX_FFMPEG") or "").strip()

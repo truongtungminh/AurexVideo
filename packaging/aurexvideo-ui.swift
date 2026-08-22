@@ -796,7 +796,7 @@ final class WebViewUIDelegate: NSObject, WKUIDelegate {
 // The app intentionally hides the title bar, which also removes macOS's
 // standard double-click zoom target. Re-create that small interaction in the
 // top drag band while keeping the native green-button zoom/full-screen action.
-final class AurexWindowController: NSObject, NSWindowDelegate {
+final class AurexWindowController: NSObject {
     static let shared = AurexWindowController()
 
     private weak var window: NSWindow?
@@ -813,7 +813,6 @@ final class AurexWindowController: NSObject, NSWindowDelegate {
             self.localMonitor = nil
         }
         self.window = window
-        window.delegate = self
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -830,10 +829,6 @@ final class AurexWindowController: NSObject, NSWindowDelegate {
             window.zoom(nil)
             return nil
         }
-    }
-
-    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
-        true
     }
 
     deinit {
