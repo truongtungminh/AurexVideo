@@ -29,7 +29,10 @@
     : (fallbackProject ? [{ name: fallbackProject, url: `/project/${fallbackProject}/`, output_url: fallbackOutputUrl, video_url: fallbackOutputUrl, script_count: 0 }] : []);
   const projectMap = new Map(projects.map((project) => [project.name, project]));
   const PROJECT_SORT_STORAGE_KEY = 'aurexvideo-dashboard-project-sort';
+  const PROJECT_ALL = 'all';
+  const PROJECT_RECENT = 'recent';
   const BRAND_CHARACTER_SORT = 'brand-character';
+  const PROJECT_FILTER_PREFIX = `${BRAND_CHARACTER_SORT}:`;
   const MAZIAO_PREVIEW_FALLBACKS = {
     clone_8ci7vkGMoJLyKe9IJ7MfV: 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice_TKAC9TA2IZKeB9iUgHrke.mp3',
     'clone_fY2_e5-7EbOgfEQlggwg0': 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice__kDkJCtGB4qx1fPI8XqgO.mp3',
@@ -199,14 +202,38 @@
   function projectSortPreference() {
     try {
       const storedPreference = localStorage.getItem(PROJECT_SORT_STORAGE_KEY);
-      if (storedPreference === 'brand') {
-        try { localStorage.setItem(PROJECT_SORT_STORAGE_KEY, BRAND_CHARACTER_SORT); } catch (_) {}
-        return BRAND_CHARACTER_SORT;
+      if (storedPreference === 'brand' || storedPreference === BRAND_CHARACTER_SORT) {
+        try { localStorage.setItem(PROJECT_SORT_STORAGE_KEY, PROJECT_RECENT); } catch (_) {}
+        return PROJECT_RECENT;
       }
-      return storedPreference === BRAND_CHARACTER_SORT ? BRAND_CHARACTER_SORT : 'recent';
+      if (storedPreference === PROJECT_ALL || storedPreference === PROJECT_RECENT) return storedPreference;
+      if (String(storedPreference || '').startsWith(PROJECT_FILTER_PREFIX)) return storedPreference;
+      return PROJECT_RECENT;
     } catch (_) {
-      return 'recent';
+      return PROJECT_RECENT;
     }
+  }
+
+  function populateProjectFilterOptions() {
+    const select = $('#projectSort');
+    const group = $('#projectBrandCharacterOptions');
+    if (!select || !group) return;
+    group.textContent = '';
+    const keys = new Map();
+    $all('.project-row[data-project]').forEach((row) => {
+      [row.dataset.brand, row.dataset.character].forEach((value) => {
+        const key = String(value || '').trim();
+        if (key && !keys.has(key)) keys.set(key, key);
+      });
+    });
+    Array.from(keys.values())
+      .sort((left, right) => left.localeCompare(right, 'vi', { sensitivity: 'base' }))
+      .forEach((key) => {
+        const option = document.createElement('option');
+        option.value = `${PROJECT_FILTER_PREFIX}${key}`;
+        option.textContent = `Brand/Character: ${key}`;
+        group.appendChild(option);
+      });
   }
 
   function applyProjectSort(preference) {
@@ -216,27 +243,19 @@
     rows.forEach((row, index) => {
       if (row.dataset.defaultSortIndex === undefined) row.dataset.defaultSortIndex = String(index);
     });
-    const compareSortValues = (leftValue, rightValue) => {
-      const leftValueText = String(leftValue || '').trim();
-      const rightValueText = String(rightValue || '').trim();
-      if (!leftValueText || !rightValueText) {
-        if (!leftValueText && !rightValueText) return 0;
-        return leftValueText ? -1 : 1;
-      }
-      return leftValueText.localeCompare(rightValueText, 'vi', { sensitivity: 'base' });
-    };
-    const ordered = rows.sort((left, right) => {
-      if (preference !== BRAND_CHARACTER_SORT) {
-        return Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
-      }
-      const leftBrand = String(left.dataset.brand || '').trim();
-      const rightBrand = String(right.dataset.brand || '').trim();
-      const byBrand = compareSortValues(leftBrand, rightBrand);
-      if (byBrand) return byBrand;
-      const byCharacter = compareSortValues(left.dataset.character, right.dataset.character);
-      return byCharacter || Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
-    });
+    const filterKey = String(preference || '').startsWith(PROJECT_FILTER_PREFIX)
+      ? String(preference).slice(PROJECT_FILTER_PREFIX.length).trim()
+      : '';
+    const ordered = rows.sort((left, right) => (
+      Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex)
+    ));
     ordered.forEach((row) => list.appendChild(row));
+    ordered.forEach((row) => {
+      const rowKeys = [row.dataset.brand, row.dataset.character]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+      row.hidden = Boolean(filterKey && !rowKeys.includes(filterKey));
+    });
   }
 
   function projectRenderState(project, jobs) {
@@ -299,6 +318,8 @@
       if (current) Object.assign(current, project);
       applyProjectSocialStatus(project);
     });
+    const projectSort = $('#projectSort');
+    if (projectSort) applyProjectSort(projectSort.value || PROJECT_RECENT);
   }
 
   async function refreshProjectStatuses() {
@@ -4868,15 +4889,25 @@
 
   const projectSort = $('#projectSort');
   if (projectSort) {
+    populateProjectFilterOptions();
     const preference = projectSortPreference();
-    projectSort.value = preference;
-    applyProjectSort(preference);
+    const hasPreference = Array.from(projectSort.options).some((option) => option.value === preference);
+    const initialPreference = hasPreference ? preference : PROJECT_RECENT;
+    projectSort.value = initialPreference;
+    if (initialPreference !== preference) {
+      try {
+        localStorage.setItem(PROJECT_SORT_STORAGE_KEY, initialPreference);
+      } catch (_) {
+        // The filter remains available when browser storage is disabled.
+      }
+    }
+    applyProjectSort(initialPreference);
     projectSort.addEventListener('change', () => {
-      const nextPreference = projectSort.value === BRAND_CHARACTER_SORT ? BRAND_CHARACTER_SORT : 'recent';
+      const nextPreference = projectSort.value || PROJECT_RECENT;
       try {
         localStorage.setItem(PROJECT_SORT_STORAGE_KEY, nextPreference);
       } catch (_) {
-        // Sorting remains available when browser storage is disabled.
+        // The filter remains available when browser storage is disabled.
       }
       applyProjectSort(nextPreference);
     });
