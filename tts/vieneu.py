@@ -187,3 +187,15 @@ def generate_vieneu_voiceover(
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0 or not output_mp3.is_file():
             raise RuntimeError(f"Lỗi chuyển đổi ffmpeg: {res.stderr}")
+
+
+# The profile-aware adapter is loaded last so the public API above remains
+# compatible while AurexVideo uses VieNeu's shared voice profile when present.
+try:
+    from .vieneu_adapter import (  # noqa: E402,F401
+        check_vieneu_health,
+        generate_vieneu_voiceover,
+        list_available_voices,
+    )
+except Exception as exc:  # pragma: no cover - fallback for old installations
+    logger.warning("Không nạp được VieNeu profile adapter: %s", exc)
