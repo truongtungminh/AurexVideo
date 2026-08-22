@@ -3429,10 +3429,11 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <h2>Dự án của bạn</h2>
         </div>
         <label class="project-sort-control" for="projectSort">
-          <span>Sắp xếp</span>
-          <select id="projectSort" aria-label="Sắp xếp dự án">
+          <span>Lọc / sắp xếp</span>
+          <select id="projectSort" aria-label="Lọc hoặc sắp xếp dự án">
+            <option value="all">Tất cả dự án</option>
             <option value="recent">Mới cập nhật</option>
-            <option value="brand-character">Brand/Character (A–Z)</option>
+            <optgroup id="projectBrandCharacterOptions" label="Brand/Character"></optgroup>
           </select>
         </label>
       </div>
@@ -6177,7 +6178,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260725-audio-volume"></script>
+  <script src="/web/render_page.js?v=20260822-project-filter"></script>
 """,
     )
 
