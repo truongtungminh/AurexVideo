@@ -29,6 +29,7 @@
     : (fallbackProject ? [{ name: fallbackProject, url: `/project/${fallbackProject}/`, output_url: fallbackOutputUrl, video_url: fallbackOutputUrl, script_count: 0 }] : []);
   const projectMap = new Map(projects.map((project) => [project.name, project]));
   const PROJECT_SORT_STORAGE_KEY = 'aurexvideo-dashboard-project-sort';
+  const BRAND_CHARACTER_SORT = 'brand-character';
   const MAZIAO_PREVIEW_FALLBACKS = {
     clone_8ci7vkGMoJLyKe9IJ7MfV: 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice_TKAC9TA2IZKeB9iUgHrke.mp3',
     'clone_fY2_e5-7EbOgfEQlggwg0': 'https://r2-storage.maziao.com/users/CCj33YhtJanC9o8E0j5b/voices/clone_voice__kDkJCtGB4qx1fPI8XqgO.mp3',
@@ -197,7 +198,12 @@
 
   function projectSortPreference() {
     try {
-      return localStorage.getItem(PROJECT_SORT_STORAGE_KEY) === 'brand' ? 'brand' : 'recent';
+      const storedPreference = localStorage.getItem(PROJECT_SORT_STORAGE_KEY);
+      if (storedPreference === 'brand') {
+        try { localStorage.setItem(PROJECT_SORT_STORAGE_KEY, BRAND_CHARACTER_SORT); } catch (_) {}
+        return BRAND_CHARACTER_SORT;
+      }
+      return storedPreference === BRAND_CHARACTER_SORT ? BRAND_CHARACTER_SORT : 'recent';
     } catch (_) {
       return 'recent';
     }
@@ -210,18 +216,25 @@
     rows.forEach((row, index) => {
       if (row.dataset.defaultSortIndex === undefined) row.dataset.defaultSortIndex = String(index);
     });
+    const compareSortValues = (leftValue, rightValue) => {
+      const leftValueText = String(leftValue || '').trim();
+      const rightValueText = String(rightValue || '').trim();
+      if (!leftValueText || !rightValueText) {
+        if (!leftValueText && !rightValueText) return 0;
+        return leftValueText ? -1 : 1;
+      }
+      return leftValueText.localeCompare(rightValueText, 'vi', { sensitivity: 'base' });
+    };
     const ordered = rows.sort((left, right) => {
-      if (preference !== 'brand') {
+      if (preference !== BRAND_CHARACTER_SORT) {
         return Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
       }
       const leftBrand = String(left.dataset.brand || '').trim();
       const rightBrand = String(right.dataset.brand || '').trim();
-      if (!leftBrand || !rightBrand) {
-        if (!leftBrand && !rightBrand) return Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
-        return leftBrand ? -1 : 1;
-      }
-      const byBrand = leftBrand.localeCompare(rightBrand, 'vi', { sensitivity: 'base' });
-      return byBrand || Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
+      const byBrand = compareSortValues(leftBrand, rightBrand);
+      if (byBrand) return byBrand;
+      const byCharacter = compareSortValues(left.dataset.character, right.dataset.character);
+      return byCharacter || Number(left.dataset.defaultSortIndex) - Number(right.dataset.defaultSortIndex);
     });
     ordered.forEach((row) => list.appendChild(row));
   }
@@ -4859,7 +4872,7 @@
     projectSort.value = preference;
     applyProjectSort(preference);
     projectSort.addEventListener('change', () => {
-      const nextPreference = projectSort.value === 'brand' ? 'brand' : 'recent';
+      const nextPreference = projectSort.value === BRAND_CHARACTER_SORT ? BRAND_CHARACTER_SORT : 'recent';
       try {
         localStorage.setItem(PROJECT_SORT_STORAGE_KEY, nextPreference);
       } catch (_) {
