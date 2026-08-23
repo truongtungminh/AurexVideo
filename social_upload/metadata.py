@@ -541,6 +541,20 @@ def scheduled_social_details(entry: object) -> dict:
     return {}
 
 
+def published_social_details(entry: object) -> dict:
+    """Extract a normalized, dashboard-safe publish payload from a social entry."""
+    if not isinstance(entry, dict):
+        return {}
+    for key in ("postedAt", "posted_at", "publishedAt", "published_at"):
+        published_at = normalize_scheduled_social_time(entry.get(key))
+        if published_at:
+            return {
+                "published_at": published_at,
+                "published_label": localized_scheduled_social_label(published_at),
+            }
+    return {}
+
+
 def project_social_status(project_dir: Path, *, now: datetime | None = None) -> dict:
     """Return the dashboard social status using a UTC-aware current time.
 
@@ -554,7 +568,7 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
         current_time = current_time.replace(tzinfo=timezone.utc)
     else:
         current_time = current_time.astimezone(timezone.utc)
-    published_platforms: list[str] = []
+    published_platforms: list[tuple[str, dict]] = []
     scheduled_platforms: list[tuple[str, dict]] = []
     for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("threads", "Threads"), ("binance", "Binance Square")):
         entry = social.get(platform)
@@ -564,14 +578,17 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
             if scheduled_time > current_time:
                 scheduled_platforms.append((label, schedule))
             else:
-                published_platforms.append(label)
+                published_platforms.append((label, {
+                    "published_at": schedule["scheduled_at"],
+                    "published_label": schedule["scheduled_label"],
+                }))
             continue
         if isinstance(entry, dict) and any(str(entry.get(key) or "").strip() for key in ("url", "videoId", "postId")):
-            published_platforms.append(label)
+            published_platforms.append((label, published_social_details(entry)))
     if scheduled_platforms:
         scheduled_platforms.sort(key=lambda item: item[1]["scheduled_at"])
         next_label, next_schedule = scheduled_platforms[0]
-        platforms = [label for label, _ in scheduled_platforms] + published_platforms
+        platforms = [label for label, _ in scheduled_platforms] + [label for label, _ in published_platforms]
         return {
             "posted": bool(published_platforms),
             "scheduled": True,
@@ -598,8 +615,9 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
         "scheduled": False,
         "state": "complete",
         "label": "Published",
-        "title": " · ".join(published_platforms),
-        "platforms": published_platforms,
+        "title": " · ".join(label for label, _ in published_platforms),
+        "platforms": [label for label, _ in published_platforms],
+        **next((details for _, details in published_platforms if details), {}),
         "scheduled_at": "",
         "scheduled_label": "",
     }

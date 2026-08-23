@@ -762,6 +762,8 @@ def list_projects() -> list[dict]:
                 "social_status_detail": social_status,
                 "social_status_scheduled_at": social_status.get("scheduled_at", ""),
                 "social_status_scheduled_label": social_status.get("scheduled_label", ""),
+                "social_status_published_at": social_status.get("published_at", ""),
+                "social_status_published_label": social_status.get("published_label", ""),
             }
         )
     return projects
@@ -3386,6 +3388,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             if social_is_scheduled and project.get("social_status_scheduled_label")
             else ""
         )
+        social_published = (
+            f'<small class="social-schedule-time" datetime="{html.escape(project["social_status_published_at"], quote=True)}">'
+            f'{html.escape(project["social_status_published_label"])}</small>'
+            if social_label == "Published" and project.get("social_status_published_label")
+            else ""
+        )
         rows.append(
             f"""
             <li class="project-row{selected_class}" data-project="{name}" data-brand="{brand}" data-character="{character}">
@@ -3400,7 +3408,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <span class="status-pill {status_class}">{status}</span>
               <div class="social-status-cell" title="{html.escape(project['social_status_title'], quote=True)}">
                 <span class="status-pill {project['social_status_class']} social-status">{html.escape(project['social_status'])}</span>
-                {social_schedule}
+                {social_schedule}{social_published}
               </div>
               <div class="actions">
                 <button class="select-btn icon-btn" type="button" data-project="{name}">{ui_icon("check")}<span>Chọn</span></button>

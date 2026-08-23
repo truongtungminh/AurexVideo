@@ -63,6 +63,8 @@ class DashboardSocialStatusTests(unittest.TestCase):
         self.assertFalse(status["scheduled"])
         self.assertEqual(status["title"], "Threads")
         self.assertEqual(status["platforms"], ["Threads"])
+        self.assertEqual(status["published_at"], "2030-01-01T00:00:00Z")
+        self.assertTrue(status["published_label"].startswith("Lúc "))
         self.assertEqual(status["scheduled_at"], "")
         self.assertEqual(status["scheduled_label"], "")
 
@@ -118,6 +120,18 @@ class DashboardSocialStatusTests(unittest.TestCase):
         finally:
             published_dir.cleanup()
             pending_dir.cleanup()
+
+    def test_published_status_exposes_posted_time(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata(
+            {"youtube": {"postId": "video-1", "postedAt": "2030-01-01T07:45:00+07:00"}}
+        )
+        try:
+            status = metadata.project_social_status(project_dir, now=self.NOW)
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(status["published_at"], "2030-01-01T00:45:00Z")
+        self.assertRegex(status["published_label"], r"^Lúc \d{2}:\d{2} · 01/01/2030$")
 
 
 if __name__ == "__main__":
