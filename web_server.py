@@ -912,6 +912,16 @@ def coerce_quality_profile(value: object) -> str:
     return get_render_profile(str(value or "standard")).name
 
 
+def coerce_render_backend(value: object) -> str:
+    """Validate the native/browser render backend at the API boundary."""
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
+    aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
+    requested = aliases.get(requested, requested)
+    if requested not in {"browser", "auto", "native"}:
+        raise ValueError("Render backend must be browser, auto or native.")
+    return requested
+
+
 def clean_filename(name: str, fallback: str = "voiceover.mp3") -> str:
     cleaned = Path(name or fallback).name
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", cleaned).strip("._")
@@ -1909,11 +1919,13 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     volume = coerce_volume(payload.get("volume", 1.0))
     render_size = coerce_render_size(payload.get("size", "1080x1920"))
     quality_profile = coerce_quality_profile(payload.get("qualityProfile") or payload.get("quality_profile"))
+    render_backend = coerce_render_backend(payload.get("renderBackend") or payload.get("render_backend"))
     engine = str(payload.get("engine") or "").strip().lower()
     cmd = [
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
         "--quality-profile", quality_profile,
+        "--render-backend", render_backend,
     ]
     rebuild_audio_cache = bool(
         payload.get("force", False)
@@ -3867,6 +3879,18 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <option value="draft">Draft · xem trước nhanh</option>
             </select>
           </label>
+          <label class="field render-backend-field">
+            <span class="field-label">
+              {ui_icon("cpu", "field-icon advanced-field-icon")}
+              <span>Bộ máy render</span>
+            </span>
+            <select id="renderBackend">
+              <option value="browser" selected>Browser · tương thích mọi project</option>
+              <option value="auto">Auto · thử Aurex Render Core rồi fallback</option>
+              <option value="native">Aurex Render Core · yêu cầu native manifest</option>
+            </select>
+          </label>
+          <p class="engine-note render-backend-note">Aurex Render Core đang ở MVP: project chưa có native manifest sẽ tự quay về Browser khi chọn Auto.</p>
         </div>
       </section>
 
