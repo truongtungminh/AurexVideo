@@ -450,8 +450,12 @@ async def render_frames(
                 "Character sync profile: "
                 f"seeks={int(media_sync_stats.get('seeks', 0))} "
                 f"skipped_seeks={int(media_sync_stats.get('skippedSeeks', 0))} "
+                f"play_waits={int(media_sync_stats.get('playWaits', 0))} "
+                f"drift_corrections={int(media_sync_stats.get('playDriftCorrections', 0))} "
                 f"pose_changes={int(media_sync_stats.get('poseChanges', 0))} "
+                f"pose_resets={int(media_sync_stats.get('poseResets', 0))} "
                 f"seek_wait={float(media_sync_stats.get('seekWaitMs', 0)) / 1000:.3f}s "
+                f"play_wait={float(media_sync_stats.get('playWaitMs', 0)) / 1000:.3f}s "
                 f"max_drift={float(media_sync_stats.get('maxDriftMs', 0)):.1f}ms",
                 flush=True,
             )
