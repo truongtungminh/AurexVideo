@@ -88,6 +88,8 @@ const offlineMediaSyncStats = {
   poseChanges: 0,
   seekWaitMs: 0,
   maxDriftMs: 0,
+  maxRequestedDriftMs: 0,
+  lastPresentedDriftMs: 0,
 };
 
 if (renderMode) document.body.classList.add("render-mode");
@@ -772,9 +774,14 @@ async function syncPresenterToOfflineTimeline(event, timelineTime) {
       ? loopStart + (localElapsed % span)
       : Math.min(loopEnd - 0.001, loopStart + localElapsed);
   const drift = Math.abs((Number(video.currentTime) || 0) - targetTime);
-  offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, drift * 1000);
+  offlineMediaSyncStats.maxRequestedDriftMs = Math.max(
+    offlineMediaSyncStats.maxRequestedDriftMs,
+    drift * 1000,
+  );
   if (drift <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
     offlineMediaSyncStats.skippedSeeks += 1;
+    offlineMediaSyncStats.lastPresentedDriftMs = drift * 1000;
+    offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, drift * 1000);
     return;
   }
 
@@ -795,6 +802,9 @@ async function syncPresenterToOfflineTimeline(event, timelineTime) {
       if (Math.abs((Number(video.currentTime) || 0) - targetTime) > OFFLINE_MEDIA_SYNC_TOLERANCE) return;
       // Offline capture paints the decoded video frame to a canvas below, so
       // it does not need Chromium's asynchronous video compositor to present it.
+      const presentedDrift = Math.abs((Number(video.currentTime) || 0) - targetTime) * 1000;
+      offlineMediaSyncStats.lastPresentedDriftMs = presentedDrift;
+      offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, presentedDrift);
       cleanup();
       resolve();
     };

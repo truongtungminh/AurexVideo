@@ -890,9 +890,9 @@ def coerce_volume(value: object) -> float:
 
 def coerce_render_size(value: object) -> str:
     raw = str(value or "").strip().lower()
-    if raw in {"", "720", "720x1280"}:
+    if raw in {"720", "720x1280"}:
         return "720x1280"
-    if raw in {"1080", "1080x1920"}:
+    if raw in {"", "1080", "1080x1920"}:
         return "1080x1920"
     raise ValueError("Render size must be 1080x1920 or 720x1280.")
 
