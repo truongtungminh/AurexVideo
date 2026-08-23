@@ -32,6 +32,34 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/EncoderDiscovery.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Errors.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Manifest.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/MetalCompositor.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/RenderEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Report.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Timeline.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
         },
         {
@@ -43,7 +71,14 @@
       "moduleName" : "AurexRenderCore",
       "moduleOutputPath" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/Modules/AurexRenderCore.swiftmodule",
       "objects" : [
-        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swift.o"
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.swift.o",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.swift.o"
       ],
       "otherArguments" : [
         "-target",
@@ -102,12 +137,47 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/Modules/AurexRenderCore.swiftmodule"
         }
       ],
       "prepareForIndexing" : false,
       "sources" : [
-        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/AurexRenderCore.swift"
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/AurexRenderCore.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/EncoderDiscovery.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Errors.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Manifest.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/MetalCompositor.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/RenderEngine.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Report.swift",
+        "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Timeline.swift"
       ],
       "tempsPath" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build",
       "wholeModuleOptimization" : false
@@ -409,6 +479,13 @@
       "aurexrendercore",
       "-c",
       "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/AurexRenderCore.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/EncoderDiscovery.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Errors.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Manifest.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/MetalCompositor.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/RenderEngine.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Report.swift",
+      "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Timeline.swift",
       "-I",
       "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/Modules",
       "-target",
@@ -688,6 +765,34 @@
         {
           "kind" : "file",
           "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/AurexRenderCore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/EncoderDiscovery.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Errors.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Manifest.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/MetalCompositor.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/RenderEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Report.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Timeline.swift"
         }
       ],
       "outputFilePath" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/sources"
@@ -716,6 +821,34 @@
         {
           "kind" : "file",
           "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.swift.o"
         },
         {
           "kind" : "file",
@@ -766,6 +899,34 @@
         {
           "kind" : "file",
           "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.swift.o"
         },
         {
           "kind" : "file",

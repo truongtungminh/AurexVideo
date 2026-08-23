@@ -67,13 +67,32 @@ import Foundation
     }
 }
 
-private extension FrameRate {
-    init(numerator: Int, denominator: Int) {
-        self.initForTests(numerator: numerator, denominator: denominator)
-    }
+@Test func preferredEncoderPlanFallsBackToSoftware() throws {
+    let hardware = EncoderDescriptor(
+        identifier: "test.hardware",
+        name: "Test Hardware",
+        isHardwareAccelerated: true
+    )
+    let software = EncoderDescriptor(
+        identifier: "test.software",
+        name: "Test Software",
+        isHardwareAccelerated: false
+    )
+    let candidates = try H264EncoderDiscovery.candidates(for: .prefer, available: [software, hardware])
+    #expect(candidates.map(\.path) == [.hardware, .software])
+    #expect(candidates.map(\.fallbackUsed) == [false, true])
+}
 
-    initForTests(numerator: Int, denominator: Int) {
-        let data = Data("{\"numerator\":\(numerator),\"denominator\":\(denominator)}".utf8)
-        self = try! JSONDecoder().decode(FrameRate.self, from: data)
-    }
+@Test func imageFitGeometryPreservesAspectRatio() {
+    let target = NormalizedRect(x: 0, y: 0, width: 1, height: 1)
+    let geometry = MetalCompositor.imageGeometry(
+        contentMode: .fit,
+        target: target,
+        canvasWidth: 200,
+        canvasHeight: 200,
+        imageWidth: 200,
+        imageHeight: 100
+    )
+    #expect(geometry.rect == NormalizedRect(x: 0, y: 0.25, width: 1, height: 0.5))
+    #expect(geometry.uvRect == SIMD4<Float>(0, 0, 1, 1))
 }
