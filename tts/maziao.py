@@ -517,7 +517,7 @@ async def generate_maziao_full_audio(
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    audio_file = output_dir / "maziao_full_voiceover.mp3"
+    audio_file = output_dir / "maziao_full_voiceover.wav"
     meta_file = output_dir / "maziao_full_voiceover.meta.json"
     metadata = {
         "engine": "maziao",
@@ -565,18 +565,19 @@ async def generate_maziao_full_audio(
 
     # Download
     print("  Downloading audio...")
-    wav_path = output_dir / "maziao_full_voiceover.wav"
+    wav_path = output_dir / "maziao_full_voiceover.download"
     if wav_path.exists():
         wav_path.unlink()
     await loop.run_in_executor(None, _download_audio, audio_url, wav_path, headers)
 
-    # Convert to MP3 (Maziao returns whatever format)
+    # Decode the provider response once into a lossless PCM cache. The final
+    # delivery stage performs the only lossy AAC encode.
     import subprocess
 
     subprocess.run(
         [
             "ffmpeg", "-y", "-i", str(wav_path),
-            "-c:a", "libmp3lame", "-q:a", "2", str(audio_file),
+            "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(audio_file),
         ],
         check=True, capture_output=True,
     )
@@ -638,7 +639,7 @@ async def generate_maziao_multispeakers_audio(
         raise ValueError(f"Maziao text limit is {MAX_TEXT_LENGTH} chars (got {len(text)}).")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    audio_file = output_dir / "maziao_multispeakers_voiceover.mp3"
+    audio_file = output_dir / "maziao_multispeakers_voiceover.wav"
     meta_file = output_dir / "maziao_multispeakers_voiceover.meta.json"
     metadata = {
         "engine": "maziao",
@@ -687,7 +688,7 @@ async def generate_maziao_multispeakers_audio(
     )
     print(f"  Done: {audio_url}")
 
-    wav_path = output_dir / "maziao_multispeakers_voiceover.wav"
+    wav_path = output_dir / "maziao_multispeakers_voiceover.download"
     if wav_path.exists():
         wav_path.unlink()
     print("  Downloading audio...")
@@ -698,7 +699,7 @@ async def generate_maziao_multispeakers_audio(
     subprocess.run(
         [
             "ffmpeg", "-y", "-i", str(wav_path),
-            "-c:a", "libmp3lame", "-q:a", "2", str(audio_file),
+            "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(audio_file),
         ],
         check=True,
         capture_output=True,

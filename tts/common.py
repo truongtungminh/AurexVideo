@@ -74,6 +74,7 @@ def speed_adjust_audio(input_file: Path, output_file: Path, speed: float) -> Non
     if tmp_file.exists():
         tmp_file.unlink()
     try:
+        codec_options = ["-c:a", "pcm_s16le"] if output_file.suffix.casefold() == ".wav" else ["-c:a", "libmp3lame", "-q:a", "2"]
         subprocess.run(
             [
                 str(ffmpeg_executable()),
@@ -83,10 +84,7 @@ def speed_adjust_audio(input_file: Path, output_file: Path, speed: float) -> Non
                 "-filter:a",
                 f"atempo={speed_cache_value(speed)}",
                 "-vn",
-                "-c:a",
-                "libmp3lame",
-                "-q:a",
-                "2",
+                *codec_options,
                 str(tmp_file),
             ],
             check=True,

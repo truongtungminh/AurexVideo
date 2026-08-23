@@ -127,7 +127,7 @@ def generate_vieneu_voiceover(
     device: str = "cpu",
     normalize: bool = True,
 ) -> None:
-    """Sinh audio voiceover bằng VieNeu-TTS và convert sang MP3 cho AurexVideo."""
+    """Sinh voiceover; keep WAV callers lossless and retain MP3 compatibility."""
     from vieneu import Vieneu
 
     processed_text = normalize_text_for_vieneu(text) if normalize else text
@@ -171,17 +171,10 @@ def generate_vieneu_voiceover(
         temp_wav = Path(tmp) / "temp_voiceover.wav"
         tts.save(wav, str(temp_wav))
 
-        # Dùng ffmpeg convert sang MP3 chuẩn cho pipeline AurexVideo
+        codec_options = ["-c:a", "pcm_s16le"] if output_mp3.suffix.casefold() == ".wav" else ["-c:a", "libmp3lame", "-q:a", "2"]
         cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(temp_wav),
-            "-vn",
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            "2",
+            "ffmpeg", "-y", "-i", str(temp_wav), "-vn",
+            *codec_options,
             str(output_mp3),
         ]
         res = subprocess.run(cmd, capture_output=True, text=True)
