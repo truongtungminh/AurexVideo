@@ -900,7 +900,7 @@ def coerce_render_size(value: object) -> str:
 
 def coerce_quality_profile(value: object) -> str:
     """Validate the render quality preset at the API boundary."""
-    return get_render_profile(str(value or "master")).name
+    return get_render_profile(str(value or "standard")).name
 
 
 def clean_filename(name: str, fallback: str = "voiceover.mp3") -> str:
@@ -3719,9 +3719,9 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <span>Chất lượng video</span>
             </span>
             <select id="renderQuality">
-              <option value="draft">Draft · render nhanh</option>
-              <option value="standard">Standard · nét và cân bằng</option>
-              <option value="master" selected>Master · chất lượng cao nhất (chậm)</option>
+              <option value="standard" selected>Standard · mặc định, nét và cân bằng</option>
+              <option value="master">Master · chất lượng cao nhất (chậm)</option>
+              <option value="draft">Draft · xem trước nhanh</option>
             </select>
           </label>
         </div>
@@ -6588,7 +6588,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260823-quality-v2"></script>
+  <script src="/web/render_page.js?v=20260823-quality-v3"></script>
 """,
     )
 
@@ -8659,7 +8659,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260823-quality-v2"></script>
+  <script src="/web/render_page.js?v=20260823-quality-v3"></script>
 """,
     )
 

@@ -2,8 +2,8 @@
 
 The renderer produces browser-rasterized frames, so the profile controls both
 how those pixels are captured and how the final delivery file is encoded.  The
-default is intentionally the quality-first ``master`` profile; callers can
-select ``standard`` or ``draft`` when render time or file size matters more.
+default is the balanced ``standard`` profile; callers can select ``master``
+when maximum quality matters more, or ``draft`` for a quick preview.
 """
 
 from __future__ import annotations
@@ -139,8 +139,8 @@ def quality_profile_names() -> tuple[str, ...]:
 
 
 def get_render_profile(value: str | None = None) -> RenderProfile:
-    """Resolve a profile, defaulting to the quality-first master profile."""
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_PROFILE") or "master").strip().lower()
+    """Resolve a profile, defaulting to the balanced standard profile."""
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_PROFILE") or "standard").strip().lower()
     aliases = {"best": "master", "high": "master", "fast": "draft"}
     requested = aliases.get(requested, requested)
     try:
