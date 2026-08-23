@@ -73,18 +73,37 @@ final class AppState: ObservableObject {
         return enabled
     }
 
-    private func storedVieneuPID() -> pid_t? {
-        guard let value = try? String(contentsOf: vieneuPIDFileURL, encoding: .utf8),
-              let rawPID = Int32(value.trimmingCharacters(in: .whitespacesAndNewlines)),
-              rawPID > 0 else {
+    private func storedVieneuOwnership() -> (pid: pid_t, startIdentity: String)? {
+        guard let data = try? Data(contentsOf: vieneuPIDFileURL) else {
             return nil
         }
-        return pid_t(rawPID)
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawPID = payload["pid"] as? Int,
+              rawPID > 0,
+              let startIdentity = payload["startIdentity"] as? String,
+              !startIdentity.isEmpty else {
+            // Remove the legacy PID-only format. It cannot prove that the
+            // process still belongs to AurexVideo after a restart or PID reuse.
+            try? FileManager.default.removeItem(at: vieneuPIDFileURL)
+            return nil
+        }
+        return (pid_t(rawPID), startIdentity)
+    }
+
+    private func storedVieneuPID() -> pid_t? {
+        storedVieneuOwnership()?.pid
     }
 
     private func storeVieneuPID(_ pid: pid_t?) {
         if let pid {
-            try? String(pid).write(to: vieneuPIDFileURL, atomically: true, encoding: .utf8)
+            let startIdentity = processStartIdentity(for: pid)
+            guard !startIdentity.isEmpty else { return }
+            let payload: [String: Any] = [
+                "pid": Int(pid),
+                "startIdentity": startIdentity,
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+            try? data.write(to: vieneuPIDFileURL, options: .atomic)
         } else {
             try? FileManager.default.removeItem(at: vieneuPIDFileURL)
         }
@@ -99,6 +118,23 @@ final class AppState: ObservableObject {
         let checker = Process()
         checker.executableURL = URL(fileURLWithPath: "/bin/ps")
         checker.arguments = ["-p", String(pid), "-o", "command="]
+        let pipe = Pipe()
+        checker.standardOutput = pipe
+        checker.standardError = Pipe()
+        do {
+            try checker.run()
+            checker.waitUntilExit()
+        } catch {
+            return ""
+        }
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func processStartIdentity(for pid: pid_t) -> String {
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/bin/ps")
+        checker.arguments = ["-p", String(pid), "-o", "lstart="]
         let pipe = Pipe()
         checker.standardOutput = pipe
         checker.standardError = Pipe()
@@ -131,7 +167,7 @@ final class AppState: ObservableObject {
             .map { String($0.dropFirst()) } ?? ""
     }
 
-    private func isOwnedVieneuPID(_ pid: pid_t) -> Bool {
+    private func isOwnedVieneuPID(_ pid: pid_t, expectedStartIdentity: String? = nil) -> Bool {
         guard pid > 0 else { return false }
         let command = processCommand(for: pid)
         guard command.contains("gradio_main.py"),
@@ -139,40 +175,33 @@ final class AppState: ObservableObject {
             return false
         }
         let cwd = processWorkingDirectory(for: pid)
-        return cwd == runtime.root.path || cwd.hasPrefix(runtime.root.path + "/")
-    }
+        guard cwd == runtime.root.path || cwd.hasPrefix(runtime.root.path + "/") else {
+            return false
+        }
 
-    private func listeningVieneuPID() -> pid_t? {
-        let checker = Process()
-        checker.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        checker.arguments = ["-nP", "-iTCP:7860", "-sTCP:LISTEN", "-t"]
-        let pipe = Pipe()
-        checker.standardOutput = pipe
-        checker.standardError = Pipe()
-        do {
-            try checker.run()
-            checker.waitUntilExit()
-        } catch {
-            return nil
+        if let expectedStartIdentity {
+            return processStartIdentity(for: pid) == expectedStartIdentity
         }
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard let rawPID = output.split(whereSeparator: \.isWhitespace).compactMap({ Int32($0) }).first else {
-            return nil
+        if vieneuProcessPID == pid { return true }
+        guard let ownership = storedVieneuOwnership(), ownership.pid == pid else {
+            return false
         }
-        return pid_t(rawPID)
+        return processStartIdentity(for: pid) == ownership.startIdentity
     }
 
     private func recoverOwnedVieneuProcess() -> pid_t? {
-        let candidates = [storedVieneuPID(), listeningVieneuPID()].compactMap { $0 }
-        guard let pid = candidates.first(where: { isOwnedVieneuPID($0) }) else {
+        guard let ownership = storedVieneuOwnership(),
+              isOwnedVieneuPID(ownership.pid, expectedStartIdentity: ownership.startIdentity) else {
+            if storedVieneuOwnership() != nil {
+                storeVieneuPID(nil)
+            }
             return nil
         }
-        storeVieneuPID(pid)
-        return pid
+        return ownership.pid
     }
 
-    private func terminateOwnedVieneuPID(_ pid: pid_t) {
-        guard isOwnedVieneuPID(pid) else { return }
+    private func terminateOwnedVieneuPID(_ pid: pid_t, expectedStartIdentity: String? = nil) {
+        guard isOwnedVieneuPID(pid, expectedStartIdentity: expectedStartIdentity) else { return }
         let terminator = Process()
         terminator.executableURL = URL(fileURLWithPath: "/bin/sh")
         terminator.arguments = ["-c", "kill -TERM \(pid) 2>/dev/null; sleep 0.2; kill -KILL \(pid) 2>/dev/null || true"]
@@ -384,10 +413,7 @@ final class AppState: ObservableObject {
     }
 
     private func stopVieNeu() {
-        var candidates = [vieneuProcessPID, storedVieneuPID()].compactMap { $0 }
-        if let recoveredPID = recoverOwnedVieneuProcess() {
-            candidates.append(recoveredPID)
-        }
+        let candidates = [vieneuProcessPID, storedVieneuPID()].compactMap { $0 }
         for pid in Set(candidates) {
             terminateOwnedVieneuPID(pid)
             clearStoredVieneuPID(ifMatching: pid)
