@@ -107,6 +107,7 @@ DEFAULT_BRAND_LOGO_PATH = REPO_ROOT / "web" / "aurexvideo-logo.png"
 BRANDING_CONFIG_PATH = USER_DATA_ROOT / "config" / "branding.json"
 BRANDING_ASSET_DIR = USER_DATA_ROOT / "config" / "branding"
 UPLOAD_DEFAULTS_CONFIG_PATH = USER_DATA_ROOT / "config" / "upload-defaults.json"
+VIENEU_RUNTIME_CONFIG_PATH = USER_DATA_ROOT / "config" / "vieneu-runtime.json"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 ACTIVE_JOB_STATUSES = {"authorizing", "queued", "running", "cancelling"}
@@ -356,6 +357,33 @@ def save_ui_language(language: object) -> str:
     temporary.write_bytes(json_dumps(payload) + b"\n")
     temporary.replace(BOOTSTRAP_SETTINGS_PATH)
     return normalized
+
+
+def read_vieneu_runtime_config() -> dict:
+    """Return the persisted VieNeu runtime preference.
+
+    VieNeu is enabled by default for existing installations.  The native
+    shell reads the same small config file so the web toggle can control
+    startup without coupling the web page to a platform-specific process API.
+    """
+    try:
+        payload = json.loads(VIENEU_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return {"enabled": payload.get("enabled") is not False}
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    return {"enabled": True}
+
+
+def save_vieneu_runtime_config(enabled: object) -> dict:
+    VIENEU_RUNTIME_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"enabled": bool(enabled)}
+    temporary = VIENEU_RUNTIME_CONFIG_PATH.with_name(
+        f".{VIENEU_RUNTIME_CONFIG_PATH.name}.{uuid.uuid4().hex}.tmp"
+    )
+    temporary.write_bytes(json_dumps(payload) + b"\n")
+    temporary.replace(VIENEU_RUNTIME_CONFIG_PATH)
+    return payload
 
 
 def request_native_command(command: str, **payload: object) -> None:
@@ -3288,6 +3316,13 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
 
       <div data-pane="vieneu">
+        <div class="vieneu-runtime-control">
+          <label class="check">
+            <input id="vieneuRuntimeToggle" type="checkbox" checked />
+            <span>Bật VieNeu-TTS</span>
+          </label>
+          <span class="vieneu-runtime-state" id="vieneuRuntimeState" aria-live="polite">Đang kiểm tra…</span>
+        </div>
         <div class="field">
           <span class="field-label">{ui_icon("message", "field-icon")}<span>Giọng VieNeu</span></span>
           <select id="vieneuVoice"><option value="">Đang tải giọng...</option></select>
@@ -4194,6 +4229,24 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     .maziao-preview-button.is-playing .maziao-preview-pause { display: block; }
     .maziao-cache-row { margin-top: 0; }
     .maziao-cache-row .check { margin: 4px 0 6px; }
+    .vieneu-runtime-control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 2px 0 10px;
+      padding: 9px 11px;
+      border: 1px solid var(--control-line);
+      border-radius: 12px;
+      background: rgba(242, 178, 101, 0.08);
+    }
+    .vieneu-runtime-control .check { margin: 0; }
+    .vieneu-runtime-state {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-align: right;
+    }
     .mode-toggle {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -8337,6 +8390,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if path == "/api/tts/vieneu/runtime":
+            self.send_json(200, read_vieneu_runtime_config())
+            return
+
         if path in {"/api/tts/vieneu/health", "/api/tts/aurextts/health"}:
             try:
                 self.send_json(200, m3.vieneu_health())
@@ -8791,6 +8848,16 @@ class WebHandler(SimpleHTTPRequestHandler):
                     self.send_json(400, {"error": str(exc)})
                     return
                 self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/tts/vieneu/runtime":
+                try:
+                    payload = self.read_json_body()
+                    if "enabled" not in payload:
+                        raise ValueError("Thiếu trạng thái bật/tắt VieNeu-TTS.")
+                    self.send_json(200, save_vieneu_runtime_config(payload["enabled"]))
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
                 return
 
             if parsed.path == "/api/project-script":

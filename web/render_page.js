@@ -60,6 +60,7 @@
   };
   const state = {
     engine: 'vieneu',
+    vieneuRuntimeEnabled: true,
     jobId: null,
     pollTimer: null,
     project: null,
@@ -2662,6 +2663,66 @@
     } catch (error) { /* keep defaults */ }
   }
 
+  function updateVieneuRuntimeState(enabled, message = '') {
+    const toggle = $('#vieneuRuntimeToggle');
+    const stateEl = $('#vieneuRuntimeState');
+    if (toggle) toggle.checked = Boolean(enabled);
+    if (stateEl) {
+      stateEl.textContent = message || (enabled ? 'Đang bật' : 'Đã tắt');
+      stateEl.classList.toggle('is-disabled', !enabled);
+    }
+  }
+
+  async function loadVieneuRuntime() {
+    try {
+      const response = await fetch('/api/tts/vieneu/runtime', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const config = await response.json();
+      state.vieneuRuntimeEnabled = config.enabled !== false;
+      updateVieneuRuntimeState(state.vieneuRuntimeEnabled);
+    } catch (_) {
+      // Existing installations default to enabled when the preference file is
+      // unavailable, so a temporary read failure must not disable VieNeu.
+      state.vieneuRuntimeEnabled = true;
+      updateVieneuRuntimeState(true, 'Mặc định bật');
+    }
+  }
+
+  async function saveVieneuRuntime(enabled) {
+    const nextEnabled = Boolean(enabled);
+    const previousEnabled = state.vieneuRuntimeEnabled;
+    const toggle = $('#vieneuRuntimeToggle');
+    if (toggle) toggle.disabled = true;
+    updateVieneuRuntimeState(nextEnabled, 'Đang lưu…');
+    try {
+      const response = await fetch('/api/tts/vieneu/runtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      const config = await response.json();
+      if (!response.ok) throw new Error(config.error || `HTTP ${response.status}`);
+      state.vieneuRuntimeEnabled = config.enabled !== false;
+      updateVieneuRuntimeState(
+        state.vieneuRuntimeEnabled,
+        state.vieneuRuntimeEnabled
+          ? 'Đã bật · đang khởi động nếu cần'
+          : 'Đã tắt · VieNeu sẽ dừng sau ít giây',
+      );
+      if (!state.vieneuRuntimeEnabled && state.engine === 'vieneu') {
+        setStatus('VieNeu-TTS đã tắt. Hãy chọn Maziao hoặc Edge TTS để render.', 'warn');
+      }
+      if (state.vieneuRuntimeEnabled && state.engine === 'vieneu') loadVieneuVoices();
+    } catch (error) {
+      state.vieneuRuntimeEnabled = previousEnabled;
+      updateVieneuRuntimeState(previousEnabled, 'Không lưu được');
+      if (toggle) toggle.checked = previousEnabled;
+      setStatus(error.message || String(error), 'bad');
+    } finally {
+      if (toggle) toggle.disabled = false;
+    }
+  }
+
   async function loadVieneuVoices() {
     const select = $('#vieneuVoice') || $('#aurexttsVoice');
     if (!select) return;
@@ -3657,6 +3718,9 @@
     try {
       const project = currentProject();
       if (!project) throw new Error(tr('Vui lòng chọn một dự án trước.', 'Please select a project first.'));
+      if (state.engine === 'vieneu' && !state.vieneuRuntimeEnabled) {
+        throw new Error('VieNeu-TTS đang tắt. Hãy bật lại hoặc chọn Maziao/Edge TTS.');
+      }
 
       const payload = {
         project: project.name,
@@ -3888,6 +3952,11 @@
   if (rememberedRenderEngine) setEngine(rememberedRenderEngine, { remember: false });
   syncAdvancedSettings();
   syncMaziaoTtsMode();
+  const vieneuRuntimeToggle = $('#vieneuRuntimeToggle');
+  if (vieneuRuntimeToggle) {
+    vieneuRuntimeToggle.addEventListener('change', () => saveVieneuRuntime(vieneuRuntimeToggle.checked));
+  }
+  loadVieneuRuntime();
   const maziaoTtsModeInput = $('#maziaoTtsMode');
   if (maziaoTtsModeInput) maziaoTtsModeInput.addEventListener('change', syncMaziaoTtsMode);
   loadMaziaoFavourites();
