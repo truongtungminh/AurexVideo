@@ -319,8 +319,13 @@
     badge.className = `status-pill ${tone} social-status`;
     badge.textContent = label;
     cell.querySelector('.social-schedule-time')?.remove();
+    const normalizedLabel = label.trim();
+    const detailState = String(detail.state || '').trim().toLowerCase();
+    const isScheduled = normalizedLabel === 'Đã lên lịch'
+      || (!['Published', 'Pending'].includes(normalizedLabel)
+        && (detail.scheduled === true || detailState === 'scheduled'));
     const scheduledLabel = String(project.social_status_scheduled_label || detail.scheduled_label || '');
-    if (scheduledLabel) {
+    if (isScheduled && scheduledLabel) {
       const time = document.createElement('small');
       time.className = 'social-schedule-time';
       time.dateTime = String(project.social_status_scheduled_at || detail.scheduled_at || '');
