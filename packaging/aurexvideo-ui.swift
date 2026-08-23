@@ -90,6 +90,11 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func clearStoredVieneuPID(ifMatching pid: pid_t) {
+        guard storedVieneuPID() == pid else { return }
+        storeVieneuPID(nil)
+    }
+
     private func processCommand(for pid: pid_t) -> String {
         let checker = Process()
         checker.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -151,7 +156,7 @@ final class AppState: ObservableObject {
             return nil
         }
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard let rawPID = output.split(whereSeparator: \ .isWhitespace).compactMap({ Int32($0) }).first else {
+        guard let rawPID = output.split(whereSeparator: \.isWhitespace).compactMap({ Int32($0) }).first else {
             return nil
         }
         return pid_t(rawPID)
@@ -304,8 +309,18 @@ final class AppState: ObservableObject {
 
     private func startVieNeu() {
         guard vieneuProcessPID == nil else { return }
+        guard vieneuRuntimeEnabled() else {
+            logVieNeu("[start] bỏ qua: VieNeu-TTS đang tắt trong cài đặt app")
+            return
+        }
         guard let runtime = vieneuRuntime() else {
             logVieNeu("[start] bỏ qua: không tìm thấy VieNeu-TTS/.venv hoặc apps/gradio_main.py")
+            return
+        }
+        if let recoveredPID = recoverOwnedVieneuProcess() {
+            vieneuProcessPID = recoveredPID
+            logVieNeu("[start] nhận lại VieNeu-TTS do AurexVideo quản lý, PID=\(recoveredPID)")
+            beginVieNeuReadinessProbe()
             return
         }
         if isPortListening(7860) {
@@ -351,12 +366,14 @@ final class AppState: ObservableObject {
             return
         }
         vieneuProcessPID = proc.processIdentifier
+        storeVieneuPID(proc.processIdentifier)
         logVieNeu("[start] VieNeu-TTS UI đang khởi động, PID=\(proc.processIdentifier), port=7860")
         proc.terminationHandler = { [weak self] process in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.vieneuProcessPID == process.processIdentifier {
                     self.vieneuProcessPID = nil
+                    self.clearStoredVieneuPID(ifMatching: process.processIdentifier)
                     self.vieneuLogHandle?.closeFile()
                     self.vieneuLogHandle = nil
                 }
@@ -367,20 +384,45 @@ final class AppState: ObservableObject {
     }
 
     private func stopVieNeu() {
-        if let pid = vieneuProcessPID {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-            proc.arguments = ["-c", "kill -TERM \(pid) 2>/dev/null; sleep 0.2; kill -KILL \(pid) 2>/dev/null || true"]
-            try? proc.run()
-            proc.waitUntilExit()
-            vieneuProcessPID = nil
+        var candidates = [vieneuProcessPID, storedVieneuPID()].compactMap { $0 }
+        if let recoveredPID = recoverOwnedVieneuProcess() {
+            candidates.append(recoveredPID)
         }
+        for pid in Set(candidates) {
+            terminateOwnedVieneuPID(pid)
+            clearStoredVieneuPID(ifMatching: pid)
+        }
+        vieneuProcessPID = nil
         vieneuLogHandle?.closeFile()
         vieneuLogHandle = nil
     }
 
+    private func startVieneuPreferenceMonitor() {
+        vieneuPreferenceTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in
+            self?.synchronizeVieneuPreference()
+        }
+        timer.resume()
+        vieneuPreferenceTimer = timer
+    }
+
+    private func synchronizeVieneuPreference() {
+        guard serverProcessPID != nil || stage == .ready else { return }
+        if vieneuRuntimeEnabled() {
+            if vieneuProcessPID == nil {
+                startVieNeu()
+            }
+        } else if vieneuProcessPID != nil || storedVieneuPID() != nil {
+            stopVieNeu()
+        }
+    }
+
     func stopServer() {
         let fm = FileManager.default
+        vieneuPreferenceTimer?.cancel()
+        vieneuPreferenceTimer = nil
         stopVieNeu()
         if let pid = serverProcessPID {
             let proc = Process()
@@ -817,10 +859,14 @@ final class AppState: ObservableObject {
             return
         }
         serverProcessPID = proc.processIdentifier
+        startVieneuPreferenceMonitor()
         proc.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
                 if self?.serverProcessPID == proc.processIdentifier {
                     self?.serverProcessPID = nil
+                    self?.vieneuPreferenceTimer?.cancel()
+                    self?.vieneuPreferenceTimer = nil
+                    self?.stopVieNeu()
                 }
             }
         }
