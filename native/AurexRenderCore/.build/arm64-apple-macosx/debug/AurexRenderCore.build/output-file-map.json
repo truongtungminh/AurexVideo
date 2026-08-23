@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/primary.swiftdeps"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/AurexRenderCore.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.dia"
+  }
+}
