@@ -329,7 +329,7 @@ let POSE_OPTIONS = [
 ];
 
 const CUSTOM_POSE_SEQUENCES = {
-  bietchichomet: ["pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5", "pose-1", "pose-2"],
+  bietchichomet: ["pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5"],
   july: ["pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5"],
   popsy: ["pose-9", "pose-1", "pose-2", "pose-3", "pose-4", "pose-5", "pose-6"],
   engzy: ["pose-1", "pose-2", "pose-3", "pose-4", "pose-5", "pose-6"],
