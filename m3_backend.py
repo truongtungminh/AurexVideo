@@ -86,7 +86,7 @@ DEFAULT_POSE_LABELS_EN = {
     "smile-right": "Point right · smile",
 }
 
-BIETCHICHOMET_DEFAULT_POSE_SEQUENCE = ("pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-6")
+BIETCHICHOMET_DEFAULT_POSE_SEQUENCE = ("pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5")
 POPSY_DEFAULT_POSE_SEQUENCE = ("pose-9", "pose-1", "pose-2", "pose-3", "pose-4", "pose-5", "pose-6")
 
 
