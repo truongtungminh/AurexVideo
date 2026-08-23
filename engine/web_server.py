@@ -3176,10 +3176,17 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         status = "Đã render" if has_video else ("Chưa render" if project["has_script"] else "Thiếu script")
         status_class = "ok" if has_video else ("bad" if project["has_script"] else "bad")
         selected_class = " selected" if project["name"] == selected_project else ""
+        social_detail = project.get("social_status_detail") if isinstance(project.get("social_status_detail"), dict) else {}
+        social_label = str(project.get("social_status") or social_detail.get("label") or "").strip()
+        social_state = str(social_detail.get("state") or "").strip().lower()
+        social_is_scheduled = social_label == "Đã lên lịch" or (
+            social_label not in {"Published", "Pending"}
+            and (social_detail.get("scheduled") is True or social_state == "scheduled")
+        )
         social_schedule = (
             f'<small class="social-schedule-time" datetime="{html.escape(project["social_status_scheduled_at"], quote=True)}">'
             f'{html.escape(project["social_status_scheduled_label"])}</small>'
-            if project.get("social_status_scheduled_label")
+            if social_is_scheduled and project.get("social_status_scheduled_label")
             else ""
         )
         rows.append(
@@ -6243,7 +6250,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260822-vieneu-default"></script>
+  <script src="/web/render_page.js?v=20260823-status-time"></script>
 """,
     )
 
@@ -7730,7 +7737,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260822-vieneu-default"></script>
+  <script src="/web/render_page.js?v=20260823-status-time"></script>
 """,
     )
 
