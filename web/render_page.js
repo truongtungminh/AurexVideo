@@ -333,6 +333,14 @@
       time.textContent = scheduledLabel;
       cell.appendChild(time);
     }
+    const publishedLabel = String(project.social_status_published_label || detail.published_label || '');
+    if (normalizedLabel === 'Published' && publishedLabel) {
+      const time = document.createElement('small');
+      time.className = 'social-schedule-time';
+      time.dateTime = String(project.social_status_published_at || detail.published_at || '');
+      time.textContent = publishedLabel;
+      cell.appendChild(time);
+    }
   }
 
   async function refreshDashboardProjectSocialStatuses() {
