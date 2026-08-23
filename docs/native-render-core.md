@@ -43,6 +43,20 @@ CLI chỉ ghi output sau khi toàn bộ frame hoàn tất: encoder ghi vào file
 
 ## Tích hợp vào pipeline hiện tại
 
-Native core được triển khai theo mô hình opt-in/fallback. Backend browser hiện vẫn là mặc định cho parity với project cũ. Chỉ chuyển project sang native sau khi project tạo được manifest schema `1` và tất cả layer đều nằm trong capability report. Nếu native không khả dụng hoặc manifest không hợp lệ, caller phải giữ output browser và ghi rõ lý do fallback.
+Native core được triển khai theo mô hình opt-in/fallback. Trong phần Cài đặt nâng cao của bộ máy render có ba lựa chọn:
+
+- `Browser`: mặc định, giữ parity với project hiện tại.
+- `Auto`: thử native; nếu máy/project chưa đủ điều kiện thì tự quay về Browser và ghi lý do trong log.
+- `Aurex Render Core`: yêu cầu native manifest; thiếu binary hoặc manifest sẽ làm job dừng rõ ràng để tránh tưởng rằng đã render native.
+
+Project opt-in bằng cách thêm vào `topic.json`:
+
+```json
+{
+  "nativeRenderManifest": "native-render.json"
+}
+```
+
+Manifest được copy tạm theo đúng thư mục project, cập nhật canvas/FPS/frame count theo voiceover, rồi xóa sau job. Sau khi core xuất H.264, AurexVideo chỉ mux narration AAC vào bằng `-c:v copy`; branding/outro mới re-encode một lần theo profile đã chọn. Chỉ chuyển project sang native sau khi project tạo được manifest schema `1` và tất cả layer đều nằm trong capability report. Nếu native không khả dụng hoặc manifest không hợp lệ, caller phải giữ output browser và ghi rõ lý do fallback.
 
 Lộ trình tiếp theo để đưa các project bietchichomet sang native là bổ sung decoder tuần tự cho pose-video, text/karaoke và audio; không nên giả lập các layer đó bằng ảnh tĩnh vì sẽ làm thay đổi nội dung video.
