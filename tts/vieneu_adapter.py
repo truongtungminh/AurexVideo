@@ -529,18 +529,11 @@ def generate_vieneu_voiceover(
     with tempfile.TemporaryDirectory(prefix="vieneu-") as tmp:
         temp_wav = Path(tmp) / "temp_voiceover.wav"
         tts.save(wav, str(temp_wav))
+        codec_options = ["-c:a", "pcm_s16le"] if output_mp3.suffix.casefold() == ".wav" else ["-c:a", "libmp3lame", "-q:a", "2"]
         result = subprocess.run(
             [
-                _ffmpeg_command(),
-                "-y",
-                "-i",
-                str(temp_wav),
-                "-vn",
-                "-c:a",
-                "libmp3lame",
-                "-q:a",
-                "2",
-                str(output_mp3),
+                _ffmpeg_command(), "-y", "-i", str(temp_wav), "-vn",
+                *codec_options, str(output_mp3),
             ],
             capture_output=True,
             text=True,

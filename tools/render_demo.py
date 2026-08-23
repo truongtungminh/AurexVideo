@@ -327,6 +327,7 @@ async def render_frames(
             *video_options,
             "-r", str(fps), "-fps_mode", "cfr",
             *audio_options,
+            "-map_metadata", "-1", "-map_chapters", "-1",
             "-shortest", *mux_options, str(output),
         ]
         encoder = subprocess.Popen(

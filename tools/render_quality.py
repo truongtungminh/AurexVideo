@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import os
 
 
-RENDER_PROFILE_VERSION = "quality-v1"
+RENDER_PROFILE_VERSION = "quality-v2"
 
 
 @dataclass(frozen=True)

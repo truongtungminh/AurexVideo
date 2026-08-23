@@ -383,8 +383,10 @@ def latest_cached_voiceover(project: Path, engine: str) -> Path | None:
     try:
         candidates = [
             item
-            for item in (project / "audio" / "cache").glob(f"{prefix}*.mp3")
-            if item.is_file() and item.stat().st_size > 0
+            for item in (project / "audio" / "cache").glob(f"{prefix}*")
+            if item.is_file()
+            and item.suffix.casefold() in {".mp3", ".wav"}
+            and item.stat().st_size > 0
         ]
     except OSError:
         return None
@@ -442,7 +444,8 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
             config_fingerprint, tts_fingerprint,
         ])
     ).hexdigest()[:20]
-    output = project / "audio" / "cache" / f"{args.engine}-{cache_key}.mp3"
+    cache_suffix = ".wav" if args.engine in {"vieneu", "aurextts", "maziao"} else ".mp3"
+    output = project / "audio" / "cache" / f"{args.engine}-{cache_key}{cache_suffix}"
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.is_file() and output.stat().st_size > 0 and not args.force_tts:
         print(f"TTS cache hit: dùng lại {output}", flush=True)
@@ -539,6 +542,23 @@ def alignment_signature(prepared_topic: Path, render_audio: Path, whisper_model:
     return hashlib.sha256(payload).hexdigest()
 def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
     topic = topic_path.read_bytes()
+    topic_value = json.loads(topic.decode("utf-8"))
+    topic_assets: list[str] = []
+    candidate_values: list[object] = [
+        topic_value.get("voiceover"),
+        topic_value.get("backgroundMusic"),
+        topic_value.get("leftImage"),
+        topic_value.get("rightImage"),
+    ]
+    if isinstance(topic_value.get("sfx"), dict):
+        candidate_values.extend(topic_value["sfx"].values())
+    for value in candidate_values:
+        try:
+            asset = resolve_project_asset(topic_path.parent, value)
+        except (OSError, ValueError, TypeError):
+            continue
+        if asset.is_file():
+            topic_assets.append(file_signature(asset))
     renderer_files = [
         ROOT / "app.js",
         ROOT / "style.css",
@@ -546,13 +566,18 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
         ROOT / "tools" / "render_demo.py",
         ROOT / "tools" / "render_project.py",
         ROOT / "tools" / "render_quality.py",
+        ROOT / "tools" / "generate_voiceover.py",
+        ROOT / "tts" / "vieneu_adapter.py",
+        ROOT / "tts" / "maziao.py",
+        ROOT / "tts" / "common.py",
     ]
     quality = get_render_profile(getattr(args, "quality_profile", None))
     payload = b"\0".join(
         [
-            b"render-cache-v3",
+            b"render-cache-v4",
             RENDER_PROFILE_VERSION.encode("utf-8"),
             topic,
+            json.dumps(sorted(topic_assets), ensure_ascii=False).encode("utf-8"),
             *(file_digest(path).encode("ascii") for path in renderer_files),
             args.engine.encode("utf-8"),
             file_signature(args.audio).encode("utf-8"),
@@ -624,11 +649,21 @@ def main() -> None:
     if output.is_file() and output.stat().st_size > 0 and signature_file.is_file():
         try:
             if json.loads(signature_file.read_text(encoding="utf-8")).get("signature") == signature:
+                cached_width, cached_height = (int(value) for value in args.size.split("x"))
+                validate_rendered_video(
+                    output,
+                    width=cached_width,
+                    height=cached_height,
+                    fps=args.fps,
+                )
                 print(f"Render cache hit: dùng lại {output}", flush=True)
                 print(f"Done: {output}", flush=True)
                 return
+            print("Render cache signature khác; tạo lại video theo profile mới.", flush=True)
         except json.JSONDecodeError:
             pass
+        except Exception as exc:
+            print(f"Render cache postflight không đạt ({exc}); tạo lại video.", flush=True)
 
     token = uuid.uuid4().hex[:8]
     original = json.loads(topic_path.read_text(encoding="utf-8"))
@@ -709,6 +744,7 @@ def main() -> None:
         })
         # Do not replace a previously good delivery until postflight has passed.
         render_output.replace(output)
+        postflight["path"] = str(output)
         report["duration_seconds"] = round(media_duration(output), 3)
         report["output_size_bytes"] = output.stat().st_size
         report["has_audio_stream"] = has_audio_stream(output)
