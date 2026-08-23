@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import base64
+from collections import deque
 import html
 import io
 import json
@@ -136,6 +137,8 @@ UPLOAD_DEFAULTS_CONFIG_PATH = USER_DATA_ROOT / "config" / "upload-defaults.json"
 VIENEU_RUNTIME_CONFIG_PATH = USER_DATA_ROOT / "config" / "vieneu-runtime.json"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
+RENDER_QUEUE: deque[str] = deque()
+RENDER_QUEUE_WORKER_ACTIVE = False
 AUTOPROJECT_STORE: AutoProjectStore | None = None
 AUTOPROJECT_TEMPLATES = [
     {
@@ -145,7 +148,13 @@ AUTOPROJECT_TEMPLATES = [
     },
 ]
 ACTIVE_JOB_STATUSES = {"authorizing", "queued", "running", "cancelling"}
-PRIVATE_JOB_FIELDS = {"process", "trial_event_id"}
+PRIVATE_JOB_FIELDS = {
+    "process",
+    "trial_event_id",
+    "queued_command",
+    "allowance_finalized",
+    "allowance_finalizing",
+}
 SLIDE_AUDIO_SETTING_KEYS = {
     "transitionSounds": "slideTransitions",
     "revealSounds": "slideReveals",
@@ -1483,6 +1492,46 @@ def set_job_state(job_id: str, **updates: object) -> None:
         job["updated_at"] = time.time()
 
 
+def refresh_queue_positions_locked() -> None:
+    """Update public FIFO positions. JOBS_LOCK must already be held."""
+    position = 1
+    for queued_job_id in RENDER_QUEUE:
+        job = JOBS.get(queued_job_id)
+        if not job or job.get("status") != "queued" or job.get("cancel_requested"):
+            continue
+        job["queue_position"] = position
+        job["updated_at"] = time.time()
+        position += 1
+
+
+def finalize_job_trial_export(job_id: str, status: str) -> None:
+    """Finish a reserved allowance once, even when cancellation races with rendering."""
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job or job.get("allowance_finalized") or job.get("allowance_finalizing"):
+            return
+        event_id = str(job.get("trial_event_id") or "") or None
+        if not event_id:
+            job["allowance_finalized"] = True
+            return
+        job["allowance_finalizing"] = True
+
+    try:
+        finish_trial_export(event_id, status)
+        is_trial, used, limit = entitlement_trial_usage()
+        if is_trial:
+            set_job_state(job_id, trial_exports_used=used, trial_export_limit=limit)
+    except Exception as exc:
+        append_log(job_id, f"\nWarning: could not sync Trial export allowance: {exc}\n")
+    finally:
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if job:
+                job["allowance_finalizing"] = False
+                job["allowance_finalized"] = True
+                job["updated_at"] = time.time()
+
+
 def public_job(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in PRIVATE_JOB_FIELDS}
 
@@ -1675,27 +1724,92 @@ def render_simple_player_html(project: str) -> bytes:
 </html>""".encode("utf-8")
 
 
+def render_queue_worker() -> None:
+    """Run queued renders one at a time, preserving their insertion order."""
+    global RENDER_QUEUE_WORKER_ACTIVE
+    try:
+        while True:
+            with JOBS_LOCK:
+                next_job: tuple[str, list[str], str] | None = None
+                invalid_job_ids: list[str] = []
+                while RENDER_QUEUE:
+                    job_id = RENDER_QUEUE.popleft()
+                    job = JOBS.get(job_id)
+                    if not job or job.get("status") != "queued" or job.get("cancel_requested"):
+                        continue
+                    command = job.get("queued_command")
+                    project = str(job.get("project") or "")
+                    if not isinstance(command, list) or not project:
+                        job["status"] = "failed"
+                        job["finished_at"] = time.time()
+                        job["error"] = "Queued render job is missing its command."
+                        job["updated_at"] = time.time()
+                        invalid_job_ids.append(job_id)
+                        continue
+                    job["status"] = "running"
+                    job["queue_position"] = None
+                    job["updated_at"] = time.time()
+                    next_job = (job_id, command, project)
+                    break
+                refresh_queue_positions_locked()
+            for invalid_job_id in invalid_job_ids:
+                finalize_job_trial_export(invalid_job_id, "failed")
+            if not next_job:
+                if invalid_job_ids:
+                    continue
+                return
+            run_job(*next_job)
+    finally:
+        with JOBS_LOCK:
+            RENDER_QUEUE_WORKER_ACTIVE = False
+            restart_needed = any(
+                (job := JOBS.get(job_id))
+                and job.get("status") == "queued"
+                and not job.get("cancel_requested")
+                for job_id in RENDER_QUEUE
+            )
+        if restart_needed:
+            start_render_queue_worker()
+
+
+def start_render_queue_worker() -> None:
+    global RENDER_QUEUE_WORKER_ACTIVE
+    with JOBS_LOCK:
+        if RENDER_QUEUE_WORKER_ACTIVE:
+            return
+        if not any(
+            (job := JOBS.get(job_id))
+            and job.get("status") == "queued"
+            and not job.get("cancel_requested")
+            for job_id in RENDER_QUEUE
+        ):
+            return
+        RENDER_QUEUE_WORKER_ACTIVE = True
+    try:
+        threading.Thread(target=render_queue_worker, daemon=True).start()
+    except Exception:
+        with JOBS_LOCK:
+            RENDER_QUEUE_WORKER_ACTIVE = False
+        raise
+
+
 def run_job(job_id: str, cmd: list[str], project: str) -> None:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     pretty_cmd = " ".join(shlex.quote(part) for part in cmd)
-    with JOBS_LOCK:
-        trial_event_id = str((JOBS.get(job_id) or {}).get("trial_event_id") or "") or None
-
     def finish_export_allowance(status: str) -> None:
-        try:
-            finish_trial_export(trial_event_id, status)
-            is_trial, used, limit = entitlement_trial_usage()
-            if is_trial:
-                set_job_state(job_id, trial_exports_used=used, trial_export_limit=limit)
-        except Exception as exc:
-            append_log(job_id, f"\nWarning: could not sync Trial export allowance: {exc}\n")
+        finalize_job_trial_export(job_id, status)
 
-    set_job_state(job_id, status="running", command=pretty_cmd, started_at=time.time())
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        cancelled_before_start = bool(job and job.get("cancel_requested"))
+        if job and not cancelled_before_start:
+            job.update(status="running", command=pretty_cmd, started_at=time.time())
+            job["updated_at"] = time.time()
     append_log(job_id, f"$ {pretty_cmd}\n\n")
-    if job_cancel_requested(job_id):
+    if cancelled_before_start or job_cancel_requested(job_id):
         append_log(job_id, "Render stopped before process start.\n")
         finish_export_allowance("cancelled")
         set_job_state(job_id, status="cancelled", returncode=None, finished_at=time.time())
@@ -1722,6 +1836,10 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
             **popen_kwargs,
         )
         set_job_state(job_id, process=proc, pid=proc.pid)
+        # Cancellation can arrive after the pre-start check but before Popen
+        # publishes its process handle. Stop that process immediately.
+        if job_cancel_requested(job_id):
+            terminate_process(proc)
     except Exception as exc:
         append_log(job_id, f"Failed to start render: {exc}\n")
         finish_export_allowance("failed")
@@ -1949,19 +2067,28 @@ def create_job(payload: dict) -> dict:
         "updated_at": now,
         "video_url": None,
         "trial_event_id": license_event_id,
+        "allowance_finalized": False,
+        "allowance_finalizing": False,
         "trial_exports_used": trial_used if is_trial else None,
         "trial_export_limit": trial_limit if is_trial else None,
+        "queue_position": None,
+        "queued_command": cmd,
     }
 
     with JOBS_LOCK:
         JOBS[job_id] = job
-
-    thread = threading.Thread(target=run_job, args=(job_id, cmd, project), daemon=True)
+        RENDER_QUEUE.append(job_id)
+        refresh_queue_positions_locked()
     try:
-        thread.start()
+        start_render_queue_worker()
     except Exception:
         with JOBS_LOCK:
             JOBS.pop(job_id, None)
+            try:
+                RENDER_QUEUE.remove(job_id)
+            except ValueError:
+                pass
+            refresh_queue_positions_locked()
         try:
             finish_trial_export(license_event_id, "failed")
         except Exception:
@@ -2006,6 +2133,7 @@ def terminate_process(proc: subprocess.Popen) -> bool:
 
 
 def cancel_job(job_id: str) -> dict | None:
+    finish_queued_allowance = False
     with JOBS_LOCK:
         job = JOBS.get(job_id)
         if not job:
@@ -2014,16 +2142,30 @@ def cancel_job(job_id: str) -> dict | None:
         if status not in ACTIVE_JOB_STATUSES:
             return public_job(job)
         job["cancel_requested"] = True
-        job["status"] = "cancelling"
+        if status == "queued":
+            job["status"] = "cancelled"
+            job["returncode"] = None
+            job["finished_at"] = time.time()
+            try:
+                RENDER_QUEUE.remove(job_id)
+            except ValueError:
+                pass
+            refresh_queue_positions_locked()
+            finish_queued_allowance = True
+        else:
+            job["status"] = "cancelling"
         job["updated_at"] = time.time()
         proc = job.get("process")
 
     append_log(job_id, "\nStop requested by user.\n")
+    if finish_queued_allowance:
+        # A reservation happens before enqueueing, so a waiting cancellation must
+        # release it here. Running jobs finalize in run_job to avoid a double finish.
+        finalize_job_trial_export(job_id, "cancelled")
+        return get_job(job_id)
     if isinstance(proc, subprocess.Popen):
         if terminate_process(proc):
             set_job_state(job_id, status="cancelled", returncode=proc.returncode, process=None, pid=None, finished_at=time.time())
-    else:
-        set_job_state(job_id, status="cancelled", returncode=None, finished_at=time.time())
     return get_job(job_id)
 
 

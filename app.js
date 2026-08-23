@@ -75,6 +75,8 @@ let presenterLayoutRaf = 0;
 let presenterLayoutGeneration = 0;
 let lastPresenterSource = "";
 let lastKaraokeGroupKey = "";
+let lastKaraokeRenderKey = "";
+let lastOfflineLayoutKey = "";
 const presenterAlphaBounds = new Map();
 const presenterFrameCache = new Map();
 const IMPORTED_PRESENTER_GAP_PX = 24;
@@ -82,10 +84,20 @@ const IMPORTED_PRESENTER_BOTTOM_PX = 28;
 const IMPORTED_PRESENTER_MAX_WIDTH = 0.58;
 const IMPORTED_PRESENTER_MAX_HEIGHT = 0.52;
 const OFFLINE_MEDIA_SYNC_TOLERANCE = 1 / 120;
+const OFFLINE_MEDIA_MAX_SEQUENTIAL_DRIFT = 0.02;
+const offlineVideoSyncState = {
+  source: "",
+  poseIndex: null,
+  lastTargetTime: null,
+};
 const offlineMediaSyncStats = {
   seeks: 0,
   skippedSeeks: 0,
+  playWaits: 0,
+  playWaitMs: 0,
+  playDriftCorrections: 0,
   poseChanges: 0,
+  poseResets: 0,
   seekWaitMs: 0,
   maxDriftMs: 0,
   maxRequestedDriftMs: 0,
@@ -684,6 +696,7 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
 
 function scheduleImportedPresenterLayout() {
   presenterLayoutGeneration += 1;
+  if (offlineRender) return;
   const generation = presenterLayoutGeneration;
   cancelAnimationFrame(presenterLayoutRaf);
   presenterLayoutRaf = requestAnimationFrame(() => {
@@ -743,19 +756,122 @@ function setPose(event, time, allowSfx = false) {
         if (teacher.readyState >= 1 && currentSrc === nextSrc) seekToLoopStart();
         else teacher.addEventListener("loadedmetadata", seekToLoopStart, { once: true });
       }
-      // Offline capture paints decoded frames to a canvas, so the video must
-      // actually be playing (not paused) for headless Chromium to produce frames.
-      teacher.play().catch(() => {});
+      // Offline capture advances the media clock explicitly below. Live
+      // preview can keep using normal playback.
+      if (!offlineRender) teacher.play().catch(() => {});
     }
   }
   updateMediaFocus(currentPose);
 }
 
+async function seekOfflineVideoTo(video, targetTime) {
+  const startedAt = performance.now();
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timeout khi đồng bộ video nhân vật tại ${targetTime.toFixed(3)}s`));
+    }, 5000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.pause();
+      cleanup();
+      resolve();
+    };
+    const onSeeked = () => {
+      // Changing `src` can leave a queued seeked event for time 0. Ignore that
+      // stale event and only accept the event for the timestamp requested below.
+      if (Math.abs((Number(video.currentTime) || 0) - targetTime) > OFFLINE_MEDIA_SYNC_TOLERANCE) return;
+      finish();
+    };
+    const onError = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`Không seek được video nhân vật: ${mediaSource(video)}`));
+    };
+    if (Math.abs((Number(video.currentTime) || 0) - targetTime) <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
+      finish();
+      return;
+    }
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onError, { once: true });
+    video.currentTime = targetTime;
+  });
+  offlineMediaSyncStats.seeks += 1;
+  offlineMediaSyncStats.seekWaitMs += performance.now() - startedAt;
+}
+
+async function playOfflineVideoTo(video, targetTime) {
+  const startedAt = performance.now();
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    let frameRequestId = null;
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timeout khi phát tới frame video nhân vật tại ${targetTime.toFixed(3)}s`));
+    }, 5000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("error", onError);
+      if (frameRequestId !== null && typeof video.cancelVideoFrameCallback === "function") {
+        video.cancelVideoFrameCallback(frameRequestId);
+      }
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      // Pause immediately after the decoded frame reaches the requested time;
+      // the offline canvas then paints a stable frame.
+      video.pause();
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`Không phát được video nhân vật: ${mediaSource(video)}`));
+    };
+    const check = () => {
+      if (settled) return;
+      const currentTime = Number(video.currentTime) || 0;
+      if (currentTime + OFFLINE_MEDIA_SYNC_TOLERANCE >= targetTime) {
+        finish();
+        return;
+      }
+      if (typeof video.requestVideoFrameCallback === "function") {
+        frameRequestId = video.requestVideoFrameCallback(() => {
+          frameRequestId = null;
+          check();
+        });
+      } else {
+        window.setTimeout(check, 16);
+      }
+    };
+    video.addEventListener("error", onError, { once: true });
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === "function") playPromise.catch(onError);
+    check();
+  });
+  offlineMediaSyncStats.playWaits += 1;
+  offlineMediaSyncStats.playWaitMs += performance.now() - startedAt;
+}
+
 async function syncPresenterToOfflineTimeline(event, timelineTime) {
   const video = elements.teacher;
   if (!offlineRender || !(video instanceof HTMLVideoElement) || !isVideoAssetSource(mediaSource(video))) return;
-  video.pause();
-  await waitForMediaReady(video);
+  const source = mediaSource(video);
+  const poseIndex = event?.index ?? null;
+  const sourceChanged = offlineVideoSyncState.source !== source;
+  const poseChanged = offlineVideoSyncState.poseIndex !== poseIndex;
+  if (sourceChanged || !mediaReady(video)) await waitForMediaReady(video);
 
   const duration = Number(video.duration);
   if (!Number.isFinite(duration) || duration <= 0) return;
@@ -778,53 +894,56 @@ async function syncPresenterToOfflineTimeline(event, timelineTime) {
     offlineMediaSyncStats.maxRequestedDriftMs,
     drift * 1000,
   );
+
+  const needsPoseReset = sourceChanged || poseChanged;
+  if (needsPoseReset) {
+    offlineVideoSyncState.source = source;
+    offlineVideoSyncState.poseIndex = poseIndex;
+    offlineVideoSyncState.lastTargetTime = null;
+    offlineMediaSyncStats.poseResets += 1;
+  }
+
   if (drift <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
+    video.pause();
     offlineMediaSyncStats.skippedSeeks += 1;
     offlineMediaSyncStats.lastPresentedDriftMs = drift * 1000;
     offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, drift * 1000);
+    offlineVideoSyncState.lastTargetTime = targetTime;
     return;
   }
 
-  const startedAt = performance.now();
-  await new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timeout khi đồng bộ video nhân vật tại ${targetTime.toFixed(3)}s`));
-    }, 5000);
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onError);
-    };
-    const onSeeked = () => {
-      // Changing `src` can leave a queued seeked event for time 0. Ignore that
-      // stale event and only accept the event for the timestamp requested below.
-      if (Math.abs((Number(video.currentTime) || 0) - targetTime) > OFFLINE_MEDIA_SYNC_TOLERANCE) return;
-      // Offline capture paints the decoded video frame to a canvas below, so
-      // it does not need Chromium's asynchronous video compositor to present it.
-      const presentedDrift = Math.abs((Number(video.currentTime) || 0) - targetTime) * 1000;
-      offlineMediaSyncStats.lastPresentedDriftMs = presentedDrift;
-      offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, presentedDrift);
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error(`Không seek được video nhân vật: ${mediaSource(video)}`));
-    };
-    video.addEventListener("seeked", onSeeked);
-    video.addEventListener("error", onError, { once: true });
-    video.currentTime = targetTime;
-  });
-  offlineMediaSyncStats.seeks += 1;
-  offlineMediaSyncStats.seekWaitMs += performance.now() - startedAt;
+  // Re-seek only when changing poses or wrapping a configured loop. For the
+  // normal forward path, let Chromium's decoder advance sequentially.
+  const currentTime = Number(video.currentTime) || 0;
+  const isBackwardJump = targetTime < currentTime - OFFLINE_MEDIA_SYNC_TOLERANCE;
+  if (needsPoseReset || isBackwardJump || config.syncMode === "freeze") {
+    video.pause();
+    await seekOfflineVideoTo(video, targetTime);
+  } else {
+    await playOfflineVideoTo(video, targetTime);
+  }
+  let presentedDrift = Math.abs((Number(video.currentTime) || 0) - targetTime) * 1000;
+  if (presentedDrift > OFFLINE_MEDIA_MAX_SEQUENTIAL_DRIFT * 1000) {
+    // requestVideoFrameCallback can wake up after a decoder frame boundary.
+    // Correct only a meaningful overshoot; the sequential path remains seek
+    // free for the common case while keeping animation aligned to its frame.
+    offlineMediaSyncStats.playDriftCorrections += 1;
+    await seekOfflineVideoTo(video, targetTime);
+    presentedDrift = Math.abs((Number(video.currentTime) || 0) - targetTime) * 1000;
+  }
+  offlineMediaSyncStats.lastPresentedDriftMs = presentedDrift;
+  offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, presentedDrift);
+  offlineVideoSyncState.lastTargetTime = targetTime;
 }
 
 function renderKaraoke(time) {
   const activeIndex = activeWordAt(time);
   if (activeIndex < 0) {
-    elements.karaoke.classList.remove("visible");
-    elements.karaoke.replaceChildren();
+    if (lastKaraokeRenderKey !== "") {
+      elements.karaoke.classList.remove("visible");
+      elements.karaoke.replaceChildren();
+      lastKaraokeRenderKey = "";
+    }
     if (lastKaraokeGroupKey) {
       lastKaraokeGroupKey = "";
       scheduleImportedPresenterLayout();
@@ -833,16 +952,26 @@ function renderKaraoke(time) {
   }
   const group = wordGroups.find((indexes) => indexes.includes(activeIndex));
   if (!group) return;
-  const fragment = document.createDocumentFragment();
-  group.forEach((wordIndex) => {
-    const span = document.createElement("span");
-    span.textContent = timedWords[wordIndex].word;
-    if (wordIndex === activeIndex) span.className = "active";
-    fragment.append(span);
-  });
-  elements.karaoke.replaceChildren(fragment);
-  elements.karaoke.classList.add("visible");
   const groupKey = group.join(",");
+  const renderKey = `${groupKey}:${activeIndex}`;
+  if (renderKey !== lastKaraokeRenderKey) {
+    if (groupKey === lastKaraokeGroupKey && elements.karaoke.children.length === group.length) {
+      Array.from(elements.karaoke.children).forEach((span, index) => {
+        span.classList.toggle("active", group[index] === activeIndex);
+      });
+    } else {
+      const fragment = document.createDocumentFragment();
+      group.forEach((wordIndex) => {
+        const span = document.createElement("span");
+        span.textContent = timedWords[wordIndex].word;
+        if (wordIndex === activeIndex) span.className = "active";
+        fragment.append(span);
+      });
+      elements.karaoke.replaceChildren(fragment);
+    }
+    lastKaraokeRenderKey = renderKey;
+  }
+  elements.karaoke.classList.add("visible");
   if (groupKey !== lastKaraokeGroupKey) {
     lastKaraokeGroupKey = groupKey;
     scheduleImportedPresenterLayout();
@@ -925,9 +1054,20 @@ async function renderOfflineFrame(time) {
       );
     }
   }
-  await layoutImportedPresenter(presenterLayoutGeneration);
+  const stageRect = elements.stage.getBoundingClientRect();
+  const layoutKey = [
+    mediaSource(elements.teacher),
+    currentComparisonKey,
+    lastKaraokeRenderKey,
+    Math.round(stageRect.width),
+    Math.round(stageRect.height),
+  ].join("|");
+  if (layoutKey !== lastOfflineLayoutKey) {
+    lastOfflineLayoutKey = layoutKey;
+    await layoutImportedPresenter(presenterLayoutGeneration);
+    fitHeadings();
+  }
   paintOfflinePresenterFrame();
-  fitHeadings();
 }
 
 function paintOfflinePresenterFrame() {
@@ -954,6 +1094,10 @@ function paintOfflinePresenterFrame() {
 }
 
 async function prepareOfflineRender() {
+  offlineVideoSyncState.source = "";
+  offlineVideoSyncState.poseIndex = null;
+  offlineVideoSyncState.lastTargetTime = null;
+  lastOfflineLayoutKey = "";
   await Promise.all([
     preloadOfflineImages(),
     document.fonts?.ready || Promise.resolve(),

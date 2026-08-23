@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import os
 
 
-RENDER_PROFILE_VERSION = "quality-v2"
+RENDER_PROFILE_VERSION = "quality-v3"
 
 
 @dataclass(frozen=True)
@@ -105,9 +105,9 @@ PROFILES: dict[str, RenderProfile] = {
     ),
     "standard": RenderProfile(
         name="standard",
-        description="Chất lượng tốt, tương thích social và cân bằng thời gian.",
-        capture_format="png",
-        capture_quality=None,
+        description="JPEG chất lượng cao 96%, tương thích social và cân bằng thời gian.",
+        capture_format="jpeg",
+        capture_quality=96,
         device_scale_factor=1.0,
         encoder_preset="medium",
         crf=17,
