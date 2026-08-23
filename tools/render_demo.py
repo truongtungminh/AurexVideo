@@ -25,6 +25,7 @@ if str(LOCAL_ROOT) not in sys.path:
 
 from aurexvideo_paths import CHARACTERS_ROOT, DATA_ROOT, RESOURCE_ROOT, ffmpeg_executable
 from media_probe import AUDIO_PEAK_LIMITER, media_duration
+from render_quality import RenderProfile, get_render_profile, quality_profile_names
 
 ROOT = RESOURCE_ROOT
 PROJECT_MOUNT_PREFIX = "/__aurexvideo_project__/"
@@ -172,8 +173,10 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
     voiceover = resolve_project_path(topic_path, topic["voiceover"], data_root)
     voice_duration = max(0.1, float(topic.get("duration") or 0) or media_duration(voiceover))
     command = [str(ffmpeg_executable()), "-y", "-i", str(voiceover)]
-    filters = []
-    mix_inputs = ["[0:a]"]
+    filters = [
+        "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[voice]"
+    ]
+    mix_inputs = ["[voice]"]
     input_index = 1
 
     for event in topic.get("poseTimeline", []):
@@ -190,7 +193,8 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
         delay_ms = max(0, round(float(event["time"]) * 1000))
         label = f"sfx{input_index}"
         filters.append(
-            f"[{input_index}:a]adelay={delay_ms}:all=1,volume={float(topic.get('sfxVolume', 0.3)):.3f}[{label}]"
+            f"[{input_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+            f"adelay={delay_ms}:all=1,volume={float(topic.get('sfxVolume', 0.3)):.3f}[{label}]"
         )
         mix_inputs.append(f"[{label}]")
         input_index += 1
@@ -208,6 +212,7 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
             command.extend(["-stream_loop", "-1", "-i", str(music_path)])
             filters.append(
                 f"[{input_index}:a]"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
                 f"atrim=0:{voice_duration:.3f},asetpts=PTS-STARTPTS,"
                 f"afade=t=in:st=0:d={fade:.3f},"
                 f"afade=t=out:st={fade_out_start:.3f}:d={fade:.3f},"
@@ -234,7 +239,9 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
             "-ar",
             "48000",
             "-ac",
-            "1",
+            "2",
+            "-channel_layout",
+            "stereo",
             "-c:a",
             "pcm_s16le",
             str(output),
@@ -252,10 +259,19 @@ async def render_frames(
     duration: float,
     fps: int = 24,
     data_root: Path | None = None,
-    capture_format: str = "jpeg",
-    capture_quality: int = 100,
+    capture_format: str | None = None,
+    capture_quality: int | None = None,
+    profile: RenderProfile | None = None,
 ) -> None:
     from playwright.async_api import async_playwright
+
+    quality = profile or get_render_profile()
+    capture_format = str(capture_format or quality.capture_format).lower()
+    if capture_format not in {"png", "jpeg"}:
+        raise ValueError("capture_format phải là png hoặc jpeg.")
+    if capture_format == "jpeg":
+        capture_quality = int(capture_quality if capture_quality is not None else quality.capture_quality or 95)
+        capture_quality = max(0, min(100, capture_quality))
 
     with local_server(topic_path.parent, data_root=data_root) as port:
         url = (
@@ -265,15 +281,21 @@ async def render_frames(
         output.parent.mkdir(parents=True, exist_ok=True)
         frame_total = max(1, math.ceil(duration * fps))
         pipe_codec = "png" if capture_format == "png" else "mjpeg"
+        scale_filter = (
+            f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=tv,"
+            f"format={quality.pixel_format}"
+        )
         command = [
             str(ffmpeg_executable()), "-y", "-loglevel", "error",
             "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
             "-i", str(audio),
+            "-map", "0:v:0", "-map", "1:a:0",
             "-frames:v", str(frame_total),
-            "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-color_range", "tv",
-            "-c:a", "aac", "-b:a", "192k",
+            "-vf", scale_filter,
+            *quality.encoder_video_options(),
+            "-r", str(fps), "-fps_mode", "cfr",
+            "-c:a", "aac", "-b:a", quality.audio_bitrate,
+            "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
             "-shortest", "-movflags", "+faststart", str(output),
         ]
         encoder = subprocess.Popen(
@@ -294,16 +316,20 @@ async def render_frames(
                     headless=True,
                     args=["--autoplay-policy=no-user-gesture-required", "--disable-dev-shm-usage"],
                 )
-                page = await browser.new_page(viewport={"width": width, "height": height})
+                page = await browser.new_page(
+                    viewport={"width": width, "height": height},
+                    device_scale_factor=quality.device_scale_factor,
+                )
                 await page.goto(url, wait_until="networkidle")
                 await page.wait_for_function("window.__AUREX_DEMO_READY__ === true", timeout=30_000)
                 await page.evaluate("window.prepareOfflineRender()")
                 if encoder.stdin is None:
                     raise RuntimeError("Không mở được luồng frame cho FFmpeg.")
                 last_good_frame = None
+                frame_errors = 0
+                reused_frames = 0
                 for frame_index in range(frame_total):
                     frame_time = frame_index / fps
-                    frame_ok = False
                     try:
                         stage_started = time.perf_counter()
                         await asyncio.wait_for(
@@ -323,17 +349,26 @@ async def render_frames(
                         capture_seconds += time.perf_counter() - stage_started
                         capture_bytes += len(frame)
                         last_good_frame = frame
-                        frame_ok = True
-                    except asyncio.TimeoutError:
-                        print(
-                            f"WARN frame {frame_time:.3f}s超时 (skip, reuse previous)",
-                            flush=True,
-                        )
+                    except asyncio.TimeoutError as exc:
+                        frame_errors += 1
+                        if not quality.allow_frame_reuse or last_good_frame is None:
+                            raise RuntimeError(
+                                f"Frame {frame_time:.3f}s bị timeout; profile {quality.name} không cho phép dùng lại frame."
+                            ) from exc
+                        reused_frames += 1
+                        print(f"WARN frame {frame_time:.3f}s timeout (reuse previous)", flush=True)
                     except Exception as exc:  # noqa: BLE001
-                        print(f"WARN frame {frame_time:.3f}s lỗi: {exc!r}", flush=True)
+                        frame_errors += 1
+                        if not quality.allow_frame_reuse or last_good_frame is None:
+                            raise RuntimeError(
+                                f"Frame {frame_time:.3f}s lỗi; profile {quality.name} không cho phép dùng lại frame: {exc!r}"
+                            ) from exc
+                        reused_frames += 1
+                        print(f"WARN frame {frame_time:.3f}s lỗi (reuse previous): {exc!r}", flush=True)
                     stage_started = time.perf_counter()
-                    if last_good_frame is not None:
-                        encoder.stdin.write(last_good_frame)
+                    if last_good_frame is None:
+                        raise RuntimeError(f"Không có frame hợp lệ tại {frame_time:.3f}s.")
+                    encoder.stdin.write(last_good_frame)
                     pipe_seconds += time.perf_counter() - stage_started
                     if frame_index % fps == 0 or frame_index + 1 == frame_total:
                         current = min(duration, frame_index / fps)
@@ -365,11 +400,13 @@ async def render_frames(
         total_seconds = time.perf_counter() - render_started
         print(
             "Render profile: "
-            f"frames={frame_total} format={capture_format} total={total_seconds:.3f}s "
+            f"profile={quality.name} frames={frame_total} format={capture_format} "
+            f"scale={quality.device_scale_factor:g}x total={total_seconds:.3f}s "
             f"evaluate={evaluate_seconds:.3f}s capture={capture_seconds:.3f}s "
             f"pipe_wait={pipe_seconds:.3f}s setup_and_encoder_drain="
             f"{max(0.0, total_seconds - evaluate_seconds - capture_seconds - pipe_seconds):.3f}s "
-            f"captured={capture_bytes / 1024 / 1024:.1f}MiB",
+            f"captured={capture_bytes / 1024 / 1024:.1f}MiB "
+            f"frame_errors={frame_errors} reused_frames={reused_frames}",
             flush=True,
         )
         if media_sync_stats:
@@ -385,17 +422,42 @@ async def render_frames(
         if returncode != 0:
             raise RuntimeError(f"FFmpeg không mã hóa được video frame-by-frame: {stderr.strip()}")
 
+        report = {
+            "schema_version": 1,
+            "quality_profile": quality.to_dict(),
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration_seconds": round(media_duration(output), 3),
+            "requested_frames": frame_total,
+            "frame_errors": frame_errors,
+            "reused_frames": reused_frames,
+            "capture_bytes": capture_bytes,
+            "timing_seconds": {
+                "total": round(total_seconds, 3),
+                "evaluate": round(evaluate_seconds, 3),
+                "capture": round(capture_seconds, 3),
+                "pipe_wait": round(pipe_seconds, 3),
+            },
+            "character_sync": media_sync_stats,
+            "output_size_bytes": output.stat().st_size if output.is_file() else 0,
+        }
+        report_path = output.with_name(f"{output.stem}.render-report.json")
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
 
 async def render(
     topic_path: Path,
     output: Path,
     width: int,
     height: int,
-    fps: int = 15,
+    fps: int = 30,
     benchmark_seconds: float | None = None,
-    capture_format: str = "jpeg",
-    capture_quality: int = 100,
+    profile_name: str | None = None,
+    capture_format: str | None = None,
+    capture_quality: int | None = None,
 ) -> None:
+    quality = get_render_profile(profile_name)
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="aurexvideo-") as temp:
         work_dir = Path(temp)
@@ -410,7 +472,7 @@ async def render(
         await render_frames(
             topic_path, mixed_audio, output, width, height, duration,
             fps=fps, data_root=data_root, capture_format=capture_format,
-            capture_quality=capture_quality,
+            capture_quality=capture_quality, profile=quality,
         )
 
 
@@ -431,13 +493,14 @@ def main() -> None:
     parser.add_argument("--height", type=int, default=1920)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--benchmark-seconds", type=float)
-    parser.add_argument("--capture-format", choices=["png", "jpeg"], default="jpeg")
-    parser.add_argument("--capture-quality", type=int, choices=range(0, 101), default=100)
+    parser.add_argument("--quality-profile", choices=quality_profile_names())
+    parser.add_argument("--capture-format", choices=["png", "jpeg"])
+    parser.add_argument("--capture-quality", type=int, choices=range(0, 101))
     args = parser.parse_args()
     asyncio.run(render(
         args.topic.resolve(), args.output.resolve(), args.width, args.height, args.fps,
         benchmark_seconds=args.benchmark_seconds, capture_format=args.capture_format,
-        capture_quality=args.capture_quality,
+        capture_quality=args.capture_quality, profile_name=args.quality_profile,
     ))
     print(args.output.resolve())
 

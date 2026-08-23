@@ -176,6 +176,7 @@
     const value = {
       branding: brandingControl?.checked === true,
       brandName: state.renderOptions.brandName || 'aurexvideo.app',
+      qualityProfile: $('#renderQuality')?.value || 'master',
     };
     localStorage.setItem(RENDER_PREFERENCES_KEY, JSON.stringify(value));
   }
@@ -188,6 +189,8 @@
       if (typeof value.branding === 'boolean' && brandingControl) brandingControl.checked = value.branding;
       else if (brandingControl) brandingControl.checked = false;
       if (typeof value.brandName === 'string' && value.brandName.trim()) state.renderOptions.brandName = value.brandName.trim();
+      const quality = String(value.qualityProfile || '').trim().toLowerCase();
+      if (['draft', 'standard', 'master'].includes(quality) && $('#renderQuality')) $('#renderQuality').value = quality;
     } catch (_) {
       const brandingControl = $('#renderBranding');
       if (brandingControl && !brandingControl.disabled) brandingControl.checked = false;
@@ -3736,6 +3739,7 @@
         speed: Number($('#renderSpeed').value || 1.0),
         volume: Number($('#renderVolume').value || 1),
         size: $('#renderSize')?.value || '1080x1920',
+        qualityProfile: $('#renderQuality')?.value || 'master',
         fps: 30,
         outro: false,
         branding: $('#renderBranding')?.checked === true,
@@ -4047,6 +4051,12 @@
   if (renderBranding && !renderBranding.disabled) renderBranding.addEventListener('change', () => {
     saveRenderPreferences();
     setStatus('Đã tự lưu tuỳ chọn Logo + brand.', 'good');
+  });
+
+  const renderQuality = $('#renderQuality');
+  if (renderQuality) renderQuality.addEventListener('change', () => {
+    saveRenderPreferences();
+    setStatus('Đã tự lưu preset chất lượng video.', 'good');
   });
 
   const brandLogoInput = $('#brandLogoFile');
@@ -5083,6 +5093,7 @@
     applyValue('#renderSpeed', preferences.speed);
     applyValue('#renderVolume', preferences.volume);
     applyValue('#renderSize', preferences.size);
+    applyValue('#renderQuality', preferences.qualityProfile);
     applyValue('#maziaoTtsMode', preferences.ttsMode);
     const branding = $('#renderBranding');
     if (branding && !branding.disabled && typeof preferences.branding === 'boolean') {
