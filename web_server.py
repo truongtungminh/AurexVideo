@@ -2146,6 +2146,7 @@ def cancel_job(job_id: str) -> dict | None:
             job["status"] = "cancelled"
             job["returncode"] = None
             job["finished_at"] = time.time()
+            job["queue_position"] = None
             try:
                 RENDER_QUEUE.remove(job_id)
             except ValueError:
