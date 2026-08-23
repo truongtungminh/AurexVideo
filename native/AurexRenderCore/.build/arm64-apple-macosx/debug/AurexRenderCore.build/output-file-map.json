@@ -8,5 +8,54 @@
     "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore~partial.swiftmodule",
     "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.swiftdeps",
     "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/AurexRenderCore.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/EncoderDiscovery.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/EncoderDiscovery.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Errors.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Errors.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Manifest.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Manifest.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/MetalCompositor.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/MetalCompositor.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/RenderEngine.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/RenderEngine.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Report.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Report.dia"
+  },
+  "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/Sources/AurexRenderCore/Timeline.swift": {
+    "dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.d",
+    "object": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.swift.o",
+    "swiftmodule": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline~partial.swiftmodule",
+    "swift-dependencies": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.swiftdeps",
+    "diagnostics": "/Users/truongminh/Library/Application Support/app.aurexvideo/engine/native/AurexRenderCore/.build/arm64-apple-macosx/debug/AurexRenderCore.build/Timeline.dia"
   }
 }
