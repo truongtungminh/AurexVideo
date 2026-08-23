@@ -821,6 +821,12 @@ final class AppState: ObservableObject {
     }
 
     func startServerAndShow() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startServerAndShow()
+            }
+            return
+        }
         let fm = FileManager.default
         stopServer()
         // Kill any stale process holding port 4173 (e.g. previous app install)
