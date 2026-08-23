@@ -25,7 +25,10 @@ from aurexvideo_paths import (
     resolve_vieneu_python,
 )
 from media_probe import AUDIO_PEAK_LIMITER, has_audio_stream, media_duration
-from render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
+try:
+    from render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
+except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
+    from tools.render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
 
 configure_native_runtime()
 
@@ -267,7 +270,9 @@ def finalize_video(
     video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-        f"setsar=1,fps={fps},format={profile.pixel_format},setpts=PTS-STARTPTS"
+        f"setsar=1,fps={fps},"
+        f"colorspace=all=bt709:iall=bt709:range=tv:irange=tv:"
+        f"format={profile.pixel_format}:fast=1,setpts=PTS-STARTPTS"
     )
     filters = [f"[0:v]{video_filter}[main]"]
     main_label = "main"

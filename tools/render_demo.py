@@ -25,7 +25,10 @@ if str(LOCAL_ROOT) not in sys.path:
 
 from aurexvideo_paths import CHARACTERS_ROOT, DATA_ROOT, RESOURCE_ROOT, ffmpeg_executable
 from media_probe import AUDIO_PEAK_LIMITER, media_duration
-from render_quality import RenderProfile, get_render_profile, quality_profile_names
+try:
+    from render_quality import RenderProfile, get_render_profile, quality_profile_names
+except ModuleNotFoundError:  # Imported as ``tools.render_demo`` by tests/tools.
+    from tools.render_quality import RenderProfile, get_render_profile, quality_profile_names
 
 ROOT = RESOURCE_ROOT
 PROJECT_MOUNT_PREFIX = "/__aurexvideo_project__/"
@@ -283,7 +286,8 @@ async def render_frames(
         pipe_codec = "png" if capture_format == "png" else "mjpeg"
         scale_filter = (
             f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=tv,"
-            f"format={quality.pixel_format}"
+            f"colorspace=all=bt709:iall=bt709:range=tv:irange=tv:"
+            f"format={quality.pixel_format}:fast=1"
         )
         command = [
             str(ffmpeg_executable()), "-y", "-loglevel", "error",
