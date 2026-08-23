@@ -64,7 +64,7 @@ def find_native_binary(resource_root: Path) -> Path | None:
     configured = str(os.environ.get("AUREX_RENDER_CORE_BIN") or "").strip()
     if configured:
         path = Path(configured).expanduser().resolve()
-        if not path.is_file():
+        if not path.is_file() or not os.access(path, os.X_OK):
             raise NativeRenderUnavailable(f"AUREX_RENDER_CORE_BIN không tồn tại: {path}")
         return path
 
