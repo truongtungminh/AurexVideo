@@ -84,7 +84,10 @@ def find_native_binary(resource_root: Path) -> Path | None:
             root / "native" / "bin" / "aurex-render",
             root / "bin" / "aurex-render",
         ])
-    return next((candidate for candidate in candidates if candidate.is_file()), None)
+    return next(
+        (candidate for candidate in candidates if candidate.is_file() and os.access(candidate, os.X_OK)),
+        None,
+    )
 
 
 def _manifest_value(topic_path: Path) -> object:
@@ -135,6 +138,14 @@ def _prepare_manifest(
     if not isinstance(canvas, dict):
         raise NativeRenderUnavailable("Native manifest thiếu canvas object")
 
+    source_frame_rate = canvas.get("frameRate")
+    try:
+        source_fps = float(source_frame_rate["numerator"]) / float(source_frame_rate["denominator"])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+        raise NativeRenderUnavailable("Native manifest thiếu frameRate hợp lệ") from exc
+    if not math.isfinite(source_fps) or source_fps <= 0:
+        raise NativeRenderUnavailable("Native manifest có frameRate không hợp lệ")
+
     old_frame_count = canvas.get("frameCount")
     frame_count = max(1, math.ceil(max(0.001, float(duration)) * max(1, int(fps))))
     canvas["width"] = int(width)
@@ -149,11 +160,27 @@ def _prepare_manifest(
         old_count = int(old_frame_count)
     except (TypeError, ValueError):
         old_count = 0
+    frame_scale = float(fps) / source_fps
     layers = document.get("layers")
-    if isinstance(layers, list) and old_count > 0:
+    if isinstance(layers, list):
         for layer in layers:
-            if isinstance(layer, dict) and layer.get("endFrame") == old_count:
+            if not isinstance(layer, dict):
+                continue
+            try:
+                start_frame = int(layer.get("startFrame", 0))
+                layer["startFrame"] = int(round(start_frame * frame_scale))
+            except (TypeError, ValueError):
+                pass
+            if layer.get("endFrame") is None:
+                continue
+            try:
+                end_frame = int(layer["endFrame"])
+            except (TypeError, ValueError):
+                continue
+            if old_count > 0 and end_frame == old_count:
                 layer["endFrame"] = frame_count
+            else:
+                layer["endFrame"] = int(round(end_frame * frame_scale))
 
     destination.write_text(
         json.dumps(document, ensure_ascii=False, indent=2) + "\n",

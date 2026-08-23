@@ -20,6 +20,14 @@ swift build --package-path native/AurexRenderCore
 swift test --package-path native/AurexRenderCore
 ```
 
+Để staging binary release vào engine package trước khi đóng gói app:
+
+```bash
+python3 tools/build_native_render_core.py --configuration release
+```
+
+Binary sẽ được đặt tại `native/bin/aurex-render`; thư mục này được giữ ngoài Git vì binary phụ thuộc kiến trúc macOS. Gói phân phối cần chạy bước staging này; nếu không, `Auto` sẽ fallback Browser và `Native` sẽ báo thiếu core.
+
 Kiểm tra khả năng máy:
 
 ```bash
