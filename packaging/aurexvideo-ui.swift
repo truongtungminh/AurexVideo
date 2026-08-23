@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published private(set) var vieneuProcessPID: pid_t?
 
     private var vieneuLogHandle: FileHandle?
+    private var vieneuPreferenceTimer: DispatchSourceTimer?
 
     enum Stage { case language, downloading, ready, failed }
 
@@ -49,8 +50,129 @@ final class AppState: ObservableObject {
     }
 
     deinit {
+        vieneuPreferenceTimer?.cancel()
+        vieneuPreferenceTimer = nil
         stopServer()
         if AppState.shared === self { AppState.shared = nil }
+    }
+
+    private var vieneuRuntimeConfigURL: URL {
+        engineBase.appendingPathComponent("studio/config/vieneu-runtime.json")
+    }
+
+    private var vieneuPIDFileURL: URL {
+        engineBase.appendingPathComponent("vieneu.pid")
+    }
+
+    private func vieneuRuntimeEnabled() -> Bool {
+        guard let data = try? Data(contentsOf: vieneuRuntimeConfigURL),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let enabled = payload["enabled"] as? Bool else {
+            return true
+        }
+        return enabled
+    }
+
+    private func storedVieneuPID() -> pid_t? {
+        guard let value = try? String(contentsOf: vieneuPIDFileURL, encoding: .utf8),
+              let rawPID = Int32(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              rawPID > 0 else {
+            return nil
+        }
+        return pid_t(rawPID)
+    }
+
+    private func storeVieneuPID(_ pid: pid_t?) {
+        if let pid {
+            try? String(pid).write(to: vieneuPIDFileURL, atomically: true, encoding: .utf8)
+        } else {
+            try? FileManager.default.removeItem(at: vieneuPIDFileURL)
+        }
+    }
+
+    private func processCommand(for pid: pid_t) -> String {
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/bin/ps")
+        checker.arguments = ["-p", String(pid), "-o", "command="]
+        let pipe = Pipe()
+        checker.standardOutput = pipe
+        checker.standardError = Pipe()
+        do {
+            try checker.run()
+            checker.waitUntilExit()
+        } catch {
+            return ""
+        }
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func processWorkingDirectory(for pid: pid_t) -> String {
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        checker.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
+        let pipe = Pipe()
+        checker.standardOutput = pipe
+        checker.standardError = Pipe()
+        do {
+            try checker.run()
+            checker.waitUntilExit()
+        } catch {
+            return ""
+        }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return output.split(separator: "\n")
+            .first(where: { $0.hasPrefix("n") })
+            .map { String($0.dropFirst()) } ?? ""
+    }
+
+    private func isOwnedVieneuPID(_ pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
+        let command = processCommand(for: pid)
+        guard command.contains("gradio_main.py"),
+              let runtime = vieneuRuntime() else {
+            return false
+        }
+        let cwd = processWorkingDirectory(for: pid)
+        return cwd == runtime.root.path || cwd.hasPrefix(runtime.root.path + "/")
+    }
+
+    private func listeningVieneuPID() -> pid_t? {
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        checker.arguments = ["-nP", "-iTCP:7860", "-sTCP:LISTEN", "-t"]
+        let pipe = Pipe()
+        checker.standardOutput = pipe
+        checker.standardError = Pipe()
+        do {
+            try checker.run()
+            checker.waitUntilExit()
+        } catch {
+            return nil
+        }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let rawPID = output.split(whereSeparator: \ .isWhitespace).compactMap({ Int32($0) }).first else {
+            return nil
+        }
+        return pid_t(rawPID)
+    }
+
+    private func recoverOwnedVieneuProcess() -> pid_t? {
+        let candidates = [storedVieneuPID(), listeningVieneuPID()].compactMap { $0 }
+        guard let pid = candidates.first(where: { isOwnedVieneuPID($0) }) else {
+            return nil
+        }
+        storeVieneuPID(pid)
+        return pid
+    }
+
+    private func terminateOwnedVieneuPID(_ pid: pid_t) {
+        guard isOwnedVieneuPID(pid) else { return }
+        let terminator = Process()
+        terminator.executableURL = URL(fileURLWithPath: "/bin/sh")
+        terminator.arguments = ["-c", "kill -TERM \(pid) 2>/dev/null; sleep 0.2; kill -KILL \(pid) 2>/dev/null || true"]
+        try? terminator.run()
+        terminator.waitUntilExit()
     }
 
     private func vieneuRuntime() -> (root: URL, python: URL)? {
