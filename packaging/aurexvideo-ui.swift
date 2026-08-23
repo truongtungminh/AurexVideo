@@ -89,24 +89,82 @@ final class AppState: ObservableObject {
         return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func isVieNeuServiceReady() -> Bool {
-        let checker = Process()
-        checker.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        checker.arguments = ["-fsS", "--max-time", "2", "http://127.0.0.1:7860/"]
-        let pipe = Pipe()
-        checker.standardOutput = pipe
-        checker.standardError = Pipe()
-        do {
-            try checker.run()
-            checker.waitUntilExit()
-        } catch {
-            return false
+    private func requestPage(
+        at url: URL,
+        containing text: String,
+        timeout: TimeInterval = 2,
+        completion: @escaping (Bool) -> Void
+    ) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+
+        let lock = NSLock()
+        var completed = false
+        func finish(_ ready: Bool) {
+            lock.lock()
+            guard !completed else {
+                lock.unlock()
+                return
+            }
+            completed = true
+            lock.unlock()
+            completion(ready)
         }
-        guard checker.terminationStatus == 0,
-              let page = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) else {
-            return false
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            let isSuccessful = (response as? HTTPURLResponse)?.statusCode == 200
+            let page = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            finish(isSuccessful && page.localizedCaseInsensitiveContains(text))
         }
-        return page.localizedCaseInsensitiveContains("VieNeu")
+        // URLSession's timeout is normally sufficient, but cancel explicitly so
+        // a peer that keeps a connection open can never retain bootstrap work.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
+            task.cancel()
+            finish(false)
+        }
+        task.resume()
+    }
+
+    private func pollVieNeuReadiness(until deadline: Date) {
+        guard let url = URL(string: "http://127.0.0.1:7860/") else { return }
+        requestPage(at: url, containing: "VieNeu") { [weak self] ready in
+            guard let self else { return }
+            if ready {
+                self.logVieNeu("[ready] VieNeu-TTS UI sẵn sàng tại http://127.0.0.1:7860")
+            } else if Date() < deadline {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.pollVieNeuReadiness(until: deadline)
+                }
+            } else {
+                self.logVieNeu("[ready] VieNeu chưa phản hồi sau 30 giây; AurexVideo vẫn dùng engine trực tiếp khi render")
+            }
+        }
+    }
+
+    private func beginVieNeuReadinessProbe() {
+        pollVieNeuReadiness(until: Date().addingTimeInterval(30))
+    }
+
+    private func pollDashboardReadiness(until deadline: Date, logURL: URL) {
+        guard let url = URL(string: "http://127.0.0.1:4173/") else { return }
+        requestPage(at: url, containing: "<") { [weak self] ready in
+            guard let self else { return }
+            if ready {
+                try? "[startServer] server up, switching to ready".write(to: logURL, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async { self.stage = .ready }
+            } else if Date() < deadline {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.pollDashboardReadiness(until: deadline, logURL: logURL)
+                }
+            } else {
+                let message = "Server không khởi động được (port 4173 bị chiếm hoặc python lỗi). Hãy đóng app cũ và mở lại."
+                try? "[startServer] poll timeout: \(message)".write(to: logURL, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async {
+                    self.errorText = message
+                    self.stage = .failed
+                }
+            }
+        }
     }
 
     private func logVieNeu(_ message: String) {
@@ -129,11 +187,8 @@ final class AppState: ObservableObject {
             return
         }
         if isPortListening(7860) {
-            if isVieNeuServiceReady() {
-                logVieNeu("[start] đã có VieNeu đang chạy ở http://127.0.0.1:7860")
-            } else {
-                logVieNeu("[start] port 7860 đang được dùng bởi dịch vụ khác; AurexVideo vẫn render trực tiếp bằng VieNeu")
-            }
+            logVieNeu("[start] port 7860 đang được dùng; kiểm tra VieNeu UI ở nền, AurexVideo vẫn khởi động Dashboard")
+            beginVieNeuReadinessProbe()
             return
         }
 
@@ -186,16 +241,7 @@ final class AppState: ObservableObject {
             }
         }
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            for _ in 0..<60 {
-                if self?.isVieNeuServiceReady() == true {
-                    self?.logVieNeu("[ready] VieNeu-TTS UI sẵn sàng tại http://127.0.0.1:7860")
-                    return
-                }
-                usleep(500_000)
-            }
-            self?.logVieNeu("[ready] VieNeu chưa báo listen sau 30 giây; AurexVideo vẫn dùng engine trực tiếp khi render")
-        }
+        beginVieNeuReadinessProbe()
     }
 
     private func stopVieNeu() {
@@ -617,11 +663,6 @@ final class AppState: ObservableObject {
         }
         let vieneu = vieneuRuntime()
         startVieNeu()
-        if let s = try? String(contentsOf: URL(string: "http://127.0.0.1:4173/")!), s.contains("<") {
-            DispatchQueue.main.async { self.stage = .ready }
-            return
-        }
-        _ = ensurePort4173Free()
         let proc = Process()
         proc.executableURL = pythonExec
         proc.arguments = [server.path, "--host", "0.0.0.0", "--port", "4173", "--source-root", studioDir.appendingPathComponent("project").path]
@@ -661,21 +702,7 @@ final class AppState: ObservableObject {
                 }
             }
         }
-        var tries = 0
-        while tries < 80 {
-            usleep(500_000)
-            if let url = URL(string: "http://127.0.0.1:4173/"),
-               let code = try? String(contentsOf: url),
-               code.contains("<") {
-                try? ("[startServer] server up, switching to ready".write(to: logURL, atomically: true, encoding: .utf8))
-                DispatchQueue.main.async { self.stage = .ready }
-                return
-            }
-            tries += 1
-        }
-        let m = "Server không khởi động được (port 4173 bị chiếm hoặc python lỗi). Hãy đóng app cũ và mở lại."
-        try? ("[startServer] poll timeout: \(m)".write(to: logURL, atomically: true, encoding: .utf8))
-        DispatchQueue.main.async { self.errorText = m; self.stage = .failed }
+        pollDashboardReadiness(until: Date().addingTimeInterval(40), logURL: logURL)
     }
 }
 
