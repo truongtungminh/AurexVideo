@@ -29,6 +29,10 @@ try:
     from render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
 except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
     from tools.render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
+try:
+    from native_render import NativeRenderUnavailable, audio_mux_command, build_native_render_plan
+except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
+    from tools.native_render import NativeRenderUnavailable, audio_mux_command, build_native_render_plan
 
 configure_native_runtime()
 
@@ -566,12 +570,19 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
         ROOT / "tools" / "render_demo.py",
         ROOT / "tools" / "render_project.py",
         ROOT / "tools" / "render_quality.py",
+        ROOT / "tools" / "native_render.py",
         ROOT / "tools" / "generate_voiceover.py",
         ROOT / "tts" / "vieneu_adapter.py",
         ROOT / "tts" / "maziao.py",
         ROOT / "tts" / "common.py",
     ]
     quality = get_render_profile(getattr(args, "quality_profile", None))
+    native_manifest_value = topic_value.get("nativeRenderManifest") or "native-render.json"
+    try:
+        native_manifest_path = (topic_path.parent / str(native_manifest_value)).resolve()
+        native_manifest_path.relative_to(topic_path.parent.resolve())
+    except (OSError, TypeError, ValueError):
+        native_manifest_path = topic_path.parent / "native-render.json"
     payload = b"\0".join(
         [
             b"render-cache-v4",
@@ -598,9 +609,20 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
             str(bool(args.no_branding)).encode("utf-8"),
             file_signature(args.brand_logo).encode("utf-8"),
             args.brand_name.encode("utf-8"),
+            str(getattr(args, "render_backend", "browser")).encode("utf-8"),
+            file_signature(native_manifest_path),
         ]
     )
     return hashlib.sha256(payload).hexdigest()
+
+
+def resolve_render_backend(value: str | None) -> str:
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
+    aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
+    requested = aliases.get(requested, requested)
+    if requested not in {"browser", "auto", "native"}:
+        raise ValueError("Render backend phải là browser, auto hoặc native.")
+    return requested
 
 
 def main() -> None:
@@ -617,6 +639,12 @@ def main() -> None:
     parser.add_argument("--size", choices=["720x1280", "1080x1920"], default="1080x1920")
     parser.add_argument("--fps", type=int)
     parser.add_argument("--quality-profile", choices=quality_profile_names())
+    parser.add_argument(
+        "--render-backend",
+        choices=["browser", "auto", "native"],
+        default=None,
+        help="Backend render: browser giữ parity, auto thử native rồi fallback, native yêu cầu Aurex Render Core.",
+    )
     parser.add_argument("--voice", default="vi-VN-NamMinhNeural")
     parser.add_argument("--model-id", default="")
     parser.add_argument("--tts-mode", choices=["auto", "paragraph", "multiSpeakers"], default="auto")
@@ -641,6 +669,7 @@ def main() -> None:
     if args.fps is not None and args.fps < 1:
         raise ValueError("FPS phải lớn hơn 0.")
     args.fps = int(args.fps or os.environ.get("AUREXVIDEO_RENDER_FPS", "30") or "30")
+    args.render_backend = resolve_render_backend(args.render_backend)
     quality = get_render_profile(args.quality_profile)
 
     signature = render_signature(topic_path, args)
@@ -692,6 +721,10 @@ def main() -> None:
     render_output = output.with_name(f".{output.stem}-render-{token}.mp4")
     render_report_path = render_output.with_name(f"{render_output.stem}.render-report.json")
 
+    native_plan = None
+    native_video = render_output.with_name(f".{output.stem}-native-video-{token}.mp4")
+    native_report = native_video.with_name(f"{native_video.stem}.render-report.json")
+    used_render_backend = "browser"
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
         run([
@@ -699,14 +732,58 @@ def main() -> None:
             str(prepared_topic), str(render_audio), "--output", str(aligned_topic),
             "--model", args.whisper_model,
         ])
-        print("Rendering one-scene video frame-by-frame...", flush=True)
         render_fps = max(1, int(args.fps))
-        run([
-            str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
-            str(aligned_topic), "--output", str(render_output),
-            "--width", str(width), "--height", str(height), "--fps", str(render_fps),
-            "--quality-profile", quality.name,
-        ] + (["--mezzanine"] if needs_finalization else []))
+        if args.render_backend in {"auto", "native"}:
+            try:
+                native_plan = build_native_render_plan(
+                    topic_path=aligned_topic,
+                    resource_root=ROOT,
+                    output=native_video,
+                    report=native_report,
+                    width=width,
+                    height=height,
+                    fps=render_fps,
+                    duration=duration,
+                    token=token,
+                )
+            except NativeRenderUnavailable as exc:
+                if args.render_backend == "native":
+                    raise
+                print(f"Aurex Render Core fallback: {exc}", flush=True)
+            else:
+                print("Rendering with Aurex Render Core (Metal + VideoToolbox)...", flush=True)
+                run(native_plan.command)
+                run(audio_mux_command(
+                    ffmpeg=ffmpeg_executable(),
+                    video=native_video,
+                    audio=render_audio,
+                    output=render_output,
+                    audio_bitrate=quality.audio_bitrate,
+                ))
+                native_video.unlink(missing_ok=True)
+                native_report_data = {}
+                try:
+                    native_report_data = json.loads(native_report.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    pass
+                native_report_data.update({
+                    "render_backend": "aurex-render-core",
+                    "audio_multiplexed": True,
+                })
+                render_report_path.write_text(
+                    json.dumps(native_report_data, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                used_render_backend = "aurex-render-core"
+
+        if used_render_backend == "browser":
+            print("Rendering one-scene video frame-by-frame...", flush=True)
+            run([
+                str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
+                str(aligned_topic), "--output", str(render_output),
+                "--width", str(width), "--height", str(height), "--fps", str(render_fps),
+                "--quality-profile", quality.name,
+            ] + (["--mezzanine"] if needs_finalization else []))
         finalize_video(
             render_output,
             args.outro_video if args.outro and args.outro_video else None,
@@ -719,6 +796,10 @@ def main() -> None:
             token,
         )
     finally:
+        if native_plan:
+            native_plan.cleanup()
+        native_video.unlink(missing_ok=True)
+        native_report.unlink(missing_ok=True)
         prepared_topic.unlink(missing_ok=True)
 
     try:
@@ -732,6 +813,7 @@ def main() -> None:
         except (OSError, json.JSONDecodeError):
             report = {}
         report.update({
+            "render_backend": used_render_backend,
             "quality_profile": quality.to_dict(),
             "finalization": {
                 "branding": bool(not args.no_branding and (args.brand_logo or args.brand_name)),
