@@ -769,6 +769,7 @@ def main() -> None:
                 native_report_data.update({
                     "render_backend": "aurex-render-core",
                     "audio_multiplexed": True,
+                    "audio": "AAC (muxed by AurexVideo pipeline)",
                 })
                 render_report_path.write_text(
                     json.dumps(native_report_data, ensure_ascii=False, indent=2) + "\n",
@@ -826,6 +827,8 @@ def main() -> None:
         })
         # Do not replace a previously good delivery until postflight has passed.
         render_output.replace(output)
+        report["outputPath"] = str(output)
+        report["outputSizeBytes"] = output.stat().st_size
         postflight["path"] = str(output)
         report["duration_seconds"] = round(media_duration(output), 3)
         report["output_size_bytes"] = output.stat().st_size
