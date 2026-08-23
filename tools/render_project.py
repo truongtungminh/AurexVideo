@@ -25,6 +25,7 @@ from aurexvideo_paths import (
     resolve_vieneu_python,
 )
 from media_probe import AUDIO_PEAK_LIMITER, has_audio_stream, media_duration
+from render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
 
 configure_native_runtime()
 
@@ -172,6 +173,142 @@ def append_outro(video: Path, outro: Path, width: int, height: int, token: str) 
         combined.replace(video)
     finally:
         combined.unlink(missing_ok=True)
+
+
+def build_branding_watermark(
+    logo: Path | None,
+    name: str,
+    width: int,
+    height: int,
+    destination: Path,
+) -> Path | None:
+    """Create a transparent, high-resolution watermark layer for FFmpeg."""
+    if not logo and not name:
+        return None
+    from PIL import Image, ImageChops, ImageDraw
+
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    margin_x = max(24, round(width * 0.033))
+    margin_y = max(28, round(height * 0.018))
+    gap = max(6, round(width * 0.007))
+    logo_size = max(24, round(width * 0.035))
+    font = branding_font(max(20, round(width * 0.022)))
+    logo_image = None
+    if logo:
+        logo_image = Image.open(logo).convert("RGBA")
+        logo_image.thumbnail((logo_size, logo_size), Image.Resampling.LANCZOS)
+        mask = Image.new("L", logo_image.size, 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, logo_image.width - 1, logo_image.height - 1), fill=184)
+        logo_image.putalpha(ImageChops.multiply(logo_image.getchannel("A"), mask))
+
+    text_box = draw.textbbox((0, 0), name, font=font) if name else (0, 0, 0, 0)
+    text_width = text_box[2] - text_box[0]
+    text_height = text_box[3] - text_box[1]
+    group_width = (logo_image.width + gap if logo_image else 0) + text_width
+    group_height = max(logo_image.height if logo_image else 0, text_height)
+
+    def draw_group(x: int, y: int) -> None:
+        cursor = x
+        if logo_image:
+            canvas.alpha_composite(logo_image, (cursor, y + (group_height - logo_image.height) // 2))
+            cursor += logo_image.width + gap
+        if name:
+            draw.text(
+                (cursor, y + (group_height - text_height) // 2 - text_box[1]),
+                name,
+                font=font,
+                fill=(0, 0, 0, 180),
+            )
+
+    draw_group(margin_x, margin_y)
+    draw_group(width - margin_x - group_width, height - margin_y - group_height)
+    canvas.save(destination, format="PNG", optimize=True)
+    return destination
+
+
+def finalize_video(
+    video: Path,
+    outro: Path | None,
+    logo: Path | None,
+    name: str,
+    width: int,
+    height: int,
+    fps: int,
+    profile: RenderProfile,
+    token: str,
+) -> None:
+    """Apply optional branding/outro with one consistent final encode.
+
+    The old path encoded branding and outro independently, which could apply
+    two extra generations of H.264 loss and forced the outro to 24 FPS.  This
+    path normalizes and concatenates both optional layers in one pass.
+    """
+    watermark_path: Path | None = None
+    if logo or name:
+        watermark_path = video.with_name(f"watermark-{token}.png")
+        build_branding_watermark(logo, name, width, height, watermark_path)
+
+    if not watermark_path and not outro:
+        return
+
+    print("Finalizing video: giữ màu, FPS và encode profile nhất quán...", flush=True)
+    finalized = video.with_name(f"finalized-{token}.mp4")
+    command = [str(ffmpeg_executable()), "-y", "-loglevel", "error", "-i", str(video)]
+    outro_index: int | None = None
+    watermark_index: int | None = None
+    if outro:
+        outro_index = 1
+        command.extend(["-i", str(outro)])
+    if watermark_path:
+        watermark_index = 2 if outro else 1
+        command.extend(["-loop", "1", "-i", str(watermark_path)])
+
+    video_filter = (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"setsar=1,fps={fps},format={profile.pixel_format},setpts=PTS-STARTPTS"
+    )
+    filters = [f"[0:v]{video_filter}[main]"]
+    main_label = "main"
+    if watermark_index is not None:
+        filters.append(f"[main][{watermark_index}:v]overlay=0:0:shortest=1[branded]")
+        main_label = "branded"
+
+    if outro_index is not None:
+        outro_duration = media_duration(outro)
+        filters.append(f"[{outro_index}:v]{video_filter}[outro]")
+        filters.extend([
+            "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+            "asetpts=PTS-STARTPTS[a0]",
+            f"anullsrc=channel_layout=stereo:sample_rate=48000,"
+            f"atrim=duration={outro_duration:.6f},asetpts=PTS-STARTPTS[a1]",
+            f"[{main_label}][a0][outro][a1]concat=n=2:v=1:a=1[vout][aout]",
+        ])
+        map_video = "[vout]"
+        map_audio = "[aout]"
+        audio_options = [
+            "-c:a", "aac", "-b:a", profile.audio_bitrate,
+            "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
+        ]
+    else:
+        map_video = f"[{main_label}]"
+        map_audio = "0:a?"
+        audio_options = ["-c:a", "copy"]
+
+    command.extend([
+        "-filter_complex", ";".join(filters),
+        "-map", map_video, "-map", map_audio,
+        *profile.encoder_video_options(), "-r", str(fps), "-fps_mode", "cfr",
+        *audio_options, "-map_metadata", "0", "-movflags", "+faststart", str(finalized),
+    ])
+    try:
+        run(command)
+        finalized.replace(video)
+    finally:
+        finalized.unlink(missing_ok=True)
+        if watermark_path:
+            watermark_path.unlink(missing_ok=True)
 
 
 def resolve_project_asset(project: Path, value: object) -> Path:
@@ -382,10 +519,14 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
         ROOT / "style.css",
         ROOT / "index.html",
         ROOT / "tools" / "render_demo.py",
+        ROOT / "tools" / "render_project.py",
+        ROOT / "tools" / "render_quality.py",
     ]
+    quality = get_render_profile(getattr(args, "quality_profile", None))
     payload = b"\0".join(
         [
-            b"render-cache-v2",
+            b"render-cache-v3",
+            RENDER_PROFILE_VERSION.encode("utf-8"),
             topic,
             *(file_digest(path).encode("ascii") for path in renderer_files),
             args.engine.encode("utf-8"),
@@ -394,6 +535,8 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
             f"{float(args.volume):.6f}".encode("utf-8"),
             str(int(args.fps)).encode("utf-8"),
             args.size.encode("utf-8"),
+            quality.name.encode("utf-8"),
+            json.dumps(quality.to_dict(), sort_keys=True).encode("utf-8"),
             args.voice.encode("utf-8"),
             args.model_id.encode("utf-8"),
             str(getattr(args, "tts_mode", "auto") or "auto").encode("utf-8"),
@@ -423,6 +566,7 @@ def main() -> None:
     parser.add_argument("--volume", type=float, default=1.0)
     parser.add_argument("--size", choices=["720x1280", "1080x1920"], default="1080x1920")
     parser.add_argument("--fps", type=int)
+    parser.add_argument("--quality-profile", choices=quality_profile_names())
     parser.add_argument("--voice", default="vi-VN-NamMinhNeural")
     parser.add_argument("--model-id", default="")
     parser.add_argument("--tts-mode", choices=["auto", "paragraph", "multiSpeakers"], default="auto")
@@ -447,6 +591,7 @@ def main() -> None:
     if args.fps is not None and args.fps < 1:
         raise ValueError("FPS phải lớn hơn 0.")
     args.fps = int(args.fps or os.environ.get("AUREXVIDEO_RENDER_FPS", "30") or "30")
+    quality = get_render_profile(args.quality_profile)
 
     signature = render_signature(topic_path, args)
     output = project / "output" / "final_video.mp4"
@@ -490,16 +635,40 @@ def main() -> None:
             str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
             str(aligned_topic), "--output", str(output),
             "--width", str(width), "--height", str(height), "--fps", str(render_fps),
+            "--quality-profile", quality.name,
         ])
-        if not args.no_branding:
-            apply_branding(output, args.brand_logo, args.brand_name, width, height, token)
-        if args.outro and args.outro_video:
-            append_outro(output, args.outro_video, width, height, token)
+        finalize_video(
+            output,
+            args.outro_video if args.outro and args.outro_video else None,
+            None if args.no_branding else args.brand_logo,
+            "" if args.no_branding else args.brand_name,
+            width,
+            height,
+            render_fps,
+            quality,
+            token,
+        )
     finally:
         prepared_topic.unlink(missing_ok=True)
 
     if not output.is_file() or output.stat().st_size == 0:
         raise RuntimeError("Render xong nhưng không có final_video.mp4.")
+    report_path = output.with_name(f"{output.stem}.render-report.json")
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        report = {}
+    report.update({
+        "quality_profile": quality.to_dict(),
+        "finalization": {
+            "branding": bool(not args.no_branding and (args.brand_logo or args.brand_name)),
+            "outro": bool(args.outro and args.outro_video),
+        },
+        "duration_seconds": round(media_duration(output), 3),
+        "output_size_bytes": output.stat().st_size,
+        "has_audio_stream": has_audio_stream(output),
+    })
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     signature_file.write_text(json.dumps({"signature": signature}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Done: {output}", flush=True)
 

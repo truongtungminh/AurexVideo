@@ -77,6 +77,7 @@ from tts.elevenlabs import (
 )
 from tts.maziao import _submit_and_poll_single, _resolve_api_config, _resolve_voice, DEFAULT_API_KEY, DEFAULT_API_BASE, normalize_tts_mode
 from autoproject_store import AutoProjectStore
+from tools.render_quality import get_render_profile
 
 
 if sys.platform.startswith("win"):
@@ -894,6 +895,11 @@ def coerce_render_size(value: object) -> str:
     if raw in {"1080", "1080x1920"}:
         return "1080x1920"
     raise ValueError("Render size must be 1080x1920 or 720x1280.")
+
+
+def coerce_quality_profile(value: object) -> str:
+    """Validate the render quality preset at the API boundary."""
+    return get_render_profile(str(value or "master")).name
 
 
 def clean_filename(name: str, fallback: str = "voiceover.mp3") -> str:
@@ -1766,11 +1772,13 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     project_dir = require_project(project)
     speed = coerce_speed(payload.get("speed", 1.0))
     volume = coerce_volume(payload.get("volume", 1.0))
-    render_size = coerce_render_size(payload.get("size", "720x1280"))
+    render_size = coerce_render_size(payload.get("size", "1080x1920"))
+    quality_profile = coerce_quality_profile(payload.get("qualityProfile") or payload.get("quality_profile"))
     engine = str(payload.get("engine") or "").strip().lower()
     cmd = [
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
+        "--quality-profile", quality_profile,
     ]
     rebuild_audio_cache = bool(
         payload.get("force", False)
@@ -1899,6 +1907,11 @@ def create_job(payload: dict) -> dict:
     try:
         license_event_id, authoritative_entitlement = reserve_trial_export(project)
         cmd, engine = build_render_command(payload, authoritative_entitlement)
+        try:
+            m3.write_render_preferences(payload)
+        except Exception:
+            # Preferences are convenience state; never block a valid render job.
+            pass
     except Exception:
         with JOBS_LOCK:
             JOBS.pop(job_id, None)
@@ -3681,6 +3694,17 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             <select id="renderSize">
               <option value="720x1280">720 x 1280 (nhẹ hơn)</option>
               <option value="1080x1920" selected>1080 x 1920 (mặc định, nét hơn)</option>
+            </select>
+          </label>
+          <label class="field render-quality-field">
+            <span class="field-label">
+              {ui_icon("sparkles", "field-icon advanced-field-icon")}
+              <span>Chất lượng video</span>
+            </span>
+            <select id="renderQuality">
+              <option value="draft">Draft · render nhanh</option>
+              <option value="standard">Standard · nét và cân bằng</option>
+              <option value="master" selected>Master · chất lượng cao nhất</option>
             </select>
           </label>
         </div>
@@ -6547,7 +6571,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260823-status-time"></script>
+  <script src="/web/render_page.js?v=20260823-quality-v1"></script>
 """,
     )
 
@@ -8618,7 +8642,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260823-status-time"></script>
+  <script src="/web/render_page.js?v=20260823-quality-v1"></script>
 """,
     )
 

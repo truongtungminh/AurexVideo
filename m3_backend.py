@@ -965,7 +965,7 @@ LEGACY_LABEL_FONT_MAP = {
 
 
 RENDER_PREFERENCE_KEYS = (
-    "engine", "speed", "volume", "size", "voice", "ttsMode", "branding", "force", "rebuildAudioCache",
+    "engine", "speed", "volume", "size", "qualityProfile", "voice", "ttsMode", "branding", "force", "rebuildAudioCache",
 )
 
 
