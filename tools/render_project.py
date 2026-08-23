@@ -24,7 +24,7 @@ from aurexvideo_paths import (
     ffmpeg_executable,
     resolve_vieneu_python,
 )
-from media_probe import AUDIO_PEAK_LIMITER, has_audio_stream, media_duration
+from media_probe import AUDIO_PEAK_LIMITER, has_audio_stream, media_duration, validate_rendered_video
 try:
     from render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
 except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
@@ -267,14 +267,21 @@ def finalize_video(
         watermark_index = 2 if outro else 1
         command.extend(["-loop", "1", "-i", str(watermark_path)])
 
-    video_filter = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+    main_video_filter = (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos:in_range=pc:out_range=pc,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
         f"setsar=1,fps={fps},"
-        f"colorspace=all=bt709:iall=bt709:range=tv:irange=tv:"
+        f"colorspace=iall=bt709:all=bt709:range=tv:irange=pc:"
         f"format={profile.pixel_format}:fast=1,setpts=PTS-STARTPTS"
     )
-    filters = [f"[0:v]{video_filter}[main]"]
+    outro_video_filter = (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos:in_range=tv:out_range=tv,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"setsar=1,fps={fps},"
+        f"colorspace=iall=bt709:all=bt709:range=tv:irange=tv:"
+        f"format={profile.pixel_format}:fast=1,setpts=PTS-STARTPTS"
+    )
+    filters = [f"[0:v]{main_video_filter}[main]"]
     main_label = "main"
     if watermark_index is not None:
         filters.append(f"[main][{watermark_index}:v]overlay=0:0:shortest=1[branded]")
@@ -282,7 +289,7 @@ def finalize_video(
 
     if outro_index is not None:
         outro_duration = media_duration(outro)
-        filters.append(f"[{outro_index}:v]{video_filter}[outro]")
+        filters.append(f"[{outro_index}:v]{outro_video_filter}[outro]")
         filters.extend([
             "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
             "asetpts=PTS-STARTPTS[a0]",
@@ -299,13 +306,20 @@ def finalize_video(
     else:
         map_video = f"[{main_label}]"
         map_audio = "0:a?"
-        audio_options = ["-c:a", "copy"]
+        # Branding may be applied to a lossless FFV1/PCM mezzanine. Always
+        # perform the delivery AAC encode here, never copy a compressed source
+        # through a video re-encode pass.
+        audio_options = [
+            "-c:a", "aac", "-b:a", profile.audio_bitrate,
+            "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
+        ]
 
     command.extend([
         "-filter_complex", ";".join(filters),
         "-map", map_video, "-map", map_audio,
-        *profile.encoder_video_options(), "-r", str(fps), "-fps_mode", "cfr",
-        *audio_options, "-map_metadata", "0", "-movflags", "+faststart", str(finalized),
+        *profile.encoder_video_options(fps), "-r", str(fps), "-fps_mode", "cfr",
+        *audio_options, "-map_metadata", "-1", "-use_editlist", "0",
+        "-avoid_negative_ts", "make_zero", "-shortest", "-movflags", "+faststart", str(finalized),
     ])
     try:
         run(command)
@@ -430,11 +444,6 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
     ).hexdigest()[:20]
     output = project / "audio" / "cache" / f"{args.engine}-{cache_key}.mp3"
     output.parent.mkdir(parents=True, exist_ok=True)
-    if not args.force_tts:
-        latest = latest_cached_voiceover(project, args.engine)
-        if latest:
-            print(f"TTS latest cache hit: dùng lại audio gần nhất {latest}", flush=True)
-            return latest
     if output.is_file() and output.stat().st_size > 0 and not args.force_tts:
         print(f"TTS cache hit: dùng lại {output}", flush=True)
         remember_cached_voiceover(project, output)
@@ -505,6 +514,17 @@ def file_digest(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def file_signature(path: Path | None) -> str:
+    """Include resolved media content in the render cache key."""
+    if not path:
+        return ""
+    resolved = Path(path).expanduser().resolve()
+    if not resolved.is_file():
+        return str(resolved)
+    stat = resolved.stat()
+    return f"{resolved}|{stat.st_size}|{stat.st_mtime_ns}|{file_digest(resolved)}"
+
+
 def alignment_signature(prepared_topic: Path, render_audio: Path, whisper_model: str) -> str:
     align_script = ROOT / "tools" / "align_voiceover.py"
     payload = b"\0".join([
@@ -535,7 +555,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
             topic,
             *(file_digest(path).encode("ascii") for path in renderer_files),
             args.engine.encode("utf-8"),
-            str(args.audio.resolve() if args.audio else "").encode("utf-8"),
+            file_signature(args.audio).encode("utf-8"),
             f"{float(args.speed):.6f}".encode("utf-8"),
             f"{float(args.volume):.6f}".encode("utf-8"),
             str(int(args.fps)).encode("utf-8"),
@@ -549,9 +569,9 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
             args.whisper_model.encode("utf-8"),
             str(bool(args.force_tts)).encode("utf-8"),
             str(bool(args.outro)).encode("utf-8"),
-            str(args.outro_video.resolve() if args.outro_video else "").encode("utf-8"),
+            file_signature(args.outro_video).encode("utf-8"),
             str(bool(args.no_branding)).encode("utf-8"),
-            str(args.brand_logo.resolve() if args.brand_logo else "").encode("utf-8"),
+            file_signature(args.brand_logo).encode("utf-8"),
             args.brand_name.encode("utf-8"),
         ]
     )
@@ -626,6 +646,16 @@ def main() -> None:
     aligned_topic = project / "topic.rendered.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = (int(value) for value in args.size.split("x"))
+    needs_finalization = bool(
+        (args.outro and args.outro_video)
+        or (not args.no_branding and (args.brand_logo or args.brand_name))
+    )
+    # Render into a hidden sibling and atomically publish only after the full
+    # media postflight passes. When branding/outro is requested, the sibling
+    # is a lossless FFV1/PCM mezzanine so the delivery H.264/AAC encode happens
+    # exactly once in finalize_video().
+    render_output = output.with_name(f".{output.stem}-render-{token}.mp4")
+    render_report_path = render_output.with_name(f"{render_output.stem}.render-report.json")
 
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
@@ -638,12 +668,12 @@ def main() -> None:
         render_fps = max(1, int(args.fps))
         run([
             str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
-            str(aligned_topic), "--output", str(output),
+            str(aligned_topic), "--output", str(render_output),
             "--width", str(width), "--height", str(height), "--fps", str(render_fps),
             "--quality-profile", quality.name,
-        ])
+        ] + (["--mezzanine"] if needs_finalization else []))
         finalize_video(
-            output,
+            render_output,
             args.outro_video if args.outro and args.outro_video else None,
             None if args.no_branding else args.brand_logo,
             "" if args.no_branding else args.brand_name,
@@ -656,26 +686,41 @@ def main() -> None:
     finally:
         prepared_topic.unlink(missing_ok=True)
 
-    if not output.is_file() or output.stat().st_size == 0:
-        raise RuntimeError("Render xong nhưng không có final_video.mp4.")
-    report_path = output.with_name(f"{output.stem}.render-report.json")
     try:
-        report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
-    except (OSError, json.JSONDecodeError):
-        report = {}
-    report.update({
-        "quality_profile": quality.to_dict(),
-        "finalization": {
-            "branding": bool(not args.no_branding and (args.brand_logo or args.brand_name)),
-            "outro": bool(args.outro and args.outro_video),
-        },
-        "duration_seconds": round(media_duration(output), 3),
-        "output_size_bytes": output.stat().st_size,
-        "has_audio_stream": has_audio_stream(output),
-    })
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    signature_file.write_text(json.dumps({"signature": signature}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Done: {output}", flush=True)
+        if not render_output.is_file() or render_output.stat().st_size == 0:
+            raise RuntimeError("Render xong nhưng không có video trung gian hợp lệ.")
+        render_fps = max(1, int(args.fps))
+        postflight = validate_rendered_video(render_output, width=width, height=height, fps=render_fps)
+        report_path = output.with_name(f"{output.stem}.render-report.json")
+        try:
+            report = json.loads(render_report_path.read_text(encoding="utf-8")) if render_report_path.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            report = {}
+        report.update({
+            "quality_profile": quality.to_dict(),
+            "finalization": {
+                "branding": bool(not args.no_branding and (args.brand_logo or args.brand_name)),
+                "outro": bool(args.outro and args.outro_video),
+            },
+            "duration_seconds": round(media_duration(render_output), 3),
+            "output_size_bytes": render_output.stat().st_size,
+            "has_audio_stream": has_audio_stream(render_output),
+            "postflight": postflight,
+        })
+        # Do not replace a previously good delivery until postflight has passed.
+        render_output.replace(output)
+        report["duration_seconds"] = round(media_duration(output), 3)
+        report["output_size_bytes"] = output.stat().st_size
+        report["has_audio_stream"] = has_audio_stream(output)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        render_report_path.unlink(missing_ok=True)
+        signature_file.write_text(json.dumps({"signature": signature}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"Done: {output}", flush=True)
+    except Exception:
+        # Leave any previously published final_video.mp4 untouched.
+        render_output.unlink(missing_ok=True)
+        render_report_path.unlink(missing_ok=True)
+        raise
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from .metadata import (
     record_scheduled_social_upload,
     record_social_upload,
     require_project,
+    validate_upload_video,
     upload_brand_for_project,
 )
 from .r2 import delete_file, r2_config, r2_config_hint, r2_is_configured, resolve_r2_config, upload_file
@@ -366,6 +367,7 @@ def threads_upload_video(payload: dict) -> dict:
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
         video_path = Path(final_video_path_for_project(project))
+        validate_upload_video(video_path)
         queued = schedule_on_vps("threads", video_path, text, scheduled)
         record_scheduled_social_upload(
             project_dir,
@@ -387,6 +389,7 @@ def threads_upload_video(payload: dict) -> dict:
     video_path: Path | None = None
     if not public_url:
         video_path = Path(final_video_path_for_project(project))
+        validate_upload_video(video_path)
         if not video_path.is_file():
             raise FileNotFoundError(f"final_video.mp4 not found for project '{project}'.")
 

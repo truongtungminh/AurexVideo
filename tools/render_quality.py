@@ -27,16 +27,21 @@ class RenderProfile:
     audio_bitrate: str
     pixel_format: str = "yuv420p"
     video_profile: str = "high"
-    video_level: str = "5.1"
+    video_level: str = "4.1"
     allow_frame_reuse: bool = False
     tune: str = "animation"
+    gop_seconds: int = 2
+    maxrate: str = "20M"
+    bufsize: str = "40M"
+    reference_frames: int = 3
 
     @property
     def capture_width_multiplier(self) -> float:
         return self.device_scale_factor
 
-    def encoder_video_options(self) -> list[str]:
+    def encoder_video_options(self, fps: int = 30) -> list[str]:
         """Return delivery-safe video encoder options for FFmpeg."""
+        keyint = max(1, round(self.gop_seconds * max(1, int(fps))))
         options = [
             "-c:v", "libx264",
             "-preset", self.encoder_preset,
@@ -44,6 +49,14 @@ class RenderProfile:
             "-profile:v", self.video_profile,
             "-level:v", self.video_level,
             "-pix_fmt", self.pixel_format,
+            "-g", str(keyint),
+            "-keyint_min", str(keyint),
+            "-sc_threshold", "0",
+            "-bf", "2",
+            "-x264-params",
+            f"keyint={keyint}:min-keyint={keyint}:scenecut=0:open-gop=0:ref={self.reference_frames}",
+            "-maxrate", self.maxrate,
+            "-bufsize", self.bufsize,
             "-color_range", "tv",
             "-colorspace", "bt709",
             "-color_primaries", "bt709",
@@ -68,6 +81,10 @@ class RenderProfile:
             "video_level": self.video_level,
             "allow_frame_reuse": self.allow_frame_reuse,
             "tune": self.tune,
+            "gop_seconds": self.gop_seconds,
+            "maxrate": self.maxrate,
+            "bufsize": self.bufsize,
+            "reference_frames": self.reference_frames,
         }
 
 
@@ -83,6 +100,8 @@ PROFILES: dict[str, RenderProfile] = {
         audio_bitrate="192k",
         allow_frame_reuse=True,
         tune="animation",
+        maxrate="12M",
+        bufsize="24M",
     ),
     "standard": RenderProfile(
         name="standard",
@@ -95,6 +114,8 @@ PROFILES: dict[str, RenderProfile] = {
         audio_bitrate="256k",
         allow_frame_reuse=False,
         tune="animation",
+        maxrate="20M",
+        bufsize="40M",
     ),
     "master": RenderProfile(
         name="master",
@@ -107,6 +128,8 @@ PROFILES: dict[str, RenderProfile] = {
         audio_bitrate="320k",
         allow_frame_reuse=False,
         tune="animation",
+        maxrate="25M",
+        bufsize="50M",
     ),
 }
 

@@ -77,6 +77,7 @@ from tts.elevenlabs import (
 )
 from tts.maziao import _submit_and_poll_single, _resolve_api_config, _resolve_voice, DEFAULT_API_KEY, DEFAULT_API_BASE, normalize_tts_mode
 from autoproject_store import AutoProjectStore
+from media_probe import validate_rendered_video
 from tools.render_quality import get_render_profile
 
 
@@ -1745,15 +1746,31 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
     video_path = project_dir / "output" / "final_video.mp4"
 
     if returncode == 0 and video_path.exists():
-        append_log(job_id, f"\nDone: {video_path}\n")
-        finish_export_allowance("completed")
-        set_job_state(
-            job_id,
-            status="done",
-            returncode=returncode,
-            finished_at=time.time(),
-            video_url=final_video_url(project),
-        )
+        try:
+            postflight = validate_rendered_video(video_path)
+        except Exception as exc:
+            summary = f"Postflight media thất bại: {exc}"
+            append_log(job_id, f"\nRender đã tạo file nhưng bị chặn: {summary}\n")
+            finish_export_allowance("failed")
+            set_job_state(
+                job_id,
+                status="failed",
+                returncode=returncode,
+                finished_at=time.time(),
+                error=summary,
+            )
+        else:
+            append_log(job_id, f"\nPostflight OK: {postflight.get('width')}x{postflight.get('height')} @ {postflight.get('fps')}fps, BT.709, AAC stereo 48kHz.\n")
+            append_log(job_id, f"Done: {video_path}\n")
+            finish_export_allowance("completed")
+            set_job_state(
+                job_id,
+                status="done",
+                returncode=returncode,
+                finished_at=time.time(),
+                video_url=final_video_url(project),
+                postflight=postflight,
+            )
     elif returncode == 0:
         append_log(job_id, "\nRender finished, but final_video.mp4 was not found.\n")
         finish_export_allowance("failed")
