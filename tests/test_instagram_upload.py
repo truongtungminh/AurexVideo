@@ -80,6 +80,7 @@ class InstagramUploadTests(unittest.TestCase):
             with patch.object(instagram, "read_social_config", return_value={"instagram": instagram_config, "r2": r2_config}), \
                 patch.object(instagram, "require_project", return_value=Path(temp_dir)), \
                 patch.object(instagram, "final_video_path_for_project", return_value=video_path), \
+                patch.object(instagram, "validate_upload_video", return_value={}), \
                 patch.object(instagram, "http_form_request", side_effect=fake_form), \
                 patch.object(instagram, "upload_file", return_value="https://media.example.com/instagram/video.mp4") as upload, \
                 patch.object(instagram, "wait_for_instagram_container", return_value={"status_code": "FINISHED"}) as wait, \

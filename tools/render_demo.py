@@ -24,7 +24,7 @@ if str(LOCAL_ROOT) not in sys.path:
     sys.path.insert(0, str(LOCAL_ROOT))
 
 from aurexvideo_paths import CHARACTERS_ROOT, DATA_ROOT, RESOURCE_ROOT, ffmpeg_executable
-from media_probe import AUDIO_PEAK_LIMITER, media_duration
+from media_probe import AUDIO_LOUDNESS_NORMALIZER, AUDIO_PEAK_LIMITER, media_duration
 try:
     from render_quality import RenderProfile, get_render_profile, quality_profile_names
 except ModuleNotFoundError:  # Imported as ``tools.render_demo`` by tests/tools.
@@ -231,7 +231,8 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
         # those streams ended. normalize=0 preserves the source voiceover at
         # unity gain. A final alimiter then caps voice+music+SFX peaks near -1 dB.
         + f"amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=0:normalize=0[mix];"
-        + f"[mix]{AUDIO_PEAK_LIMITER}[limited]"
+        + f"[mix]{AUDIO_LOUDNESS_NORMALIZER}[normalized];"
+        + f"[normalized]{AUDIO_PEAK_LIMITER}[limited]"
     )
     command.extend(
         [
@@ -265,6 +266,7 @@ async def render_frames(
     capture_format: str | None = None,
     capture_quality: int | None = None,
     profile: RenderProfile | None = None,
+    mezzanine: bool = False,
 ) -> None:
     from playwright.async_api import async_playwright
 
@@ -284,11 +286,37 @@ async def render_frames(
         output.parent.mkdir(parents=True, exist_ok=True)
         frame_total = max(1, math.ceil(duration * fps))
         pipe_codec = "png" if capture_format == "png" else "mjpeg"
-        scale_filter = (
-            f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=tv,"
-            f"colorspace=all=bt709:iall=bt709:range=tv:irange=tv:"
-            f"format={quality.pixel_format}:fast=1"
-        )
+        if mezzanine:
+            # Keep the browser raster in lossless RGB until the optional
+            # branding/outro pass. This avoids H.264 -> H.264 generations.
+            scale_filter = (
+                f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=pc,"
+                "setsar=1,format=gbrp"
+            )
+            video_options = [
+                "-c:v", "ffv1", "-level", "3", "-coder", "1", "-context", "1", "-g", "1",
+                "-pix_fmt", "gbrp",
+            ]
+            audio_options = [
+                "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
+            ]
+            mux_options = ["-f", "matroska"]
+        else:
+            # Playwright screenshots are full-range RGB/sRGB. Declare the
+            # input range explicitly before converting to delivery BT.709 TV
+            # range so we perform a real conversion instead of relabelling it.
+            scale_filter = (
+                f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=pc,"
+                "setsar=1,"
+                "colorspace=iall=bt709:all=bt709:range=tv:irange=pc:"
+                f"format={quality.pixel_format}:fast=1"
+            )
+            video_options = quality.encoder_video_options(fps)
+            audio_options = [
+                "-c:a", "aac", "-b:a", quality.audio_bitrate,
+                "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
+            ]
+            mux_options = ["-use_editlist", "0", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart"]
         command = [
             str(ffmpeg_executable()), "-y", "-loglevel", "error",
             "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
@@ -296,11 +324,10 @@ async def render_frames(
             "-map", "0:v:0", "-map", "1:a:0",
             "-frames:v", str(frame_total),
             "-vf", scale_filter,
-            *quality.encoder_video_options(),
+            *video_options,
             "-r", str(fps), "-fps_mode", "cfr",
-            "-c:a", "aac", "-b:a", quality.audio_bitrate,
-            "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
-            "-shortest", "-movflags", "+faststart", str(output),
+            *audio_options,
+            "-shortest", *mux_options, str(output),
         ]
         encoder = subprocess.Popen(
             command,
@@ -334,41 +361,45 @@ async def render_frames(
                 reused_frames = 0
                 for frame_index in range(frame_total):
                     frame_time = frame_index / fps
-                    try:
-                        stage_started = time.perf_counter()
-                        await asyncio.wait_for(
-                            page.evaluate(
-                                "(time) => window.renderOfflineFrame(time)", frame_time
-                            ),
-                            timeout=20,
-                        )
-                        evaluate_seconds += time.perf_counter() - stage_started
-                        stage_started = time.perf_counter()
-                        screenshot_options = {"type": capture_format}
-                        if capture_format == "jpeg":
-                            screenshot_options["quality"] = capture_quality
-                        frame = await asyncio.wait_for(
-                            page.screenshot(**screenshot_options), timeout=30
-                        )
-                        capture_seconds += time.perf_counter() - stage_started
-                        capture_bytes += len(frame)
+                    frame = None
+                    last_error: Exception | None = None
+                    for attempt in range(3):
+                        try:
+                            stage_started = time.perf_counter()
+                            await asyncio.wait_for(
+                                page.evaluate(
+                                    "(time) => window.renderOfflineFrame(time)", frame_time
+                                ),
+                                timeout=20,
+                            )
+                            evaluate_seconds += time.perf_counter() - stage_started
+                            stage_started = time.perf_counter()
+                            screenshot_options = {"type": capture_format}
+                            if capture_format == "jpeg":
+                                screenshot_options["quality"] = capture_quality
+                            frame = await asyncio.wait_for(
+                                page.screenshot(**screenshot_options), timeout=30
+                            )
+                            capture_seconds += time.perf_counter() - stage_started
+                            capture_bytes += len(frame)
+                            break
+                        except Exception as exc:  # noqa: BLE001
+                            last_error = exc
+                            if attempt < 2:
+                                print(
+                                    f"WARN frame {frame_time:.3f}s lỗi, retry {attempt + 1}/2: {exc!r}",
+                                    flush=True,
+                                )
+                    if frame is None:
+                        frame_errors += 1
+                        if not quality.allow_frame_reuse or last_good_frame is None:
+                            raise RuntimeError(
+                                f"Frame {frame_time:.3f}s thất bại sau 3 lần thử; profile {quality.name} không cho phép dùng lại frame."
+                            ) from last_error
+                        reused_frames += 1
+                        print(f"WARN frame {frame_time:.3f}s dùng lại frame trước", flush=True)
+                    else:
                         last_good_frame = frame
-                    except asyncio.TimeoutError as exc:
-                        frame_errors += 1
-                        if not quality.allow_frame_reuse or last_good_frame is None:
-                            raise RuntimeError(
-                                f"Frame {frame_time:.3f}s bị timeout; profile {quality.name} không cho phép dùng lại frame."
-                            ) from exc
-                        reused_frames += 1
-                        print(f"WARN frame {frame_time:.3f}s timeout (reuse previous)", flush=True)
-                    except Exception as exc:  # noqa: BLE001
-                        frame_errors += 1
-                        if not quality.allow_frame_reuse or last_good_frame is None:
-                            raise RuntimeError(
-                                f"Frame {frame_time:.3f}s lỗi; profile {quality.name} không cho phép dùng lại frame: {exc!r}"
-                            ) from exc
-                        reused_frames += 1
-                        print(f"WARN frame {frame_time:.3f}s lỗi (reuse previous): {exc!r}", flush=True)
                     stage_started = time.perf_counter()
                     if last_good_frame is None:
                         raise RuntimeError(f"Không có frame hợp lệ tại {frame_time:.3f}s.")
@@ -429,6 +460,7 @@ async def render_frames(
         report = {
             "schema_version": 1,
             "quality_profile": quality.to_dict(),
+            "mezzanine": mezzanine,
             "width": width,
             "height": height,
             "fps": fps,
@@ -460,6 +492,7 @@ async def render(
     profile_name: str | None = None,
     capture_format: str | None = None,
     capture_quality: int | None = None,
+    mezzanine: bool = False,
 ) -> None:
     quality = get_render_profile(profile_name)
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
@@ -476,7 +509,7 @@ async def render(
         await render_frames(
             topic_path, mixed_audio, output, width, height, duration,
             fps=fps, data_root=data_root, capture_format=capture_format,
-            capture_quality=capture_quality, profile=quality,
+            capture_quality=capture_quality, profile=quality, mezzanine=mezzanine,
         )
 
 
@@ -498,6 +531,11 @@ def main() -> None:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--benchmark-seconds", type=float)
     parser.add_argument("--quality-profile", choices=quality_profile_names())
+    parser.add_argument(
+        "--mezzanine",
+        action="store_true",
+        help="Xuất FFV1/PCM lossless để branding/outro encode H.264 đúng một lần.",
+    )
     parser.add_argument("--capture-format", choices=["png", "jpeg"])
     parser.add_argument("--capture-quality", type=int, choices=range(0, 101))
     args = parser.parse_args()
@@ -505,6 +543,7 @@ def main() -> None:
         args.topic.resolve(), args.output.resolve(), args.width, args.height, args.fps,
         benchmark_seconds=args.benchmark_seconds, capture_format=args.capture_format,
         capture_quality=args.capture_quality, profile_name=args.quality_profile,
+        mezzanine=args.mezzanine,
     ))
     print(args.output.resolve())
 

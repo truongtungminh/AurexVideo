@@ -22,6 +22,7 @@ from .metadata import (
     record_scheduled_social_upload,
     record_social_upload,
     require_project,
+    validate_upload_video,
     upload_brand_for_project,
 )
 from .r2 import (
@@ -42,7 +43,7 @@ DEFAULT_INSTAGRAM_API_MODE = "instagram_login"
 DEFAULT_POLL_ATTEMPTS = 60
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 MAX_INSTAGRAM_CAPTION_LENGTH = 2200
-MAX_INSTAGRAM_REEL_BYTES = 1024 * 1024 * 1024
+MAX_INSTAGRAM_REEL_BYTES = 300 * 1024 * 1024
 INSTAGRAM_API_HOSTS = {
     "instagram_login": "https://graph.instagram.com",
     "facebook_login": "https://graph.facebook.com",
@@ -266,8 +267,9 @@ def instagram_upload_video(payload: dict) -> dict:
         raise ValueError(instagram_config_hint(instagram, r2))
     scheduled = parse_scheduled_publish_at(payload)
     video_path = final_video_path_for_project(project)
+    validate_upload_video(video_path)
     if video_path.stat().st_size > MAX_INSTAGRAM_REEL_BYTES:
-        raise ValueError("Instagram Reels chỉ nhận video tối đa 1 GB.")
+        raise ValueError("Instagram Reels chỉ nhận video tối đa 300 MB.")
     caption = instagram_caption_for_project(project, str(payload.get("instagramCaption") or ""))
     if len(caption) > MAX_INSTAGRAM_CAPTION_LENGTH:
         raise ValueError("Instagram caption tối đa 2.200 ký tự.")

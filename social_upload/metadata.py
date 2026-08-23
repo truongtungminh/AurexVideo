@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from aurexvideo_paths import PROJECTS_ROOT, RESOURCE_ROOT
+from media_probe import validate_rendered_video
 from .config import canonical_brand
 
 REPO_ROOT = RESOURCE_ROOT
@@ -129,10 +130,16 @@ def read_expected_video_bytes(video_path: Path, payload: dict) -> bytes:
     ).strip().lower()
     if expected and not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise ValueError("expectedMediaSha256 must be a SHA-256 hex digest.")
+    validate_upload_video(video_path)
     data = video_path.read_bytes()
     if expected and hashlib.sha256(data).hexdigest() != expected:
         raise RuntimeError("The project MP4 changed after the social draft was created.")
     return data
+
+
+def validate_upload_video(video_path: Path) -> dict[str, object]:
+    """Run the same strict media postflight immediately before upload."""
+    return validate_rendered_video(Path(video_path))
 
 
 def _probe_duration_ffmpeg(video_path: Path) -> float:

@@ -21,6 +21,7 @@ from .metadata import (
     record_scheduled_social_upload,
     record_social_upload,
     require_project,
+    validate_upload_video,
 )
 from .schedule import parse_scheduled_publish_at
 from .scheduler import schedule_upload
@@ -236,6 +237,7 @@ def binance_upload_video(payload: dict) -> dict:
             "message": "Đã xếp lịch Binance Square; worker sẽ publish đúng giờ.",
         }
 
+    validate_upload_video(video_path)
     api_key = resolve_binance_api_key()
     file_name = video_path.name
     size = video_path.stat().st_size
