@@ -30,9 +30,19 @@ try:
 except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
     from tools.render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
 try:
-    from native_render import NativeRenderUnavailable, audio_mux_command, build_native_render_plan
+    from native_render import (
+        NativeRenderUnavailable,
+        audio_mux_command,
+        build_native_render_plan,
+        find_native_binary,
+    )
 except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
-    from tools.native_render import NativeRenderUnavailable, audio_mux_command, build_native_render_plan
+    from tools.native_render import (
+        NativeRenderUnavailable,
+        audio_mux_command,
+        build_native_render_plan,
+        find_native_binary,
+    )
 
 configure_native_runtime()
 
@@ -532,6 +542,32 @@ def file_signature(path: Path | None) -> str:
     return f"{resolved}|{stat.st_size}|{stat.st_mtime_ns}|{file_digest(resolved)}"
 
 
+def native_manifest_image_signatures(manifest_path: Path) -> list[str]:
+    """Include native image bytes in the project cache key."""
+    try:
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(document, dict) or not isinstance(document.get("layers"), list):
+        return []
+    base = manifest_path.parent.resolve()
+    signatures: list[str] = []
+    for layer in document["layers"]:
+        if not isinstance(layer, dict) or layer.get("type") != "image":
+            continue
+        source = str(layer.get("source") or "")
+        relative = Path(source)
+        if not source or relative.is_absolute() or ".." in relative.parts:
+            continue
+        asset = (base / relative).resolve()
+        try:
+            asset.relative_to(base)
+        except ValueError:
+            continue
+        signatures.append(file_signature(asset))
+    return sorted(signatures)
+
+
 def alignment_signature(prepared_topic: Path, render_audio: Path, whisper_model: str) -> str:
     align_script = ROOT / "tools" / "align_voiceover.py"
     payload = b"\0".join([
@@ -583,6 +619,15 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
         native_manifest_path.relative_to(topic_path.parent.resolve())
     except (OSError, TypeError, ValueError):
         native_manifest_path = topic_path.parent / "native-render.json"
+    native_manifest_signature = file_signature(native_manifest_path)
+    native_image_signatures = native_manifest_image_signatures(native_manifest_path)
+    native_binary_signature = ""
+    if getattr(args, "render_backend", "browser") in {"auto", "native"}:
+        try:
+            native_binary = find_native_binary(ROOT)
+            native_binary_signature = file_signature(native_binary) if native_binary else "unavailable"
+        except NativeRenderUnavailable as exc:
+            native_binary_signature = f"unavailable:{exc}"
     payload = b"\0".join(
         [
             b"render-cache-v4",
@@ -610,7 +655,9 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
             file_signature(args.brand_logo).encode("utf-8"),
             args.brand_name.encode("utf-8"),
             str(getattr(args, "render_backend", "browser")).encode("utf-8"),
-            file_signature(native_manifest_path),
+            native_manifest_signature.encode("utf-8"),
+            json.dumps(native_image_signatures, ensure_ascii=False).encode("utf-8"),
+            native_binary_signature.encode("utf-8"),
         ]
     )
     return hashlib.sha256(payload).hexdigest()
@@ -623,6 +670,87 @@ def resolve_render_backend(value: str | None) -> str:
     if requested not in {"browser", "auto", "native"}:
         raise ValueError("Render backend phải là browser, auto hoặc native.")
     return requested
+
+
+def render_native_backend(
+    *,
+    backend: str,
+    topic_path: Path,
+    resource_root: Path,
+    native_video: Path,
+    native_report: Path,
+    native_audio: Path,
+    render_output: Path,
+    render_report_path: Path,
+    width: int,
+    height: int,
+    fps: int,
+    duration: float,
+    quality: RenderProfile,
+    token: str,
+) -> bool:
+    """Try one complete native render, with an Auto-only browser fallback."""
+    plan = None
+    try:
+        plan = build_native_render_plan(
+            topic_path=topic_path,
+            resource_root=resource_root,
+            output=native_video,
+            report=native_report,
+            width=width,
+            height=height,
+            fps=fps,
+            duration=duration,
+            token=token,
+        )
+        print("Rendering with Aurex Render Core (Metal + VideoToolbox)...", flush=True)
+        # Use the same normalized narration + SFX + BGM mix as Browser. Native
+        # must not silently publish a video with only the voice track.
+        try:
+            from render_demo import build_mixed_audio
+        except ModuleNotFoundError:
+            from tools.render_demo import build_mixed_audio
+        aligned_topic = json.loads(topic_path.read_text(encoding="utf-8"))
+        build_mixed_audio(topic_path, aligned_topic, native_audio)
+        run(plan.command)
+        run(audio_mux_command(
+            ffmpeg=ffmpeg_executable(),
+            video=native_video,
+            audio=native_audio,
+            output=render_output,
+            audio_bitrate=quality.audio_bitrate,
+        ))
+        native_report_data: dict[str, object] = {}
+        try:
+            native_report_data = json.loads(native_report.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        native_report_data.update({
+            "render_backend": "aurex-render-core",
+            "audio_multiplexed": True,
+            "audio": "AAC (muxed by AurexVideo pipeline)",
+        })
+        render_report_path.write_text(
+            json.dumps(native_report_data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return True
+    except NativeRenderUnavailable as exc:
+        if backend == "native":
+            raise
+        print(f"Aurex Render Core fallback: {exc}", flush=True)
+        return False
+    except Exception as exc:
+        if backend == "native":
+            raise
+        print(f"Aurex Render Core runtime fallback: {exc}", flush=True)
+        return False
+    finally:
+        if plan:
+            plan.cleanup()
+        native_video.unlink(missing_ok=True)
+        native_report.unlink(missing_ok=True)
+        native_audio.unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -721,9 +849,9 @@ def main() -> None:
     render_output = output.with_name(f".{output.stem}-render-{token}.mp4")
     render_report_path = render_output.with_name(f"{render_output.stem}.render-report.json")
 
-    native_plan = None
     native_video = render_output.with_name(f".{output.stem}-native-video-{token}.mp4")
     native_report = native_video.with_name(f"{native_video.stem}.render-report.json")
+    native_audio = render_output.with_name(f".{output.stem}-native-audio-{token}.wav")
     used_render_backend = "browser"
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
@@ -734,47 +862,22 @@ def main() -> None:
         ])
         render_fps = max(1, int(args.fps))
         if args.render_backend in {"auto", "native"}:
-            try:
-                native_plan = build_native_render_plan(
-                    topic_path=aligned_topic,
-                    resource_root=ROOT,
-                    output=native_video,
-                    report=native_report,
-                    width=width,
-                    height=height,
-                    fps=render_fps,
-                    duration=duration,
-                    token=token,
-                )
-            except NativeRenderUnavailable as exc:
-                if args.render_backend == "native":
-                    raise
-                print(f"Aurex Render Core fallback: {exc}", flush=True)
-            else:
-                print("Rendering with Aurex Render Core (Metal + VideoToolbox)...", flush=True)
-                run(native_plan.command)
-                run(audio_mux_command(
-                    ffmpeg=ffmpeg_executable(),
-                    video=native_video,
-                    audio=render_audio,
-                    output=render_output,
-                    audio_bitrate=quality.audio_bitrate,
-                ))
-                native_video.unlink(missing_ok=True)
-                native_report_data = {}
-                try:
-                    native_report_data = json.loads(native_report.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    pass
-                native_report_data.update({
-                    "render_backend": "aurex-render-core",
-                    "audio_multiplexed": True,
-                    "audio": "AAC (muxed by AurexVideo pipeline)",
-                })
-                render_report_path.write_text(
-                    json.dumps(native_report_data, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
+            if render_native_backend(
+                backend=args.render_backend,
+                topic_path=aligned_topic,
+                resource_root=ROOT,
+                native_video=native_video,
+                native_report=native_report,
+                native_audio=native_audio,
+                render_output=render_output,
+                render_report_path=render_report_path,
+                width=width,
+                height=height,
+                fps=render_fps,
+                duration=duration,
+                quality=quality,
+                token=token,
+            ):
                 used_render_backend = "aurex-render-core"
 
         if used_render_backend == "browser":
@@ -797,10 +900,9 @@ def main() -> None:
             token,
         )
     finally:
-        if native_plan:
-            native_plan.cleanup()
         native_video.unlink(missing_ok=True)
         native_report.unlink(missing_ok=True)
+        native_audio.unlink(missing_ok=True)
         prepared_topic.unlink(missing_ok=True)
 
     try:

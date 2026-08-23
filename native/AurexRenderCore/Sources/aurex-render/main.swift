@@ -94,6 +94,19 @@ private enum CLI {
             let reportURL = options.values["--report"].map {
                 URL(fileURLWithPath: $0).standardizedFileURL
             } ?? outputURL.deletingPathExtension().appendingPathExtension("render-report.json")
+            let canonicalPath: (URL) -> String = {
+                $0.resolvingSymlinksInPath().standardizedFileURL.path
+            }
+            let manifestFilePath = canonicalPath(document.url)
+            let canonicalOutputPath = canonicalPath(outputURL)
+            let canonicalReportPath = canonicalPath(reportURL)
+            guard canonicalOutputPath != canonicalReportPath else {
+                throw AurexRenderError.invalidManifest("--report must be different from --output")
+            }
+            guard canonicalOutputPath != manifestFilePath,
+                  canonicalReportPath != manifestFilePath else {
+                throw AurexRenderError.invalidManifest("manifest, output and report paths must be different")
+            }
             var lastPrintedPercent = -1
             let quiet = options.flags.contains("--quiet")
             let report = try RenderEngine().render(
