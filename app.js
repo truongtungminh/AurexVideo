@@ -663,12 +663,12 @@ function clearImportedPresenterLayout() {
 async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
   if (!elements.teacherWrap.classList.contains("custom-character")) {
     clearImportedPresenterLayout();
-    return;
+    return true;
   }
   const source = mediaSource(elements.teacher);
-  if (!source || !mediaReady(elements.teacher)) return;
+  if (!source || !mediaReady(elements.teacher)) return false;
   const bounds = await alphaBoundsForImage(elements.teacher);
-  if (!bounds || generation !== presenterLayoutGeneration || source !== mediaSource(elements.teacher)) return;
+  if (!bounds || generation !== presenterLayoutGeneration || source !== mediaSource(elements.teacher)) return false;
 
   const stageRect = elements.stage.getBoundingClientRect();
   const subtitleRects = Array.from(elements.karaoke.children, (node) => node.getBoundingClientRect());
@@ -692,6 +692,7 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
   elements.teacher.style.height = `${mediaIntrinsicHeight(elements.teacher) * imageScale}px`;
   elements.teacher.style.left = `${(stageRect.width - renderedVisibleWidth) / 2 - bounds.left * imageScale}px`;
   elements.teacher.style.top = `${renderedVisibleTop - bounds.top * imageScale}px`;
+  return true;
 }
 
 function scheduleImportedPresenterLayout() {
@@ -1063,9 +1064,11 @@ async function renderOfflineFrame(time) {
     Math.round(stageRect.height),
   ].join("|");
   if (layoutKey !== lastOfflineLayoutKey) {
-    lastOfflineLayoutKey = layoutKey;
-    await layoutImportedPresenter(presenterLayoutGeneration);
-    fitHeadings();
+    const layoutApplied = await layoutImportedPresenter(presenterLayoutGeneration);
+    if (layoutApplied) {
+      lastOfflineLayoutKey = layoutKey;
+      fitHeadings();
+    }
   }
   paintOfflinePresenterFrame();
 }
@@ -1394,6 +1397,11 @@ async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   wordGroups = buildGroups(timedWords);
   currentPose = topic.poseTimeline?.[0]?.pose || Object.keys(topic.poseAssets || {})[0] || "question";
   lastPoseIndex = -1;
+  lastKaraokeGroupKey = "";
+  lastKaraokeRenderKey = "";
+  lastOfflineLayoutKey = "";
+  elements.karaoke.classList.remove("visible");
+  elements.karaoke.replaceChildren();
   const isCustomCharacter = Boolean(topic.characterId && topic.characterId !== "human-presenter");
   elements.teacherWrap.classList.toggle("custom-character", isCustomCharacter);
   // Gắn class character-<id> để CSS tuỳ biến riêng từng nhân vật (vd. character-bietchichomet).
