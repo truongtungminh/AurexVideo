@@ -258,9 +258,10 @@ def _inline_scene_document(value: object) -> dict[str, object]:
 
 
 def _validate_scene_document(document: dict[str, object], manifest_dir: Path) -> tuple[str, ...]:
-    if document.get("schemaVersion") != CORE_SCHEMA_VERSION:
+    schema_version = document.get("schemaVersion")
+    if schema_version not in {1, CORE_SCHEMA_VERSION}:
         raise NativeRenderUnavailable(
-            f"Native scene dùng schemaVersion={document.get('schemaVersion')}; Core V2 cần schemaVersion={CORE_SCHEMA_VERSION}.",
+            f"Native scene dùng schemaVersion={schema_version}; Core hỗ trợ schemaVersion 1 hoặc {CORE_SCHEMA_VERSION}.",
             reason="native_schema_unsupported",
         )
     layers = document.get("layers")
