@@ -38,9 +38,15 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
             "right": {"x": 0.460, "y": 0.240, "width": 0.420, "height": 0.230},
         },
         "label_rects": {
-            "left": {"x": 0.030, "y": 0.165, "width": 0.420, "height": 0.070},
-            "right": {"x": 0.460, "y": 0.165, "width": 0.420, "height": 0.070},
+            "left": {"x": 0.030, "y": 0.2125, "width": 0.444, "height": 0.0275},
+            "right": {"x": 0.446, "y": 0.2125, "width": 0.444, "height": 0.0275},
         },
+        # CSS equivalent: .topic-label-stack { top: 24%;
+        # transform: translateY(-100%); }. The compiler expands the line box
+        # from the actual label text so multi-line labels keep the same anchor.
+        "label_anchor_y": 0.240,
+        "label_line_height": 0.98,
+        "label_gap_cqw": 0.35,
         "karaoke_rect": {"x": 0.050, "y": 0.462, "width": 0.900, "height": 0.090},
         "label_font_size": 54.0,
         "karaoke_font_size": 59.9,
@@ -286,6 +292,43 @@ def _text_layer(
     return layer
 
 
+def _css_label_rects(
+    profile: dict[str, Any],
+    side: str,
+    *,
+    label_text: str,
+    sub_text: str,
+    show_sub_label: bool,
+    canvas_width: int,
+    canvas_height: int,
+) -> tuple[dict[str, float], dict[str, float] | None]:
+    """Map the preview label-stack CSS anchor into native text boxes."""
+    fallback = profile["label_rects"].get(side, profile["label_rects"]["left"])
+    label_rect = _rect(fallback, profile["label_rects"]["left"])
+    anchor = profile.get("label_anchor_y")
+    if anchor is None:
+        return label_rect, None
+
+    label_font_size = float(profile.get("label_font_size", 58.0))
+    label_line_height = float(profile.get("label_line_height", 0.98))
+    label_lines = max(1, str(label_text or "").count("\n") + 1)
+    label_height = label_font_size * label_line_height * label_lines / canvas_height
+    sub_rect: dict[str, float] | None = None
+    total_height = label_height
+    if show_sub_label and str(sub_text or "").strip():
+        sub_font_size = canvas_width * 0.031
+        sub_height = sub_font_size / canvas_height
+        gap = canvas_width * float(profile.get("label_gap_cqw", 0.35)) / 100 / canvas_height
+        total_height += gap + sub_height
+        sub_rect = dict(label_rect)
+        sub_rect["y"] = float(anchor) - total_height + label_height + gap
+        sub_rect["height"] = sub_height
+
+    label_rect["y"] = float(anchor) - total_height
+    label_rect["height"] = label_height
+    return label_rect, sub_rect
+
+
 def compile_standard_topic(
     topic_path: Path,
     *,
@@ -473,12 +516,23 @@ def compile_standard_topic(
                 "panY": max(-50.0, min(50.0, _number(scene.get(f"{side}ImageY")))),
             })
             label_value = _format_label(scene.get(f"{side}Label"))
+            sub_value = str(scene.get(f"{side}SubLabel") or "").strip()
+            show_sub_label = scene.get("showSubLabels") is True
+            label_rect, sub_rect = _css_label_rects(
+                profile,
+                side,
+                label_text=label_value,
+                sub_text=sub_value,
+                show_sub_label=show_sub_label,
+                canvas_width=width,
+                canvas_height=height,
+            )
             if label_value:
                 layers.append(_text_layer(
                     f"comparison-{scene_index:03d}-{side}-label",
                     start_frame=start_frame,
                     end_frame=end_frame,
-                    rect=_rect(profile["label_rects"].get(side), profile["label_rects"]["left"]),
+                    rect=label_rect,
                     font_source=font_source,
                     text=label_value,
                     color=str(scene.get(f"{side}LabelColor") or "#090909"),
@@ -486,11 +540,7 @@ def compile_standard_topic(
                     line_height=0.98,
                     z_index=6,
                 ))
-            sub_value = str(scene.get(f"{side}SubLabel") or "").strip()
-            if scene.get("showSubLabels") is True and sub_value:
-                sub_rect = _rect(profile["label_rects"].get(side), profile["label_rects"]["left"])
-                sub_rect["y"] += 0.060
-                sub_rect["height"] = 0.035
+            if show_sub_label and sub_value and sub_rect is not None:
                 layers.append(_text_layer(
                     f"comparison-{scene_index:03d}-{side}-sub-label",
                     start_frame=start_frame,
