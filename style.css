@@ -509,7 +509,7 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
 
 /* Đẩy topic label xuống thấp hơn phù hợp với media-slot mới. */
 .stage.character-bietchichomet .topic-label-stack {
-  top: 23.5%;
+  top: 24%;
 }
 .stage.character-bietchichomet .topic-label-left {
   left: 3%;
