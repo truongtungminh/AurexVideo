@@ -673,6 +673,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
         ROOT / "tools" / "render_project.py",
         ROOT / "tools" / "render_quality.py",
         ROOT / "tools" / "native_render.py",
+        ROOT / "tools" / "native_scene.py",
         ROOT / "tools" / "generate_voiceover.py",
         ROOT / "tts" / "vieneu_adapter.py",
         ROOT / "tts" / "maziao.py",
