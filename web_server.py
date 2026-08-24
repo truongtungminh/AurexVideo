@@ -3919,7 +3919,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <option value="browser">Browser · chế độ tương thích</option>
             </select>
           </label>
-          <p class="engine-note render-backend-note">Auto chỉ dùng Core thật cho scene solid/image đầy đủ; text, karaoke và pose sẽ fallback Browser kèm lý do trong log/report.</p>
+          <p class="engine-note render-backend-note">Auto dùng Core scene khi đủ capability; CSS riêng theo nhân vật, text, karaoke và pose dùng raster tương thích để giữ đúng preview (Core vẫn encode khi khả dụng). Native sẽ dừng nếu CSS nhân vật chưa được Core hỗ trợ.</p>
         </div>
       </section>
 

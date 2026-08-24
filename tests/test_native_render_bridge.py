@@ -26,10 +26,12 @@ from tools.native_scene import (  # noqa: E402
 )
 from tools.render_project import (  # noqa: E402
     RenderBackendOutcome,
+    character_specific_css_selectors,
     native_manifest_image_signatures,
     render_backend_report,
     render_native_backend,
     resolve_render_backend,
+    requires_character_css_compatibility,
 )
 from tools.render_quality import get_render_profile  # noqa: E402
 
@@ -114,6 +116,38 @@ class NativeRenderBridgeTests(unittest.TestCase):
     def test_backend_defaults_to_auto_and_supports_native_alias(self) -> None:
         self.assertEqual(resolve_render_backend(None), "auto")
         self.assertEqual(resolve_render_backend("native-core"), "native")
+
+    def test_character_css_selector_detection_uses_effective_character_id(self) -> None:
+        selectors = character_specific_css_selectors({"characterId": "popsy"})
+
+        self.assertIn(".stage.character-popsy .topic-label-stack", selectors)
+        self.assertNotIn(".stage.character-popsy .teacher", selectors)
+
+    def test_character_css_guard_routes_auto_and_rejects_explicit_native(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            stylesheet = Path(temp) / "style.css"
+            stylesheet.write_text(
+                "/* .stage.character-comment-only { color: red; } */\n"
+                ".stage.character-brand-x .media-slot,\n"
+                ".teacher-wrap.character-brand-x .teacher { color: blue; }\n",
+                encoding="utf-8",
+            )
+            topic = {"brand": "brand-x"}
+
+            self.assertEqual(
+                character_specific_css_selectors(topic, stylesheet=stylesheet),
+                (
+                    ".stage.character-brand-x .media-slot",
+                    ".teacher-wrap.character-brand-x .teacher",
+                ),
+            )
+            self.assertTrue(requires_character_css_compatibility("auto", topic, stylesheet=stylesheet))
+            self.assertFalse(requires_character_css_compatibility("browser", topic, stylesheet=stylesheet))
+            with self.assertRaises(NativeRenderUnavailable) as raised:
+                requires_character_css_compatibility("native", topic, stylesheet=stylesheet)
+
+        self.assertEqual(raised.exception.reason, "character_css_parity_required")
+        self.assertIn("--render-backend auto", str(raised.exception))
 
     def test_standard_pose_video_text_scene_reports_unsupported_features(self) -> None:
         topic = {
