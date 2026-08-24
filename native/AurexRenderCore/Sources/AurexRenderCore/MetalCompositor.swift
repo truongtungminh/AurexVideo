@@ -86,6 +86,8 @@ public final class MetalCompositor {
     private let imagePipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
     private let textures: [String: LoadedTexture]
+    private var videoDecoders: [String: VideoFrameDecoder]
+    private let textRasterizer: TextRasterizer
     private let manifest: RenderManifest
     private let orderedLayers: [SceneLayer]
 
@@ -137,30 +139,67 @@ public final class MetalCompositor {
         }
 
         let loader = MTKTextureLoader(device: device)
+        let textRasterizer = try TextRasterizer(document: document)
         var loadedTextures: [String: LoadedTexture] = [:]
-        for layer in document.manifest.layers where layer.type == .image {
-            guard let source = layer.source else { continue }
-            let assetURL = try Self.resolveAsset(source, relativeTo: document.url)
-            let texture: any MTLTexture
-            do {
-                texture = try loader.newTexture(
-                    URL: assetURL,
-                    options: [
-                        .SRGB: false,
-                        .origin: MTKTextureLoader.Origin.topLeft,
-                        .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
-                    ]
+        var videoDecoders: [String: VideoFrameDecoder] = [:]
+        for layer in document.manifest.layers {
+            switch layer.type {
+            case .image:
+                guard let source = layer.source else { continue }
+                let assetURL = try Self.resolveAsset(source, relativeTo: document.url)
+                let texture: any MTLTexture
+                do {
+                    texture = try loader.newTexture(
+                        URL: assetURL,
+                        options: [
+                            .SRGB: false,
+                            .origin: MTKTextureLoader.Origin.topLeft,
+                            .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
+                        ]
+                    )
+                } catch {
+                    throw AurexRenderError.invalidManifest(
+                        "image layer '\(layer.id)' cannot load '\(source)': \(error.localizedDescription)"
+                    )
+                }
+                loadedTextures[layer.id] = LoadedTexture(
+                    texture: texture,
+                    width: texture.width,
+                    height: texture.height
                 )
-            } catch {
-                throw AurexRenderError.invalidManifest(
-                    "image layer '\(layer.id)' cannot load '\(source)': \(error.localizedDescription)"
+            case .text:
+                let image = try textRasterizer.image(
+                    for: layer,
+                    canvasWidth: document.manifest.canvas.width,
+                    canvasHeight: document.manifest.canvas.height
                 )
+                let texture: any MTLTexture
+                do {
+                    texture = try loader.newTexture(
+                        cgImage: image,
+                        options: [
+                            .SRGB: false,
+                            .origin: MTKTextureLoader.Origin.topLeft,
+                            .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
+                        ]
+                    )
+                } catch {
+                    throw AurexRenderError.invalidManifest(
+                        "text layer '\(layer.id)' cannot rasterize: \(error.localizedDescription)"
+                    )
+                }
+                loadedTextures[layer.id] = LoadedTexture(
+                    texture: texture,
+                    width: texture.width,
+                    height: texture.height
+                )
+            case .video:
+                guard let source = layer.source else { continue }
+                let assetURL = try Self.resolveAsset(source, relativeTo: document.url)
+                videoDecoders[layer.id] = try VideoFrameDecoder(url: assetURL)
+            case .solid:
+                break
             }
-            loadedTextures[layer.id] = LoadedTexture(
-                texture: texture,
-                width: texture.width,
-                height: texture.height
-            )
         }
 
         self.device = device
@@ -168,6 +207,8 @@ public final class MetalCompositor {
         self.commandQueue = commandQueue
         self.textureCache = cache
         self.textures = loadedTextures
+        self.videoDecoders = videoDecoders
+        self.textRasterizer = textRasterizer
         self.manifest = document.manifest
         self.orderedLayers = document.manifest.layers.enumerated().sorted {
             if $0.element.zIndex != $1.element.zIndex {
@@ -261,6 +302,7 @@ public final class MetalCompositor {
             var drawRect = baseRect
             var uvRect = SIMD4<Float>(0, 0, 1, 1)
             var color = SIMD4<Float>(1, 1, 1, opacity)
+            var videoTexture: CVMetalTexture?
 
             switch layer.type {
             case .solid:
@@ -268,7 +310,7 @@ public final class MetalCompositor {
                 let alpha = layerColor.alpha * opacity
                 color = SIMD4<Float>(layerColor.red, layerColor.green, layerColor.blue, alpha)
                 encoder.setRenderPipelineState(solidPipeline)
-            case .image:
+            case .image, .text:
                 guard let loadedTexture = textures[layer.id] else {
                     encoder.endEncoding()
                     throw AurexRenderError.renderFailed("missing loaded texture for layer '\(layer.id)'")
@@ -279,12 +321,61 @@ public final class MetalCompositor {
                     canvasWidth: canvas.width,
                     canvasHeight: canvas.height,
                     imageWidth: loadedTexture.width,
-                    imageHeight: loadedTexture.height
+                    imageHeight: loadedTexture.height,
+                    zoom: layer.zoom,
+                    panX: layer.panX,
+                    panY: layer.panY
                 )
                 drawRect = geometry.rect
                 uvRect = geometry.uvRect
                 encoder.setRenderPipelineState(imagePipeline)
                 encoder.setFragmentTexture(loadedTexture.texture, index: 0)
+            case .video:
+                guard let decoder = videoDecoders[layer.id] else {
+                    encoder.endEncoding()
+                    throw AurexRenderError.renderFailed("missing video decoder for layer '\(layer.id)'")
+                }
+                let sourceFrame = Self.videoFrameIndex(
+                    layer: layer,
+                    frameIndex: frameIndex,
+                    canvasFrameRate: canvas.frameRate.framesPerSecond,
+                    decoder: decoder
+                )
+                let pixelBuffer = try decoder.frame(at: sourceFrame)
+                let textureStatus = CVMetalTextureCacheCreateTextureFromImage(
+                    kCFAllocatorDefault,
+                    textureCache,
+                    pixelBuffer,
+                    nil,
+                    .bgra8Unorm,
+                    CVPixelBufferGetWidth(pixelBuffer),
+                    CVPixelBufferGetHeight(pixelBuffer),
+                    0,
+                    &videoTexture
+                )
+                guard textureStatus == kCVReturnSuccess,
+                      let videoTexture,
+                      let texture = CVMetalTextureGetTexture(videoTexture) else {
+                    encoder.endEncoding()
+                    throw AurexRenderError.renderFailed(
+                        "cannot map video frame to Metal texture for layer '\(layer.id)' (CVReturn \(textureStatus))"
+                    )
+                }
+                let geometry = Self.imageGeometry(
+                    contentMode: layer.contentMode,
+                    target: baseRect,
+                    canvasWidth: canvas.width,
+                    canvasHeight: canvas.height,
+                    imageWidth: CVPixelBufferGetWidth(pixelBuffer),
+                    imageHeight: CVPixelBufferGetHeight(pixelBuffer),
+                    zoom: layer.zoom,
+                    panX: layer.panX,
+                    panY: layer.panY
+                )
+                drawRect = geometry.rect
+                uvRect = geometry.uvRect
+                encoder.setRenderPipelineState(imagePipeline)
+                encoder.setFragmentTexture(texture, index: 0)
             }
 
             var uniforms = QuadUniforms(
@@ -321,17 +412,23 @@ public final class MetalCompositor {
         canvasWidth: Int,
         canvasHeight: Int,
         imageWidth: Int,
-        imageHeight: Int
+        imageHeight: Int,
+        zoom: Double = 1,
+        panX: Double = 0,
+        panY: Double = 0
     ) -> ImageGeometry {
         let targetWidth = target.width * Double(canvasWidth)
         let targetHeight = target.height * Double(canvasHeight)
         let imageWidth = Double(imageWidth)
         let imageHeight = Double(imageHeight)
+        let safeZoom = min(3, max(1, zoom.isFinite ? zoom : 1))
+        let safePanX = min(50, max(-50, panX.isFinite ? panX : 0))
+        let safePanY = min(50, max(-50, panY.isFinite ? panY : 0))
         switch contentMode {
         case .stretch:
             return ImageGeometry(rect: target, uvRect: SIMD4<Float>(0, 0, 1, 1))
         case .fit:
-            let scale = min(targetWidth / imageWidth, targetHeight / imageHeight)
+            let scale = min(targetWidth / imageWidth, targetHeight / imageHeight) * safeZoom
             let drawWidth = imageWidth * scale / Double(canvasWidth)
             let drawHeight = imageHeight * scale / Double(canvasHeight)
             return ImageGeometry(
@@ -344,16 +441,50 @@ public final class MetalCompositor {
                 uvRect: SIMD4<Float>(0, 0, 1, 1)
             )
         case .fill:
-            let scale = max(targetWidth / imageWidth, targetHeight / imageHeight)
+            let scale = max(targetWidth / imageWidth, targetHeight / imageHeight) * safeZoom
             let visibleWidth = targetWidth / scale / imageWidth
             let visibleHeight = targetHeight / scale / imageHeight
-            let uInset = Float((1 - visibleWidth) / 2)
-            let vInset = Float((1 - visibleHeight) / 2)
+            let uInset = (1 - visibleWidth) / 2
+            let vInset = (1 - visibleHeight) / 2
+            let shiftedUInset = uInset - safePanX / 50 * uInset
+            let shiftedVInset = vInset - safePanY / 50 * vInset
             return ImageGeometry(
                 rect: target,
-                uvRect: SIMD4<Float>(uInset, vInset, 1 - uInset, 1 - vInset)
+                uvRect: SIMD4<Float>(
+                    Float(shiftedUInset),
+                    Float(shiftedVInset),
+                    Float(shiftedUInset + visibleWidth),
+                    Float(shiftedVInset + visibleHeight)
+                )
             )
         }
+    }
+
+    private static func videoFrameIndex(
+        layer: SceneLayer,
+        frameIndex: Int,
+        canvasFrameRate: Double,
+        decoder: VideoFrameDecoder
+    ) -> Int {
+        let timelineTime = Double(frameIndex) / max(0.001, canvasFrameRate)
+        let sceneStart = Double(layer.startFrame) / max(0.001, canvasFrameRate)
+        let localElapsed = layer.videoSyncMode == .timeline
+            ? max(0, timelineTime)
+            : max(0, timelineTime - sceneStart)
+        let loopStart = min(max(0, decoder.duration - 0.001), layer.videoLoopStart)
+        let configuredEnd = layer.videoLoopEnd > loopStart ? layer.videoLoopEnd : decoder.duration
+        let loopEnd = min(decoder.duration, max(loopStart + 0.001, configuredEnd))
+        let span = max(0.001, loopEnd - loopStart)
+        let targetTime: Double
+        switch layer.videoSyncMode {
+        case .freeze:
+            targetTime = loopStart
+        case .scene, .timeline:
+            targetTime = layer.videoLoop
+                ? loopStart + localElapsed.truncatingRemainder(dividingBy: span)
+                : min(loopEnd - 0.001, loopStart + localElapsed)
+        }
+        return max(0, Int((targetTime * decoder.frameRate).rounded(.down)))
     }
 
     private static func resolveAsset(_ source: String, relativeTo manifestURL: URL) throws -> URL {

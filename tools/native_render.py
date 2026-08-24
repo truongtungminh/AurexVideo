@@ -1,10 +1,9 @@
 """Capability-aware bridge from the Python pipeline to Aurex Render Core.
 
-The native MVP deliberately has a narrow, explicit scene contract. A project
-can provide a complete ``nativeRenderManifest``/``native-render.json`` or an
-inline ``nativeRenderScene`` made only from solid and image layers. Standard
-AurexVideo topics are never approximated: scenes that still need text,
-karaoke, presenter poses, or comparison timelines stay on Browser.
+Scene IR v2 is compiled from the normal AurexVideo topic contract.  Explicit
+native manifests remain supported for low-level tests and custom scenes, but a
+standard project no longer needs a hand-authored manifest to enter the native
+pipeline.
 """
 
 from __future__ import annotations
@@ -18,9 +17,14 @@ from pathlib import Path
 import platform
 import subprocess
 
+try:
+    from native_scene import SceneCompileError, compile_standard_topic
+except ModuleNotFoundError:
+    from tools.native_scene import SceneCompileError, compile_standard_topic
 
-CORE_SCHEMA_VERSION = 1
-CORE_MVP_LAYER_TYPES = frozenset({"solid", "image"})
+
+CORE_SCHEMA_VERSION = 2
+CORE_MVP_LAYER_TYPES = frozenset({"solid", "image", "video", "text"})
 VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".m4v", ".webm"})
 
 
@@ -39,6 +43,8 @@ class NativeScene:
     document: dict[str, object]
     origin: str
     layer_types: tuple[str, ...]
+    staging_dir: Path | None = None
+    features: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,8 @@ class NativeRenderPlan:
     manifest_origin: str
     layer_types: tuple[str, ...]
     capabilities: dict[str, object]
+    staging_dir: Path | None = None
+    scene_features: tuple[str, ...] = ()
 
     @property
     def command(self) -> list[str]:
@@ -69,6 +77,9 @@ class NativeRenderPlan:
 
     def cleanup(self) -> None:
         self.manifest.unlink(missing_ok=True)
+        if self.staging_dir and self.staging_dir.exists():
+            import shutil
+            shutil.rmtree(self.staging_dir, ignore_errors=True)
 
 
 def _inside(child: Path, parent: Path) -> bool:
@@ -247,7 +258,7 @@ def _inline_scene_document(value: object) -> dict[str, object]:
 def _validate_scene_document(document: dict[str, object], manifest_dir: Path) -> tuple[str, ...]:
     if document.get("schemaVersion") != CORE_SCHEMA_VERSION:
         raise NativeRenderUnavailable(
-            f"Native scene dùng schemaVersion={document.get('schemaVersion')}; Core MVP cần schemaVersion=1.",
+            f"Native scene dùng schemaVersion={document.get('schemaVersion')}; Core V2 cần schemaVersion={CORE_SCHEMA_VERSION}.",
             reason="native_schema_unsupported",
         )
     layers = document.get("layers")
@@ -267,30 +278,56 @@ def _validate_scene_document(document: dict[str, object], manifest_dir: Path) ->
         if layer_type not in CORE_MVP_LAYER_TYPES:
             display = layer_type or "<missing>"
             raise NativeRenderUnavailable(
-                f"Core MVP không hỗ trợ layer type '{display}'; chỉ hỗ trợ solid/image.",
+                f"Core V2 không hỗ trợ layer type '{display}'.",
                 reason=f"unsupported_layer_type:{display}",
             )
         layer_types.add(layer_type)
-        if layer_type != "image":
-            continue
-        source = str(layer.get("source") or "").strip()
-        relative = Path(source)
-        if not source or relative.is_absolute() or ".." in relative.parts:
-            raise NativeRenderUnavailable(
-                f"Image layer '{layer.get('id') or index}' cần source tương đối an toàn.",
-                reason="native_image_path_unsafe",
-            )
-        asset = (manifest_dir / relative).resolve()
-        if not _inside(asset, manifest_dir.resolve()) or not asset.is_file():
-            raise NativeRenderUnavailable(
-                f"Không tìm thấy image asset của Core: {source}",
-                reason="native_image_missing",
-            )
+        if layer_type in {"image", "video"}:
+            source = str(layer.get("source") or "").strip()
+            relative = Path(source)
+            if not source or relative.is_absolute() or ".." in relative.parts:
+                raise NativeRenderUnavailable(
+                    f"{layer_type} layer '{layer.get('id') or index}' cần source tương đối an toàn.",
+                    reason="native_image_path_unsafe" if layer_type == "image" else "native_video_path_unsafe",
+                )
+            asset = (manifest_dir / relative).resolve()
+            if not _inside(asset, manifest_dir.resolve()) or not asset.is_file():
+                raise NativeRenderUnavailable(
+                    f"Không tìm thấy asset của Core: {source}",
+                    reason="native_asset_missing",
+                )
+        if layer_type == "text":
+            text = layer.get("text")
+            spans = layer.get("spans")
+            if not isinstance(text, str) and not (isinstance(spans, list) and spans):
+                raise NativeRenderUnavailable(
+                    f"Text layer '{layer.get('id') or index}' cần text hoặc spans.",
+                    reason="native_text_invalid",
+                )
+            font_source = str(layer.get("fontSource") or "").strip()
+            if font_source:
+                relative = Path(font_source)
+                if relative.is_absolute() or ".." in relative.parts:
+                    raise NativeRenderUnavailable(
+                        f"Text layer '{layer.get('id') or index}' có fontSource không an toàn.",
+                        reason="native_font_path_unsafe",
+                    )
+                asset = (manifest_dir / relative).resolve()
+                if not _inside(asset, manifest_dir.resolve()) or not asset.is_file():
+                    raise NativeRenderUnavailable(
+                        f"Không tìm thấy font asset của Core: {font_source}",
+                        reason="native_font_missing",
+                    )
     return tuple(sorted(layer_types))
 
 
-def resolve_native_scene(topic_path: Path) -> NativeScene:
-    """Resolve the complete native scene contract without approximating Browser."""
+def resolve_native_scene(
+    topic_path: Path,
+    *,
+    resource_root: Path | None = None,
+    staging_dir: Path | None = None,
+) -> NativeScene:
+    """Resolve an explicit scene or compile a standard topic into Scene IR v2."""
     topic = _read_topic(topic_path)
     project = topic_path.parent.resolve()
     explicit = topic.get("nativeRenderManifest")
@@ -301,26 +338,45 @@ def resolve_native_scene(topic_path: Path) -> NativeScene:
         document = _load_manifest_document(source)
         manifest_dir = source.parent.resolve()
         layer_types = _validate_scene_document(document, manifest_dir)
-        return NativeScene(source, manifest_dir, document, origin, layer_types)
+        return NativeScene(source, manifest_dir, document, origin, layer_types, features=tuple(layer_types))
     if topic.get("nativeRenderScene") is not None:
         document = _inline_scene_document(topic.get("nativeRenderScene"))
         layer_types = _validate_scene_document(document, project)
-        return NativeScene(None, project, document, "nativeRenderScene", layer_types)
+        return NativeScene(None, project, document, "nativeRenderScene", layer_types, features=tuple(layer_types))
     if conventional.is_file():
         source = conventional.resolve()
         document = _load_manifest_document(source)
         layer_types = _validate_scene_document(document, source.parent.resolve())
-        return NativeScene(source, source.parent.resolve(), document, "native-render.json", layer_types)
+        return NativeScene(source, source.parent.resolve(), document, "native-render.json", layer_types, features=tuple(layer_types))
 
-    features = topic_scene_features(topic)
-    if features:
+    if resource_root is None or staging_dir is None:
+        features = topic_scene_features(topic)
         raise NativeRenderUnavailable(
-            "Core MVP chỉ hỗ trợ solid/image; scene hiện tại cần " + ", ".join(features) + ".",
-            reason="unsupported_scene_features:" + ",".join(features),
+            "Standard topic cần được compile thành Scene IR v2 trước khi chạy Core; "
+            f"fixture có: {', '.join(features) or 'scene cơ bản'}.",
+            reason="native_scene_compile_requires_stage",
         )
-    raise NativeRenderUnavailable(
-        "Scene chưa khai báo nativeRenderScene hoặc native manifest đầy đủ.",
-        reason="native_scene_contract_missing",
+    try:
+        document = compile_standard_topic(
+            topic_path,
+            staging_dir=staging_dir,
+            resource_root=resource_root,
+        )
+    except SceneCompileError as exc:
+        raise NativeRenderUnavailable(str(exc), reason=exc.reason) from exc
+    layer_types = _validate_scene_document(document, staging_dir.resolve())
+    metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
+    raw_features = metadata.get("features") if isinstance(metadata, dict) else None
+    features = tuple(str(item) for item in raw_features if str(item).strip()) if isinstance(raw_features, list) else tuple(layer_types)
+    source = staging_dir / "native-scene-v2.json"
+    return NativeScene(
+        source,
+        staging_dir.resolve(),
+        document,
+        "compiled-standard-topic-v2",
+        layer_types,
+        staging_dir.resolve(),
+        features,
     )
 
 
@@ -360,7 +416,7 @@ def read_native_capabilities(binary: Path) -> dict[str, object]:
         )
     if capabilities.get("manifestSchemaVersion") != CORE_SCHEMA_VERSION:
         raise NativeRenderUnavailable(
-            "Binary aurex-render không hỗ trợ manifest schemaVersion=1.",
+            f"Binary aurex-render không hỗ trợ manifest schemaVersion={CORE_SCHEMA_VERSION}.",
             reason="core_schema_unsupported",
         )
     if not capabilities.get("metalDevice") or not capabilities.get("h264Encoders"):
@@ -454,24 +510,35 @@ def _prepare_manifest_document(
     frame_scale = float(fps) / source_fps
     layers = document.get("layers")
     if isinstance(layers, list):
+        prepared_layers: list[object] = []
         for layer in layers:
             if not isinstance(layer, dict):
                 continue
             try:
                 start_frame = int(layer.get("startFrame", 0))
-                layer["startFrame"] = int(round(start_frame * frame_scale))
+                start_frame = int(round(start_frame * frame_scale))
             except (TypeError, ValueError):
-                pass
+                start_frame = 0
+            if start_frame >= frame_count:
+                continue
+            start_frame = max(0, start_frame)
+            layer["startFrame"] = start_frame
             if layer.get("endFrame") is None:
+                prepared_layers.append(layer)
                 continue
             try:
                 end_frame = int(layer["endFrame"])
             except (TypeError, ValueError):
+                layer["endFrame"] = min(frame_count, start_frame + 1)
+                prepared_layers.append(layer)
                 continue
             if old_count > 0 and end_frame == old_count:
-                layer["endFrame"] = frame_count
+                end_frame = frame_count
             else:
-                layer["endFrame"] = int(round(end_frame * frame_scale))
+                end_frame = int(round(end_frame * frame_scale))
+            layer["endFrame"] = min(frame_count, max(start_frame + 1, end_frame))
+            prepared_layers.append(layer)
+        document["layers"] = prepared_layers
 
     destination.write_text(
         json.dumps(document, ensure_ascii=False, indent=2) + "\n",
@@ -491,25 +558,49 @@ def build_native_render_plan(
     duration: float,
     token: str,
 ) -> NativeRenderPlan:
-    scene = resolve_native_scene(topic_path)
     binary = find_native_binary(resource_root)
     if binary is None:
         raise NativeRenderUnavailable(
             "Không tìm thấy aurex-render trên máy; cần build/stage Core binary.",
             reason="core_binary_unavailable",
         )
-    capabilities = read_native_capabilities(binary)
-    supported = {
-        str(value).strip().lower()
-        for value in capabilities.get("supportedLayerTypes", [])
-        if str(value).strip()
-    }
-    missing = sorted(set(scene.layer_types) - supported)
-    if missing:
-        raise NativeRenderUnavailable(
-            "Binary aurex-render không hỗ trợ layer: " + ", ".join(missing) + ".",
-            reason="core_layer_capability_mismatch:" + ",".join(missing),
+    staging_dir: Path | None = None
+    if not topic_path.parent.joinpath("native-render.json").is_file():
+        staging_dir = topic_path.parent / f".aurex-scene-v2-{token}"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        scene = resolve_native_scene(
+            topic_path,
+            resource_root=resource_root,
+            staging_dir=staging_dir,
         )
+        if staging_dir and scene.staging_dir is None:
+            import shutil
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            staging_dir = None
+    except Exception:
+        if staging_dir and staging_dir.exists():
+            import shutil
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+    try:
+        capabilities = read_native_capabilities(binary)
+        supported = {
+            str(value).strip().lower()
+            for value in capabilities.get("supportedLayerTypes", [])
+            if str(value).strip()
+        }
+        missing = sorted(set(scene.layer_types) - supported)
+        if missing:
+            raise NativeRenderUnavailable(
+                "Binary aurex-render không hỗ trợ layer: " + ", ".join(missing) + ".",
+                reason="core_layer_capability_mismatch:" + ",".join(missing),
+            )
+    except Exception:
+        if scene.staging_dir and scene.staging_dir.exists():
+            import shutil
+            shutil.rmtree(scene.staging_dir, ignore_errors=True)
+        raise
     manifest = scene.manifest_dir / f".native-render-{token}.json"
     try:
         _prepare_manifest_document(scene.document, manifest, width, height, fps, duration)
@@ -523,9 +614,14 @@ def build_native_render_plan(
             manifest_origin=scene.origin,
             layer_types=scene.layer_types,
             capabilities=capabilities,
+            staging_dir=scene.staging_dir,
+            scene_features=scene.features,
         )
     except Exception:
         manifest.unlink(missing_ok=True)
+        if scene.staging_dir and scene.staging_dir.exists():
+            import shutil
+            shutil.rmtree(scene.staging_dir, ignore_errors=True)
         raise
 
 

@@ -19,6 +19,7 @@ from tools.native_render import (  # noqa: E402
     resolve_native_scene,
     topic_scene_features,
 )
+from tools.native_scene import compile_standard_topic  # noqa: E402
 from tools.render_project import (  # noqa: E402
     RenderBackendOutcome,
     native_manifest_image_signatures,
@@ -140,10 +141,46 @@ class NativeRenderBridgeTests(unittest.TestCase):
             with self.assertRaises(NativeRenderUnavailable) as raised:
                 resolve_native_scene(topic_path)
 
-            self.assertTrue(raised.exception.reason.startswith("unsupported_scene_features:"))
-            self.assertIn("pose-video", raised.exception.reason)
-            self.assertIn("text", raised.exception.reason)
-            self.assertIn("karaoke", raised.exception.reason)
+            self.assertEqual(raised.exception.reason, "native_scene_compile_requires_stage")
+
+    def test_standard_topic_compiles_to_self_contained_scene_ir_v2(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            root = Path(temp)
+            (root / "assets").mkdir()
+            (root / "poses").mkdir()
+            (root / "assets/left.png").write_bytes(b"left")
+            (root / "assets/right.png").write_bytes(b"right")
+            (root / "poses/pose-1.mp4").write_bytes(b"video")
+            topic_path = root / "topic.rendered.json"
+            topic_path.write_text(json.dumps({
+                "duration": 1.0,
+                "segments": [{"start": 0, "end": 1, "text": "Đây là test."}],
+                "poseTimeline": [{"time": 0, "pose": "pose-1"}],
+                "poseAssets": {"pose-1": {"speaking": "poses/pose-1.mp4"}},
+                "leftImage": "assets/left.png",
+                "rightImage": "assets/right.png",
+                "leftLabel": "Trái",
+                "rightLabel": "Phải",
+            }), encoding="utf-8")
+            stage = root / ".stage"
+
+            document = compile_standard_topic(
+                topic_path,
+                staging_dir=stage,
+                resource_root=ENGINE_ROOT,
+            )
+
+            self.assertEqual(document["schemaVersion"], 2)
+            self.assertEqual(
+                {layer["type"] for layer in document["layers"]},
+                {"image", "text", "video"},
+            )
+            for layer in document["layers"]:
+                source = layer.get("source") or layer.get("fontSource")
+                if source:
+                    self.assertFalse(Path(source).is_absolute())
+                    self.assertNotIn("..", Path(source).parts)
+                    self.assertTrue((stage / source).is_file())
 
     def test_inline_solid_image_scene_is_a_complete_native_contract(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
@@ -175,7 +212,7 @@ class NativeRenderBridgeTests(unittest.TestCase):
 
             self.assertEqual(scene.origin, "nativeRenderScene")
             self.assertEqual(scene.layer_types, ("image", "solid"))
-            self.assertEqual(scene.document["schemaVersion"], 1)
+            self.assertEqual(scene.document["schemaVersion"], 2)
             self.assertEqual(scene.document["canvas"]["backgroundColor"], "#102030")
 
     def test_inline_image_scene_rejects_parent_asset_path(self) -> None:

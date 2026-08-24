@@ -85,12 +85,41 @@ public struct OutputOptions: Decodable, Sendable {
 public enum SceneLayerType: String, Decodable, Sendable {
     case solid
     case image
+    case video
+    case text
 }
 
 public enum ImageContentMode: String, Decodable, Sendable {
     case stretch
     case fit
     case fill
+}
+
+public enum VideoSyncMode: String, Decodable, Sendable {
+    case scene
+    case timeline
+    case freeze
+}
+
+public enum TextAlignment: String, Decodable, Sendable {
+    case left
+    case center
+    case right
+}
+
+public struct TextSpan: Decodable, Sendable {
+    public let text: String
+    public let color: RGBAColor?
+
+    private enum CodingKeys: String, CodingKey {
+        case text, color
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        color = try container.decodeIfPresent(RGBAColor.self, forKey: .color)
+    }
 }
 
 public struct SceneLayer: Decodable, Sendable {
@@ -106,10 +135,29 @@ public struct SceneLayer: Decodable, Sendable {
     public let color: RGBAColor?
     public let source: String?
     public let contentMode: ImageContentMode
+    public let zoom: Double
+    public let panX: Double
+    public let panY: Double
+    public let videoSyncMode: VideoSyncMode
+    public let videoLoop: Bool
+    public let videoLoopStart: Double
+    public let videoLoopEnd: Double
+    public let text: String?
+    public let spans: [TextSpan]
+    public let textColor: RGBAColor?
+    public let fontFamily: String
+    public let fontSource: String?
+    public let fontSize: Double
+    public let fontWeight: Int
+    public let lineHeight: Double
+    public let textAlignment: TextAlignment
 
     private enum CodingKeys: String, CodingKey {
         case id, type, zIndex, startFrame, endFrame, rect, endRect
-        case opacity, endOpacity, color, source, contentMode
+        case opacity, endOpacity, color, source, contentMode, zoom, panX, panY
+        case videoSyncMode, videoLoop, videoLoopStart, videoLoopEnd
+        case text, spans, textColor, fontFamily, fontSource, fontSize, fontWeight
+        case lineHeight, textAlignment
     }
 
     public init(from decoder: Decoder) throws {
@@ -126,6 +174,22 @@ public struct SceneLayer: Decodable, Sendable {
         color = try container.decodeIfPresent(RGBAColor.self, forKey: .color)
         source = try container.decodeIfPresent(String.self, forKey: .source)
         contentMode = try container.decodeIfPresent(ImageContentMode.self, forKey: .contentMode) ?? .stretch
+        zoom = try container.decodeIfPresent(Double.self, forKey: .zoom) ?? 1
+        panX = try container.decodeIfPresent(Double.self, forKey: .panX) ?? 0
+        panY = try container.decodeIfPresent(Double.self, forKey: .panY) ?? 0
+        videoSyncMode = try container.decodeIfPresent(VideoSyncMode.self, forKey: .videoSyncMode) ?? .scene
+        videoLoop = try container.decodeIfPresent(Bool.self, forKey: .videoLoop) ?? true
+        videoLoopStart = try container.decodeIfPresent(Double.self, forKey: .videoLoopStart) ?? 0
+        videoLoopEnd = try container.decodeIfPresent(Double.self, forKey: .videoLoopEnd) ?? 0
+        text = try container.decodeIfPresent(String.self, forKey: .text)
+        spans = try container.decodeIfPresent([TextSpan].self, forKey: .spans) ?? []
+        textColor = try container.decodeIfPresent(RGBAColor.self, forKey: .textColor)
+        fontFamily = try container.decodeIfPresent(String.self, forKey: .fontFamily) ?? "Inter"
+        fontSource = try container.decodeIfPresent(String.self, forKey: .fontSource)
+        fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 48
+        fontWeight = try container.decodeIfPresent(Int.self, forKey: .fontWeight) ?? 700
+        lineHeight = try container.decodeIfPresent(Double.self, forKey: .lineHeight) ?? 1.15
+        textAlignment = try container.decodeIfPresent(TextAlignment.self, forKey: .textAlignment) ?? .center
     }
 
     public func resolvedEndFrame(frameCount: Int) -> Int {
@@ -184,6 +248,13 @@ public struct RGBAColor: Decodable, Equatable, Sendable {
     public let blue: Float
     public let alpha: Float
 
+    public init(red: Float, green: Float, blue: Float, alpha: Float) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
+
     public init(hex: String) throws {
         let value = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         guard value.count == 6 || value.count == 8, let packed = UInt64(value, radix: 16) else {
@@ -226,9 +297,9 @@ public struct ManifestDocument: Sendable {
 
 public enum ManifestValidator {
     public static func validate(_ manifest: RenderManifest) throws {
-        guard manifest.schemaVersion == AurexRenderCore.manifestSchemaVersion else {
+        guard manifest.schemaVersion == 1 || manifest.schemaVersion == AurexRenderCore.manifestSchemaVersion else {
             throw AurexRenderError.invalidManifest(
-                "schemaVersion \(manifest.schemaVersion) is unsupported; expected \(AurexRenderCore.manifestSchemaVersion)"
+                "schemaVersion \(manifest.schemaVersion) is unsupported; expected 1 or \(AurexRenderCore.manifestSchemaVersion)"
             )
         }
         let canvas = manifest.canvas
@@ -278,16 +349,40 @@ public enum ManifestValidator {
                   layer.endOpacity.map({ (0...1).contains($0) }) ?? true else {
                 throw AurexRenderError.invalidManifest("layer '\(layer.id)' opacity must be between 0 and 1")
             }
+            guard layer.zoom.isFinite, layer.zoom > 0, layer.zoom <= 3,
+                  layer.panX.isFinite, (-50...50).contains(layer.panX),
+                  layer.panY.isFinite, (-50...50).contains(layer.panY) else {
+                throw AurexRenderError.invalidManifest("layer '\(layer.id)' image transform is invalid")
+            }
             switch layer.type {
             case .solid:
                 guard layer.color != nil else {
                     throw AurexRenderError.invalidManifest("solid layer '\(layer.id)' requires color")
                 }
-            case .image:
+            case .image, .video:
                 guard let source = layer.source, isSafeRelativePath(source) else {
                     throw AurexRenderError.invalidManifest(
-                        "image layer '\(layer.id)' requires a relative source path without '..'"
+                        "media layer '\(layer.id)' requires a relative source path without '..'"
                     )
+                }
+                if layer.type == .video {
+                    guard layer.videoLoopStart.isFinite, layer.videoLoopStart >= 0,
+                          layer.videoLoopEnd.isFinite, layer.videoLoopEnd >= 0 else {
+                        throw AurexRenderError.invalidManifest("video layer '\(layer.id)' loop window is invalid")
+                    }
+                }
+            case .text:
+                guard layer.text != nil || !layer.spans.isEmpty else {
+                    throw AurexRenderError.invalidManifest("text layer '\(layer.id)' requires text or spans")
+                }
+                guard layer.fontSize.isFinite, layer.fontSize > 0, layer.fontSize <= 2048,
+                      layer.lineHeight.isFinite, layer.lineHeight > 0, layer.lineHeight <= 4 else {
+                    throw AurexRenderError.invalidManifest("text layer '\(layer.id)' typography is invalid")
+                }
+                if let fontSource = layer.fontSource {
+                    guard isSafeRelativePath(fontSource) else {
+                        throw AurexRenderError.invalidManifest("text layer '\(layer.id)' fontSource is unsafe")
+                    }
                 }
             }
         }
