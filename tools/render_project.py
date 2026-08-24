@@ -86,6 +86,7 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
         "core_version": outcome.core_version,
         "native_scene_features": list(outcome.scene_features),
         "native_scene_warnings": list(outcome.scene_warnings),
+        "compatibility_mode": outcome.compatibility_mode,
         "core_compatibility_mode": outcome.compatibility_mode,
         "scene_renderer": outcome.scene_renderer,
         "video_encoder": outcome.video_encoder,
