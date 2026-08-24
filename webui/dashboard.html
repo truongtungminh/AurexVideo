@@ -114,6 +114,14 @@
                 <button type="button" data-speed="1.2">1.2×</button>
               </div>
               <label>Độ phân giải<select id="renderSize"><option value="720x1280">720 × 1280 · nhanh</option><option value="1080x1920" selected>1080 × 1920 · nét</option></select></label>
+              <label>Bộ máy render
+                <select id="renderBackend">
+                  <option value="auto" selected>Auto · Core-first, fallback có báo cáo</option>
+                  <option value="native">Aurex Render Core · bắt buộc native</option>
+                  <option value="browser">Browser · tương thích</option>
+                </select>
+              </label>
+              <p class="form-note">Core MVP chỉ nhận scene solid/image đầy đủ; text, karaoke và pose tự fallback Browser khi chọn Auto.</p>
             </div>
           </details>
 

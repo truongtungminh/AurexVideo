@@ -914,7 +914,7 @@ def coerce_quality_profile(value: object) -> str:
 
 def coerce_render_backend(value: object) -> str:
     """Validate the native/browser render backend at the API boundary."""
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "auto").strip().lower()
     aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
     requested = aliases.get(requested, requested)
     if requested not in {"browser", "auto", "native"}:
@@ -1888,7 +1888,21 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
                 error=summary,
             )
         else:
+            report_path = video_path.with_name(f"{video_path.stem}.render-report.json")
+            try:
+                render_report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                render_report = {}
+            backend_requested = str(render_report.get("backend_requested") or "auto")
+            backend_used = str(render_report.get("backend_used") or render_report.get("render_backend") or "unknown")
+            fallback_reason = render_report.get("fallback_reason")
             append_log(job_id, f"\nPostflight OK: {postflight.get('width')}x{postflight.get('height')} @ {postflight.get('fps')}fps, BT.709, AAC stereo 48kHz.\n")
+            append_log(
+                job_id,
+                "Backend report: "
+                f"backend_requested={backend_requested} backend_used={backend_used} "
+                f"fallback_reason={fallback_reason or 'null'}\n",
+            )
             append_log(job_id, f"Done: {video_path}\n")
             finish_export_allowance("completed")
             set_job_state(
@@ -1898,6 +1912,9 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
                 finished_at=time.time(),
                 video_url=final_video_url(project),
                 postflight=postflight,
+                backend_requested=backend_requested,
+                backend_used=backend_used,
+                fallback_reason=fallback_reason,
             )
     elif returncode == 0:
         append_log(job_id, "\nRender finished, but final_video.mp4 was not found.\n")
@@ -2032,6 +2049,7 @@ def has_running_job(project: str) -> bool:
 def create_job(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     require_project(project)
+    backend_requested = coerce_render_backend(payload.get("renderBackend") or payload.get("render_backend"))
     job_id = uuid.uuid4().hex[:12]
     now = time.time()
     with JOBS_LOCK:
@@ -2048,6 +2066,9 @@ def create_job(payload: dict) -> dict:
             "created_at": now,
             "updated_at": now,
             "video_url": None,
+            "backend_requested": backend_requested,
+            "backend_used": None,
+            "fallback_reason": None,
         }
 
     license_event_id = None
@@ -2078,6 +2099,9 @@ def create_job(payload: dict) -> dict:
         "created_at": now,
         "updated_at": now,
         "video_url": None,
+        "backend_requested": backend_requested,
+        "backend_used": None,
+        "fallback_reason": None,
         "trial_event_id": license_event_id,
         "allowance_finalized": False,
         "allowance_finalizing": False,
@@ -3890,12 +3914,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <span>Bộ máy render</span>
             </span>
             <select id="renderBackend">
-              <option value="browser" selected>Browser · tương thích mọi project</option>
-              <option value="auto">Auto · thử Aurex Render Core rồi fallback</option>
-              <option value="native">Aurex Render Core · yêu cầu native manifest</option>
+              <option value="auto" selected>Auto · Core-first, fallback có báo cáo</option>
+              <option value="native">Aurex Render Core · bắt buộc native-capable</option>
+              <option value="browser">Browser · chế độ tương thích</option>
             </select>
           </label>
-          <p class="engine-note render-backend-note">Aurex Render Core đang ở MVP: project chưa có native manifest sẽ tự quay về Browser khi chọn Auto.</p>
+          <p class="engine-note render-backend-note">Auto chỉ dùng Core thật cho scene solid/image đầy đủ; text, karaoke và pose sẽ fallback Browser kèm lý do trong log/report.</p>
         </div>
       </section>
 
@@ -6760,7 +6784,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260823-quality-v3"></script>
+  <script src="/web/render_page.js?v=20260824-core-first-v1"></script>
 """,
     )
 
@@ -8831,7 +8855,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260823-quality-v3"></script>
+  <script src="/web/render_page.js?v=20260824-core-first-v1"></script>
 """,
     )
 

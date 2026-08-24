@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -49,6 +50,47 @@ configure_native_runtime()
 ROOT = RESOURCE_ROOT
 PYTHON = PYTHON_EXECUTABLE
 VIENEU_PYTHON = resolve_vieneu_python()
+
+
+@dataclass(frozen=True)
+class RenderBackendOutcome:
+    backend_used: str
+    fallback_reason: str | None = None
+    fallback_detail: str | None = None
+    manifest_origin: str | None = None
+    layer_types: tuple[str, ...] = ()
+    core_version: str | None = None
+
+    @property
+    def used_native(self) -> bool:
+        return self.backend_used == "aurex-render"
+
+
+def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict[str, object]:
+    """Build the stable backend/capability contract written beside every output."""
+    return {
+        "render_backend": outcome.backend_used,
+        "backend_requested": requested,
+        "backend_used": outcome.backend_used,
+        "fallback_reason": outcome.fallback_reason,
+        "fallback_detail": outcome.fallback_detail,
+        "native_manifest_origin": outcome.manifest_origin,
+        "native_layer_types": list(outcome.layer_types),
+        "native_core_version": outcome.core_version,
+        "capability_report": {
+            "core_mvp_layer_types": ["solid", "image"],
+            "decision": (
+                "native"
+                if outcome.used_native
+                else ("fallback" if outcome.fallback_reason else "browser_requested")
+            ),
+            "scene_contract": outcome.manifest_origin,
+            "scene_layer_types": list(outcome.layer_types),
+            "core_version": outcome.core_version,
+            "fallback_reason": outcome.fallback_reason,
+            "fallback_detail": outcome.fallback_detail,
+        },
+    }
 
 
 def run(command: list[str]) -> None:
@@ -622,7 +664,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
     native_manifest_signature = file_signature(native_manifest_path)
     native_image_signatures = native_manifest_image_signatures(native_manifest_path)
     native_binary_signature = ""
-    if getattr(args, "render_backend", "browser") in {"auto", "native"}:
+    if getattr(args, "render_backend", "auto") in {"auto", "native"}:
         try:
             native_binary = find_native_binary(ROOT)
             native_binary_signature = file_signature(native_binary) if native_binary else "unavailable"
@@ -654,7 +696,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
             str(bool(args.no_branding)).encode("utf-8"),
             file_signature(args.brand_logo).encode("utf-8"),
             args.brand_name.encode("utf-8"),
-            str(getattr(args, "render_backend", "browser")).encode("utf-8"),
+            str(getattr(args, "render_backend", "auto")).encode("utf-8"),
             native_manifest_signature.encode("utf-8"),
             json.dumps(native_image_signatures, ensure_ascii=False).encode("utf-8"),
             native_binary_signature.encode("utf-8"),
@@ -664,7 +706,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
 
 
 def resolve_render_backend(value: str | None) -> str:
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "auto").strip().lower()
     aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
     requested = aliases.get(requested, requested)
     if requested not in {"browser", "auto", "native"}:
@@ -688,7 +730,7 @@ def render_native_backend(
     duration: float,
     quality: RenderProfile,
     token: str,
-) -> bool:
+) -> RenderBackendOutcome:
     """Try one complete native render, with an Auto-only browser fallback."""
     plan = None
     try:
@@ -725,8 +767,15 @@ def render_native_backend(
             native_report_data = json.loads(native_report.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             pass
+        core_version = str(plan.capabilities.get("coreVersion") or "").strip() or None
         native_report_data.update({
-            "render_backend": "aurex-render-core",
+            "render_backend": "aurex-render",
+            "backend_requested": backend,
+            "backend_used": "aurex-render",
+            "fallback_reason": None,
+            "native_manifest_origin": plan.manifest_origin,
+            "native_layer_types": list(plan.layer_types),
+            "native_core_version": core_version,
             "audio_multiplexed": True,
             "audio": "AAC (muxed by AurexVideo pipeline)",
         })
@@ -734,17 +783,56 @@ def render_native_backend(
             json.dumps(native_report_data, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        return True
+        print(
+            f"Render backend decision: backend_requested={backend} "
+            "backend_used=aurex-render fallback_reason=null",
+            flush=True,
+        )
+        return RenderBackendOutcome(
+            backend_used="aurex-render",
+            manifest_origin=plan.manifest_origin,
+            layer_types=plan.layer_types,
+            core_version=core_version,
+        )
     except NativeRenderUnavailable as exc:
+        fallback_reason = exc.reason
         if backend == "native":
+            print(
+                f"Render backend decision: backend_requested={backend} backend_used=none "
+                f"fallback_reason={fallback_reason}; detail={exc}",
+                flush=True,
+            )
             raise
-        print(f"Aurex Render Core fallback: {exc}", flush=True)
-        return False
+        print(
+            f"Render backend decision: backend_requested={backend} backend_used=browser "
+            f"fallback_reason={fallback_reason}; detail={exc}",
+            flush=True,
+        )
+        return RenderBackendOutcome(
+            backend_used="browser",
+            fallback_reason=fallback_reason,
+            fallback_detail=str(exc),
+        )
     except Exception as exc:
+        detail = " ".join(str(exc).split())[:500]
+        fallback_reason = f"native_runtime_failed:{detail or type(exc).__name__}"
         if backend == "native":
+            print(
+                f"Render backend decision: backend_requested={backend} backend_used=none "
+                f"fallback_reason={fallback_reason}",
+                flush=True,
+            )
             raise
-        print(f"Aurex Render Core runtime fallback: {exc}", flush=True)
-        return False
+        print(
+            f"Render backend decision: backend_requested={backend} backend_used=browser "
+            f"fallback_reason={fallback_reason}",
+            flush=True,
+        )
+        return RenderBackendOutcome(
+            backend_used="browser",
+            fallback_reason=fallback_reason,
+            fallback_detail=detail or type(exc).__name__,
+        )
     finally:
         if plan:
             plan.cleanup()
@@ -771,7 +859,7 @@ def main() -> None:
         "--render-backend",
         choices=["browser", "auto", "native"],
         default=None,
-        help="Backend render: browser giữ parity, auto thử native rồi fallback, native yêu cầu Aurex Render Core.",
+        help="Backend render: auto (mặc định) dùng Core khi scene đủ capability rồi fallback Browser.",
     )
     parser.add_argument("--voice", default="vi-VN-NamMinhNeural")
     parser.add_argument("--model-id", default="")
@@ -813,6 +901,18 @@ def main() -> None:
                     height=cached_height,
                     fps=args.fps,
                 )
+                cached_report_path = output.with_name(f"{output.stem}.render-report.json")
+                try:
+                    cached_report = json.loads(cached_report_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    cached_report = {}
+                print(
+                    "Render backend decision: "
+                    f"backend_requested={cached_report.get('backend_requested', args.render_backend)} "
+                    f"backend_used={cached_report.get('backend_used', cached_report.get('render_backend', 'unknown'))} "
+                    f"fallback_reason={cached_report.get('fallback_reason') or 'null'}",
+                    flush=True,
+                )
                 print(f"Render cache hit: dùng lại {output}", flush=True)
                 print(f"Done: {output}", flush=True)
                 return
@@ -852,7 +952,7 @@ def main() -> None:
     native_video = render_output.with_name(f".{output.stem}-native-video-{token}.mp4")
     native_report = native_video.with_name(f"{native_video.stem}.render-report.json")
     native_audio = render_output.with_name(f".{output.stem}-native-audio-{token}.wav")
-    used_render_backend = "browser"
+    backend_outcome = RenderBackendOutcome(backend_used="browser")
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
         run([
@@ -862,7 +962,7 @@ def main() -> None:
         ])
         render_fps = max(1, int(args.fps))
         if args.render_backend in {"auto", "native"}:
-            if render_native_backend(
+            backend_outcome = render_native_backend(
                 backend=args.render_backend,
                 topic_path=aligned_topic,
                 resource_root=ROOT,
@@ -877,10 +977,15 @@ def main() -> None:
                 duration=duration,
                 quality=quality,
                 token=token,
-            ):
-                used_render_backend = "aurex-render-core"
+            )
+        else:
+            print(
+                f"Render backend decision: backend_requested={args.render_backend} "
+                "backend_used=browser fallback_reason=null",
+                flush=True,
+            )
 
-        if used_render_backend == "browser":
+        if backend_outcome.backend_used == "browser":
             print("Rendering one-scene video frame-by-frame...", flush=True)
             run([
                 str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
@@ -916,7 +1021,7 @@ def main() -> None:
         except (OSError, json.JSONDecodeError):
             report = {}
         report.update({
-            "render_backend": used_render_backend,
+            **render_backend_report(args.render_backend, backend_outcome),
             "quality_profile": quality.to_dict(),
             "finalization": {
                 "branding": bool(not args.no_branding and (args.brand_logo or args.brand_name)),

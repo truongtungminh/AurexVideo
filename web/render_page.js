@@ -177,7 +177,7 @@
       branding: brandingControl?.checked === true,
       brandName: state.renderOptions.brandName || 'aurexvideo.app',
       qualityProfile: $('#renderQuality')?.value || 'standard',
-      renderBackend: $('#renderBackend')?.value || 'browser',
+      renderBackend: $('#renderBackend')?.value || 'auto',
     };
     localStorage.setItem(RENDER_PREFERENCES_KEY, JSON.stringify(value));
   }
@@ -3743,7 +3743,7 @@
         volume: Number($('#renderVolume').value || 1),
         size: $('#renderSize')?.value || '1080x1920',
         qualityProfile: $('#renderQuality')?.value || 'standard',
-        renderBackend: $('#renderBackend')?.value || 'browser',
+        renderBackend: $('#renderBackend')?.value || 'auto',
         fps: 30,
         outro: false,
         branding: $('#renderBranding')?.checked === true,
