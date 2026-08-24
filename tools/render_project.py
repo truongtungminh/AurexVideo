@@ -62,6 +62,8 @@ class RenderBackendOutcome:
     core_version: str | None = None
     compatibility_mode: bool = False
     scene_renderer: str | None = None
+    video_encoder: str | None = None
+    browser_invocations: int = 0
 
     @property
     def used_native(self) -> bool:
@@ -81,12 +83,18 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
         "native_core_version": outcome.core_version,
         "core_compatibility_mode": outcome.compatibility_mode,
         "scene_renderer": outcome.scene_renderer,
+        "video_encoder": outcome.video_encoder,
+        "browser_invocations": outcome.browser_invocations,
         "capability_report": {
             "core_mvp_layer_types": ["solid", "image"],
             "decision": (
                 "native"
                 if outcome.used_native
-                else ("fallback" if outcome.fallback_reason else "browser_requested")
+                else (
+                    "compatibility"
+                    if outcome.compatibility_mode
+                    else ("fallback" if outcome.fallback_reason else "browser_requested")
+                )
             ),
             "scene_contract": outcome.manifest_origin,
             "scene_layer_types": list(outcome.layer_types),
@@ -95,6 +103,8 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
             "fallback_detail": outcome.fallback_detail,
             "compatibility_mode": outcome.compatibility_mode,
             "scene_renderer": outcome.scene_renderer,
+            "video_encoder": outcome.video_encoder,
+            "browser_invocations": outcome.browser_invocations,
         },
     }
 
@@ -799,6 +809,8 @@ def render_native_backend(
             manifest_origin=plan.manifest_origin,
             layer_types=plan.layer_types,
             core_version=core_version,
+            scene_renderer="aurex-native-scene",
+            video_encoder="aurex-render",
         )
     except NativeRenderUnavailable as exc:
         fallback_reason = exc.reason
@@ -818,6 +830,9 @@ def render_native_backend(
             backend_used="browser",
             fallback_reason=fallback_reason,
             fallback_detail=str(exc),
+            scene_renderer="browser",
+            video_encoder="ffmpeg",
+            browser_invocations=1,
         )
     except Exception as exc:
         detail = " ".join(str(exc).split())[:500]
@@ -838,6 +853,9 @@ def render_native_backend(
             backend_used="browser",
             fallback_reason=fallback_reason,
             fallback_detail=detail or type(exc).__name__,
+            scene_renderer="browser",
+            video_encoder="ffmpeg",
+            browser_invocations=1,
         )
     finally:
         if plan:
@@ -894,14 +912,20 @@ def render_core_compatibility_backend(
         pass
     print(
         "Render backend decision: backend_requested=auto "
-        "backend_used=aurex-render compatibility_mode=true fallback_reason=null",
+        "backend_used=browser video_encoder=aurex-render "
+        "compatibility_mode=true fallback_reason=null",
         flush=True,
     )
     return RenderBackendOutcome(
-        backend_used="aurex-render",
+        # This is deliberately reported as Browser scene rendering. Core owns
+        # the final H.264 pass here, but it is not native scene parity until
+        # the browser rasterizer is removed.
+        backend_used="browser",
         core_version=core_version,
         compatibility_mode=True,
         scene_renderer="browser-raster-compatibility",
+        video_encoder="aurex-render",
+        browser_invocations=1,
     )
 
 
@@ -1065,6 +1089,9 @@ def main() -> None:
                         backend_used="browser",
                         fallback_reason="core_compatibility_failed",
                         fallback_detail=detail or type(exc).__name__,
+                        scene_renderer="browser",
+                        video_encoder="ffmpeg",
+                        browser_invocations=1,
                     )
         else:
             print(
@@ -1072,8 +1099,14 @@ def main() -> None:
                 "backend_used=browser fallback_reason=null",
                 flush=True,
             )
+            backend_outcome = RenderBackendOutcome(
+                backend_used="browser",
+                scene_renderer="browser",
+                video_encoder="ffmpeg",
+                browser_invocations=1,
+            )
 
-        if backend_outcome.backend_used == "browser":
+        if backend_outcome.backend_used == "browser" and not backend_outcome.compatibility_mode:
             print("Rendering one-scene video frame-by-frame...", flush=True)
             run([
                 str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
