@@ -8,6 +8,7 @@ import asyncio
 from contextlib import contextmanager
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 import json
 import os
 import math
@@ -288,6 +289,18 @@ async def render_frames(
     encoder_backend = str(encoder_backend or "browser").strip().lower()
     if encoder_backend not in {"browser", "aurex-render"}:
         raise ValueError("encoder_backend phải là browser hoặc aurex-render.")
+
+    image_decoder = None
+    if encoder_backend == "aurex-render":
+        from PIL import Image
+
+        def image_decoder(frame: bytes) -> bytes:
+            with Image.open(BytesIO(frame)) as image:
+                image = image.convert("RGBA")
+                if image.size != (width, height):
+                    image = image.resize((width, height), Image.Resampling.LANCZOS)
+                return image.tobytes("raw", "BGRA")
+
     if encoder_backend == "aurex-render" and (core_binary is None or not core_binary.is_file()):
         raise FileNotFoundError(f"Không tìm thấy Aurex Render Core binary: {core_binary}")
 
@@ -337,22 +350,6 @@ async def render_frames(
             # The browser remains a scene adapter for features not yet
             # expressed by the native manifest. Core owns the raw-frame
             # timeline and H.264/VideoToolbox delivery for the whole project.
-            decode_filter = (
-                f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=pc,"
-                "setsar=1,format=bgra"
-            )
-            decode_command = [
-                str(ffmpeg_executable()), "-y", "-loglevel", "error",
-                "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
-                "-frames:v", str(frame_total), "-vf", decode_filter,
-                "-pix_fmt", "bgra", "-f", "rawvideo", "pipe:1",
-            ]
-            decoder = subprocess.Popen(
-                decode_command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
             core_command = [
                 str(core_binary), "encode-raw",
                 "--width", str(width), "--height", str(height),
@@ -381,7 +378,6 @@ async def render_frames(
                 "-map_metadata", "-1", "-map_chapters", "-1",
                 "-shortest", *mux_options, str(output),
             ]
-            decoder = None
             encoder = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
@@ -394,6 +390,7 @@ async def render_frames(
         core_decode_seconds = 0.0
         capture_bytes = 0
         media_sync_stats: dict = {}
+        decoder = None
         render_started = time.perf_counter()
         try:
             async with async_playwright() as playwright:
@@ -410,8 +407,6 @@ async def render_frames(
                 await page.evaluate("window.prepareOfflineRender()")
                 if encoder.stdin is None:
                     raise RuntimeError("Không mở được luồng frame cho bộ mã hóa.")
-                if use_core_encoder and (decoder is None or decoder.stdin is None or decoder.stdout is None):
-                    raise RuntimeError("Không mở được luồng frame cho Core compatibility adapter.")
                 last_good_frame = None
                 frame_errors = 0
                 reused_frames = 0
@@ -460,11 +455,9 @@ async def render_frames(
                     if last_good_frame is None:
                         raise RuntimeError(f"Không có frame hợp lệ tại {frame_time:.3f}s.")
                     if use_core_encoder:
-                        assert decoder is not None and decoder.stdin is not None and decoder.stdout is not None
+                        assert image_decoder is not None
                         decode_started = time.perf_counter()
-                        decoder.stdin.write(last_good_frame)
-                        decoder.stdin.flush()
-                        raw_frame = _read_exact(decoder.stdout, width * height * 4)
+                        raw_frame = image_decoder(last_good_frame)
                         core_decode_seconds += time.perf_counter() - decode_started
                         encoder.stdin.write(raw_frame)
                         encoder.stdin.flush()
@@ -489,19 +482,6 @@ async def render_frames(
                 except subprocess.TimeoutExpired:
                     encoder.kill()
                     encoder.wait()
-            if decoder is not None:
-                if decoder.stdin is not None:
-                    try:
-                        decoder.stdin.close()
-                    except BrokenPipeError:
-                        pass
-                if decoder.poll() is None:
-                    decoder.terminate()
-                    try:
-                        decoder.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        decoder.kill()
-                        decoder.wait()
             raise
 
         if encoder.stdin is not None:
@@ -509,18 +489,8 @@ async def render_frames(
                 encoder.stdin.close()
             except BrokenPipeError:
                 pass
-        if decoder is not None and decoder.stdin is not None:
-            try:
-                decoder.stdin.close()
-            except BrokenPipeError:
-                pass
         stderr = encoder.stderr.read().decode("utf-8", errors="replace") if encoder.stderr else ""
         returncode = encoder.wait()
-        decoder_stderr = ""
-        decoder_returncode = 0
-        if decoder is not None:
-            decoder_stderr = decoder.stderr.read().decode("utf-8", errors="replace") if decoder.stderr else ""
-            decoder_returncode = decoder.wait()
         total_seconds = time.perf_counter() - render_started
         print(
             "Render profile: "
@@ -547,8 +517,6 @@ async def render_frames(
                 f"max_drift={float(media_sync_stats.get('maxDriftMs', 0)):.1f}ms",
                 flush=True,
             )
-        if decoder_returncode != 0:
-            raise RuntimeError(f"FFmpeg không chuyển frame sang BGRA được: {decoder_stderr.strip()}")
         if returncode != 0:
             engine_name = "Aurex Render Core" if use_core_encoder else "FFmpeg"
             raise RuntimeError(f"{engine_name} không mã hóa được video frame-by-frame: {stderr.strip()}")
@@ -606,18 +574,6 @@ async def render_frames(
                 core_report.unlink(missing_ok=True)
         report_path = output.with_name(f"{output.stem}.render-report.json")
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _read_exact(stream, byte_count: int) -> bytes:
-    chunks: list[bytes] = []
-    remaining = byte_count
-    while remaining > 0:
-        chunk = stream.read(remaining)
-        if not chunk:
-            raise RuntimeError(f"Frame decoder ended after {byte_count - remaining} of {byte_count} bytes.")
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
 
 
 async def render(
