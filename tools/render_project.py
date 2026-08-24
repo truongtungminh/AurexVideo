@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import uuid
@@ -750,6 +751,65 @@ def resolve_render_backend(value: str | None) -> str:
     return requested
 
 
+def character_specific_css_selectors(
+    topic: dict[str, object],
+    *,
+    stylesheet: Path | None = None,
+) -> tuple[str, ...]:
+    """Return active stylesheet selectors that customize this topic's character.
+
+    Browser preview adds ``character-<characterId>`` classes to the stage and
+    teacher wrapper. Native scene compilation currently cannot consume those
+    CSS rules, so a matching selector means native scene output cannot promise
+    preview parity. ``brand`` is the legacy fallback used by native_scene when
+    a topic does not provide ``characterId``.
+    """
+    character_id = str(topic.get("characterId") or topic.get("brand") or "").strip().lower()
+    if not character_id:
+        return ()
+    path = stylesheet or ROOT / "style.css"
+    try:
+        css = path.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+
+    # Ignore examples/documentation inside comments, then inspect only rule
+    # preludes. This intentionally avoids treating a class name in a property
+    # value or a comment as an active selector.
+    active_css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    class_pattern = re.compile(
+        rf"\.character-{re.escape(character_id)}(?![\w-])"
+    )
+    selectors: list[str] = []
+    for prelude in re.findall(r"([^{}]+)\{", active_css):
+        for selector in prelude.split(","):
+            normalized = " ".join(selector.split())
+            if normalized and class_pattern.search(normalized):
+                selectors.append(normalized)
+    return tuple(dict.fromkeys(selectors))
+
+
+def requires_character_css_compatibility(
+    backend: str,
+    topic: dict[str, object],
+    *,
+    stylesheet: Path | None = None,
+) -> bool:
+    """Guard native scene rendering when the preview has character-only CSS."""
+    selectors = character_specific_css_selectors(topic, stylesheet=stylesheet)
+    if not selectors:
+        return False
+    if backend == "native":
+        examples = "; ".join(selectors[:3])
+        raise NativeRenderUnavailable(
+            "Aurex Render Core native scene không thể bảo toàn CSS riêng theo nhân vật "
+            f"trong style.css ({examples}). Dùng --render-backend auto để raster Browser "
+            "giữ đúng preview, với Aurex Render Core vẫn mã hoá video.",
+            reason="character_css_parity_required",
+        )
+    return backend == "auto"
+
+
 def render_native_backend(
     *,
     backend: str,
@@ -900,6 +960,8 @@ def render_core_compatibility_backend(
     height: int,
     fps: int,
     quality: RenderProfile,
+    compatibility_reason: str | None = None,
+    compatibility_detail: str | None = None,
 ) -> RenderBackendOutcome:
     """Render any standard topic through Core's universal raw-frame entry point.
 
@@ -938,7 +1000,8 @@ def render_core_compatibility_backend(
     print(
         "Render backend decision: backend_requested=auto "
         "backend_used=browser video_encoder=aurex-render "
-        "compatibility_mode=true fallback_reason=null",
+        "compatibility_mode=true "
+        f"fallback_reason={compatibility_reason or 'null'}",
         flush=True,
     )
     return RenderBackendOutcome(
@@ -947,6 +1010,8 @@ def render_core_compatibility_backend(
         # the browser rasterizer is removed.
         backend_used="browser",
         core_version=core_version,
+        fallback_reason=compatibility_reason,
+        fallback_detail=compatibility_detail,
         compatibility_mode=True,
         scene_renderer="browser-raster-compatibility",
         video_encoder="aurex-render",
@@ -1002,6 +1067,10 @@ def main() -> None:
     quality = get_render_profile(args.quality_profile)
 
     original = load_render_topic(topic_path)
+    character_css_compatibility = requires_character_css_compatibility(
+        args.render_backend,
+        original,
+    )
     signature = render_signature(topic_path, args, topic_value=original)
     output = project / "output" / "final_video.mp4"
     signature_file = output.with_suffix(".signature.json")
@@ -1074,7 +1143,45 @@ def main() -> None:
             "--model", args.whisper_model,
         ])
         render_fps = max(1, int(args.fps))
-        if args.render_backend in {"auto", "native"}:
+        if character_css_compatibility:
+            selectors = character_specific_css_selectors(original)
+            print(
+                "Character CSS parity guard: routing auto to Browser raster compatibility "
+                f"for {', '.join(selectors[:3])}.",
+                flush=True,
+            )
+            try:
+                backend_outcome = render_core_compatibility_backend(
+                    topic_path=aligned_topic,
+                    resource_root=ROOT,
+                    render_output=render_output,
+                    render_report_path=render_report_path,
+                    width=width,
+                    height=height,
+                    fps=render_fps,
+                    quality=quality,
+                    compatibility_reason="character_css_parity_required",
+                    compatibility_detail=(
+                        "Character-specific selectors in engine/style.css require Browser raster "
+                        "rendering for preview parity."
+                    ),
+                )
+            except Exception as exc:
+                detail = " ".join(str(exc).split())[:500]
+                print(
+                    "Core universal adapter không khả dụng; tiếp tục Browser fallback: "
+                    f"{detail or type(exc).__name__}",
+                    flush=True,
+                )
+                backend_outcome = RenderBackendOutcome(
+                    backend_used="browser",
+                    fallback_reason="core_compatibility_failed",
+                    fallback_detail=detail or type(exc).__name__,
+                    scene_renderer="browser",
+                    video_encoder="ffmpeg",
+                    browser_invocations=1,
+                )
+        elif args.render_backend in {"auto", "native"}:
             backend_outcome = render_native_backend(
                 backend=args.render_backend,
                 topic_path=aligned_topic,
