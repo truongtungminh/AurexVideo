@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from threading import Thread
 from urllib.parse import quote, unquote, urlsplit
 
@@ -29,6 +30,10 @@ try:
     from render_quality import RenderProfile, get_render_profile, quality_profile_names
 except ModuleNotFoundError:  # Imported as ``tools.render_demo`` by tests/tools.
     from tools.render_quality import RenderProfile, get_render_profile, quality_profile_names
+try:
+    from native_render import audio_mux_command
+except ModuleNotFoundError:  # Imported as ``tools.render_demo`` by tests/tools.
+    from tools.native_render import audio_mux_command
 
 ROOT = RESOURCE_ROOT
 PROJECT_MOUNT_PREFIX = "/__aurexvideo_project__/"
@@ -267,6 +272,8 @@ async def render_frames(
     capture_quality: int | None = None,
     profile: RenderProfile | None = None,
     mezzanine: bool = False,
+    encoder_backend: str = "browser",
+    core_binary: Path | None = None,
 ) -> None:
     from playwright.async_api import async_playwright
 
@@ -278,6 +285,12 @@ async def render_frames(
         capture_quality = int(capture_quality if capture_quality is not None else quality.capture_quality or 95)
         capture_quality = max(0, min(100, capture_quality))
 
+    encoder_backend = str(encoder_backend or "browser").strip().lower()
+    if encoder_backend not in {"browser", "aurex-render"}:
+        raise ValueError("encoder_backend phải là browser hoặc aurex-render.")
+    if encoder_backend == "aurex-render" and (core_binary is None or not core_binary.is_file()):
+        raise FileNotFoundError(f"Không tìm thấy Aurex Render Core binary: {core_binary}")
+
     with local_server(topic_path.parent, data_root=data_root) as port:
         url = (
             f"http://127.0.0.1:{port}/index.html"
@@ -286,7 +299,10 @@ async def render_frames(
         output.parent.mkdir(parents=True, exist_ok=True)
         frame_total = max(1, math.ceil(duration * fps))
         pipe_codec = "png" if capture_format == "png" else "mjpeg"
-        if mezzanine:
+        use_core_encoder = encoder_backend == "aurex-render"
+        core_video = output.with_name(f".{output.stem}-core-video-{uuid.uuid4().hex[:8]}.mp4") if use_core_encoder else None
+        core_report = core_video.with_name(f"{core_video.stem}.render-report.json") if core_video else None
+        if mezzanine and not use_core_encoder:
             # Keep the browser raster in lossless RGB until the optional
             # branding/outro pass. This avoids H.264 -> H.264 generations.
             scale_filter = (
@@ -301,7 +317,7 @@ async def render_frames(
                 "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
             ]
             mux_options = ["-f", "matroska"]
-        else:
+        elif not use_core_encoder:
             # Playwright screenshots are full-range RGB/sRGB. Declare the
             # input range explicitly before converting to delivery BT.709 TV
             # range so we perform a real conversion instead of relabelling it.
@@ -317,28 +333,65 @@ async def render_frames(
                 "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
             ]
             mux_options = ["-use_editlist", "0", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart"]
-        command = [
-            str(ffmpeg_executable()), "-y", "-loglevel", "error",
-            "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
-            "-i", str(audio),
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-frames:v", str(frame_total),
-            "-vf", scale_filter,
-            *video_options,
-            "-r", str(fps), "-fps_mode", "cfr",
-            *audio_options,
-            "-map_metadata", "-1", "-map_chapters", "-1",
-            "-shortest", *mux_options, str(output),
-        ]
-        encoder = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        if use_core_encoder:
+            # The browser remains a scene adapter for features not yet
+            # expressed by the native manifest. Core owns the raw-frame
+            # timeline and H.264/VideoToolbox delivery for the whole project.
+            decode_filter = (
+                f"scale={width}:{height}:flags=lanczos:in_range=pc:out_range=pc,"
+                "setsar=1,format=bgra"
+            )
+            decode_command = [
+                str(ffmpeg_executable()), "-y", "-loglevel", "error",
+                "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
+                "-frames:v", str(frame_total), "-vf", decode_filter,
+                "-pix_fmt", "bgra", "-f", "rawvideo", "pipe:1",
+            ]
+            decoder = subprocess.Popen(
+                decode_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            core_command = [
+                str(core_binary), "encode-raw",
+                "--width", str(width), "--height", str(height),
+                "--fps", str(fps), "--frames", str(frame_total),
+                "--bit-rate", "8000000", "--hardware-acceleration", "prefer",
+                "--output", str(core_video), "--report", str(core_report),
+                "--overwrite", "--quiet",
+            ]
+            encoder = subprocess.Popen(
+                core_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+        else:
+            command = [
+                str(ffmpeg_executable()), "-y", "-loglevel", "error",
+                "-f", "image2pipe", "-framerate", str(fps), "-vcodec", pipe_codec, "-i", "pipe:0",
+                "-i", str(audio),
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-frames:v", str(frame_total),
+                "-vf", scale_filter,
+                *video_options,
+                "-r", str(fps), "-fps_mode", "cfr",
+                *audio_options,
+                "-map_metadata", "-1", "-map_chapters", "-1",
+                "-shortest", *mux_options, str(output),
+            ]
+            decoder = None
+            encoder = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
         evaluate_seconds = 0.0
         capture_seconds = 0.0
         pipe_seconds = 0.0
+        core_decode_seconds = 0.0
         capture_bytes = 0
         media_sync_stats: dict = {}
         render_started = time.perf_counter()
@@ -356,7 +409,9 @@ async def render_frames(
                 await page.wait_for_function("window.__AUREX_DEMO_READY__ === true", timeout=30_000)
                 await page.evaluate("window.prepareOfflineRender()")
                 if encoder.stdin is None:
-                    raise RuntimeError("Không mở được luồng frame cho FFmpeg.")
+                    raise RuntimeError("Không mở được luồng frame cho bộ mã hóa.")
+                if use_core_encoder and (decoder is None or decoder.stdin is None or decoder.stdout is None):
+                    raise RuntimeError("Không mở được luồng frame cho Core compatibility adapter.")
                 last_good_frame = None
                 frame_errors = 0
                 reused_frames = 0
@@ -404,7 +459,17 @@ async def render_frames(
                     stage_started = time.perf_counter()
                     if last_good_frame is None:
                         raise RuntimeError(f"Không có frame hợp lệ tại {frame_time:.3f}s.")
-                    encoder.stdin.write(last_good_frame)
+                    if use_core_encoder:
+                        assert decoder is not None and decoder.stdin is not None and decoder.stdout is not None
+                        decode_started = time.perf_counter()
+                        decoder.stdin.write(last_good_frame)
+                        decoder.stdin.flush()
+                        raw_frame = _read_exact(decoder.stdout, width * height * 4)
+                        core_decode_seconds += time.perf_counter() - decode_started
+                        encoder.stdin.write(raw_frame)
+                        encoder.stdin.flush()
+                    else:
+                        encoder.stdin.write(last_good_frame)
                     pipe_seconds += time.perf_counter() - stage_started
                     if frame_index % fps == 0 or frame_index + 1 == frame_total:
                         current = min(duration, frame_index / fps)
@@ -424,6 +489,19 @@ async def render_frames(
                 except subprocess.TimeoutExpired:
                     encoder.kill()
                     encoder.wait()
+            if decoder is not None:
+                if decoder.stdin is not None:
+                    try:
+                        decoder.stdin.close()
+                    except BrokenPipeError:
+                        pass
+                if decoder.poll() is None:
+                    decoder.terminate()
+                    try:
+                        decoder.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        decoder.kill()
+                        decoder.wait()
             raise
 
         if encoder.stdin is not None:
@@ -431,16 +509,26 @@ async def render_frames(
                 encoder.stdin.close()
             except BrokenPipeError:
                 pass
+        if decoder is not None and decoder.stdin is not None:
+            try:
+                decoder.stdin.close()
+            except BrokenPipeError:
+                pass
         stderr = encoder.stderr.read().decode("utf-8", errors="replace") if encoder.stderr else ""
         returncode = encoder.wait()
+        decoder_stderr = ""
+        decoder_returncode = 0
+        if decoder is not None:
+            decoder_stderr = decoder.stderr.read().decode("utf-8", errors="replace") if decoder.stderr else ""
+            decoder_returncode = decoder.wait()
         total_seconds = time.perf_counter() - render_started
         print(
             "Render profile: "
             f"profile={quality.name} frames={frame_total} format={capture_format} "
             f"scale={quality.device_scale_factor:g}x total={total_seconds:.3f}s "
             f"evaluate={evaluate_seconds:.3f}s capture={capture_seconds:.3f}s "
-            f"pipe_wait={pipe_seconds:.3f}s setup_and_encoder_drain="
-            f"{max(0.0, total_seconds - evaluate_seconds - capture_seconds - pipe_seconds):.3f}s "
+            f"pipe_wait={pipe_seconds:.3f}s core_decode={core_decode_seconds:.3f}s "
+            f"setup_and_encoder_drain={max(0.0, total_seconds - evaluate_seconds - capture_seconds - pipe_seconds - core_decode_seconds):.3f}s "
             f"captured={capture_bytes / 1024 / 1024:.1f}MiB "
             f"frame_errors={frame_errors} reused_frames={reused_frames}",
             flush=True,
@@ -459,13 +547,38 @@ async def render_frames(
                 f"max_drift={float(media_sync_stats.get('maxDriftMs', 0)):.1f}ms",
                 flush=True,
             )
+        if decoder_returncode != 0:
+            raise RuntimeError(f"FFmpeg không chuyển frame sang BGRA được: {decoder_stderr.strip()}")
         if returncode != 0:
-            raise RuntimeError(f"FFmpeg không mã hóa được video frame-by-frame: {stderr.strip()}")
+            engine_name = "Aurex Render Core" if use_core_encoder else "FFmpeg"
+            raise RuntimeError(f"{engine_name} không mã hóa được video frame-by-frame: {stderr.strip()}")
+
+        if use_core_encoder:
+            if core_video is None or not core_video.is_file():
+                raise RuntimeError("Aurex Render Core không tạo được video trung gian.")
+            muxed_output = output.with_name(f".{output.stem}-core-muxed-{uuid.uuid4().hex[:8]}.mp4")
+            mux_command = audio_mux_command(
+                ffmpeg=ffmpeg_executable(),
+                video=core_video,
+                audio=audio,
+                output=muxed_output,
+                audio_bitrate=quality.audio_bitrate,
+            )
+            mux_process = subprocess.run(mux_command, check=False, capture_output=True)
+            try:
+                if mux_process.returncode != 0:
+                    detail = (mux_process.stderr or mux_process.stdout).decode("utf-8", errors="replace").strip()
+                    raise RuntimeError(f"Core video/audio mux thất bại: {detail}")
+                muxed_output.replace(output)
+            finally:
+                muxed_output.unlink(missing_ok=True)
+                core_video.unlink(missing_ok=True)
 
         report = {
             "schema_version": 1,
             "quality_profile": quality.to_dict(),
             "mezzanine": mezzanine,
+            "encoder_backend": "aurex-render" if use_core_encoder else "browser-ffmpeg",
             "width": width,
             "height": height,
             "fps": fps,
@@ -479,12 +592,32 @@ async def render_frames(
                 "evaluate": round(evaluate_seconds, 3),
                 "capture": round(capture_seconds, 3),
                 "pipe_wait": round(pipe_seconds, 3),
+                "core_decode": round(core_decode_seconds, 3),
             },
             "character_sync": media_sync_stats,
             "output_size_bytes": output.stat().st_size if output.is_file() else 0,
         }
+        if core_report and core_report.is_file():
+            try:
+                report["core_report"] = json.loads(core_report.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                report["core_report"] = {"path": str(core_report)}
+            finally:
+                core_report.unlink(missing_ok=True)
         report_path = output.with_name(f"{output.stem}.render-report.json")
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _read_exact(stream, byte_count: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = byte_count
+    while remaining > 0:
+        chunk = stream.read(remaining)
+        if not chunk:
+            raise RuntimeError(f"Frame decoder ended after {byte_count - remaining} of {byte_count} bytes.")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
 
 
 async def render(
@@ -498,6 +631,8 @@ async def render(
     capture_format: str | None = None,
     capture_quality: int | None = None,
     mezzanine: bool = False,
+    encoder_backend: str = "browser",
+    core_binary: Path | None = None,
 ) -> None:
     quality = get_render_profile(profile_name)
     topic = json.loads(topic_path.read_text(encoding="utf-8"))
@@ -515,6 +650,7 @@ async def render(
             topic_path, mixed_audio, output, width, height, duration,
             fps=fps, data_root=data_root, capture_format=capture_format,
             capture_quality=capture_quality, profile=quality, mezzanine=mezzanine,
+            encoder_backend=encoder_backend, core_binary=core_binary,
         )
 
 
@@ -541,6 +677,13 @@ def main() -> None:
         action="store_true",
         help="Xuất FFV1/PCM lossless để branding/outro encode H.264 đúng một lần.",
     )
+    parser.add_argument(
+        "--encoder-backend",
+        choices=["browser", "aurex-render"],
+        default="browser",
+        help="Bộ mã hóa delivery; aurex-render dùng Core/VideoToolbox cho mọi scene raster.",
+    )
+    parser.add_argument("--core-binary", type=Path)
     parser.add_argument("--capture-format", choices=["png", "jpeg"])
     parser.add_argument("--capture-quality", type=int, choices=range(0, 101))
     args = parser.parse_args()
@@ -548,7 +691,8 @@ def main() -> None:
         args.topic.resolve(), args.output.resolve(), args.width, args.height, args.fps,
         benchmark_seconds=args.benchmark_seconds, capture_format=args.capture_format,
         capture_quality=args.capture_quality, profile_name=args.quality_profile,
-        mezzanine=args.mezzanine,
+        mezzanine=args.mezzanine, encoder_backend=args.encoder_backend,
+        core_binary=args.core_binary.resolve() if args.core_binary else None,
     ))
     print(args.output.resolve())
 

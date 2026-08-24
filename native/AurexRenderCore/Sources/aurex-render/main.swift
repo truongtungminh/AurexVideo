@@ -28,8 +28,22 @@ private enum CLI {
       aurex-render capabilities
       aurex-render validate --manifest <manifest.json>
       aurex-render render --manifest <manifest.json> --output <video.mp4> [options]
+      aurex-render encode-raw --width <px> --height <px> --fps <fps> --frames <count> \
+        --output <video.mp4> < raw-bgra-stream
 
     Render options:
+      --report <report.json>  Sidecar path (default: <video>.render-report.json)
+      --overwrite             Atomically replace an existing output after success
+      --quiet                 Suppress human-readable progress on stderr
+
+    Raw frame encode options:
+      --width <px>            Input frame width (even)
+      --height <px>           Input frame height (even)
+      --fps <fps>             Input/output frame rate
+      --frames <count>        Number of tightly packed BGRA frames on stdin
+      --bit-rate <bps>        H.264 average bitrate (default: 8000000)
+      --hardware-acceleration <policy>
+                              automatic, prefer, require or software
       --report <report.json>  Sidecar path (default: <video>.render-report.json)
       --overwrite             Atomically replace an existing output after success
       --quiet                 Suppress human-readable progress on stderr
@@ -130,6 +144,72 @@ private enum CLI {
             )
             try reportData.write(to: reportURL, options: .atomic)
             FileHandle.standardOutput.write(reportData)
+        case "encode-raw":
+            let options = try parse(
+                arguments: Array(arguments.dropFirst()),
+                allowedFlags: ["--overwrite", "--quiet"]
+            )
+            let allowedValues = Set([
+                "--width", "--height", "--fps", "--frames", "--bit-rate",
+                "--hardware-acceleration", "--output", "--report",
+            ])
+            guard Set(options.values.keys).isSubset(of: allowedValues) else {
+                let unknown = Set(options.values.keys).subtracting(allowedValues).sorted().joined(separator: ", ")
+                throw AurexRenderError.invalidManifest("unknown encode-raw option(s): \(unknown)")
+            }
+            guard let width = options.values["--width"].flatMap(Int.init),
+                  let height = options.values["--height"].flatMap(Int.init),
+                  let fps = options.values["--fps"].flatMap(Int.init),
+                  let frameCount = options.values["--frames"].flatMap(Int.init),
+                  let outputPath = options.values["--output"] else {
+                throw AurexRenderError.invalidManifest(
+                    "encode-raw requires --width, --height, --fps, --frames and --output"
+                )
+            }
+            let bitRate = options.values["--bit-rate"].flatMap(Int.init) ?? 8_000_000
+            let acceleration = try parseHardwareAcceleration(
+                options.values["--hardware-acceleration"] ?? "prefer"
+            )
+            let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+            let reportURL = options.values["--report"].map {
+                URL(fileURLWithPath: $0).standardizedFileURL
+            } ?? outputURL.deletingPathExtension().appendingPathExtension("render-report.json")
+            let canonicalOutputPath = outputURL.resolvingSymlinksInPath().standardizedFileURL.path
+            let canonicalReportPath = reportURL.resolvingSymlinksInPath().standardizedFileURL.path
+            guard canonicalOutputPath != canonicalReportPath else {
+                throw AurexRenderError.invalidManifest("--report must be different from --output")
+            }
+            var lastPrintedPercent = -1
+            let quiet = options.flags.contains("--quiet")
+            let report = try RenderEngine().encodeRawBGRA(
+                from: FileHandle.standardInput,
+                options: RawFrameEncodingOptions(
+                    width: width,
+                    height: height,
+                    frameRate: FrameRate(numerator: fps, denominator: 1),
+                    frameCount: frameCount,
+                    bitRate: bitRate,
+                    hardwareAcceleration: acceleration
+                ),
+                to: outputURL,
+                overwrite: options.flags.contains("--overwrite")
+            ) { progress in
+                guard !quiet else { return }
+                let percent = Int((progress.fractionCompleted * 100).rounded(.down))
+                if percent == 100 || percent >= lastPrintedPercent + 10 {
+                    FileHandle.standardError.write(
+                        Data("Encoding frames: \(progress.completedFrames)/\(progress.totalFrames) (\(percent)%)\n".utf8)
+                    )
+                    lastPrintedPercent = percent
+                }
+            }
+            let reportData = try encodedJSON(report)
+            try FileManager.default.createDirectory(
+                at: reportURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try reportData.write(to: reportURL, options: .atomic)
+            FileHandle.standardOutput.write(reportData)
         default:
             throw AurexRenderError.invalidManifest("unknown command '\(command)'\n\n\(help)")
         }
@@ -177,6 +257,15 @@ private enum CLI {
 
     private static func writeJSON<T: Encodable>(_ value: T, to handle: FileHandle) throws {
         handle.write(try encodedJSON(value))
+    }
+
+    private static func parseHardwareAcceleration(_ value: String) throws -> HardwareAccelerationPolicy {
+        guard let policy = HardwareAccelerationPolicy(rawValue: value.lowercased()) else {
+            throw AurexRenderError.invalidManifest(
+                "--hardware-acceleration must be automatic, prefer, require or software"
+            )
+        }
+        return policy
     }
 }
 

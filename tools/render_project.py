@@ -60,6 +60,8 @@ class RenderBackendOutcome:
     manifest_origin: str | None = None
     layer_types: tuple[str, ...] = ()
     core_version: str | None = None
+    compatibility_mode: bool = False
+    scene_renderer: str | None = None
 
     @property
     def used_native(self) -> bool:
@@ -77,6 +79,8 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
         "native_manifest_origin": outcome.manifest_origin,
         "native_layer_types": list(outcome.layer_types),
         "native_core_version": outcome.core_version,
+        "core_compatibility_mode": outcome.compatibility_mode,
+        "scene_renderer": outcome.scene_renderer,
         "capability_report": {
             "core_mvp_layer_types": ["solid", "image"],
             "decision": (
@@ -89,6 +93,8 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
             "core_version": outcome.core_version,
             "fallback_reason": outcome.fallback_reason,
             "fallback_detail": outcome.fallback_detail,
+            "compatibility_mode": outcome.compatibility_mode,
+            "scene_renderer": outcome.scene_renderer,
         },
     }
 
@@ -841,6 +847,64 @@ def render_native_backend(
         native_audio.unlink(missing_ok=True)
 
 
+def render_core_compatibility_backend(
+    *,
+    topic_path: Path,
+    resource_root: Path,
+    render_output: Path,
+    render_report_path: Path,
+    width: int,
+    height: int,
+    fps: int,
+    quality: RenderProfile,
+) -> RenderBackendOutcome:
+    """Render any standard topic through Core's universal raw-frame entry point.
+
+    The current Browser scene is retained as a compatibility rasterizer for
+    features that are still being ported to the native scene contract. The
+    final delivery encoder and frame timeline are nevertheless owned by
+    Aurex Render Core, so this path is not reported as a Browser backend.
+    """
+    core_binary = find_native_binary(resource_root)
+    if core_binary is None:
+        raise NativeRenderUnavailable(
+            "Không tìm thấy aurex-render cho universal compatibility path.",
+            reason="core_binary_unavailable",
+        )
+    print(
+        "Rendering through Aurex Render Core universal adapter "
+        "(scene raster compatibility + Core/VideoToolbox)...",
+        flush=True,
+    )
+    command = [
+        str(PYTHON), "-u", str(ROOT / "tools" / "render_demo.py"),
+        str(topic_path), "--output", str(render_output),
+        "--width", str(width), "--height", str(height), "--fps", str(fps),
+        "--quality-profile", quality.name,
+        "--encoder-backend", "aurex-render", "--core-binary", str(core_binary),
+    ]
+    run(command)
+    core_version = None
+    try:
+        report = json.loads(render_report_path.read_text(encoding="utf-8"))
+        core_report = report.get("core_report")
+        if isinstance(core_report, dict):
+            core_version = str(core_report.get("coreVersion") or "").strip() or None
+    except (OSError, json.JSONDecodeError):
+        pass
+    print(
+        "Render backend decision: backend_requested=auto "
+        "backend_used=aurex-render compatibility_mode=true fallback_reason=null",
+        flush=True,
+    )
+    return RenderBackendOutcome(
+        backend_used="aurex-render",
+        core_version=core_version,
+        compatibility_mode=True,
+        scene_renderer="browser-raster-compatibility",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("project", type=Path)
@@ -978,6 +1042,30 @@ def main() -> None:
                 quality=quality,
                 token=token,
             )
+            if backend_outcome.backend_used == "browser" and args.render_backend == "auto":
+                try:
+                    backend_outcome = render_core_compatibility_backend(
+                        topic_path=aligned_topic,
+                        resource_root=ROOT,
+                        render_output=render_output,
+                        render_report_path=render_report_path,
+                        width=width,
+                        height=height,
+                        fps=render_fps,
+                        quality=quality,
+                    )
+                except Exception as exc:
+                    detail = " ".join(str(exc).split())[:500]
+                    print(
+                        "Core universal adapter không khả dụng; tiếp tục Browser fallback: "
+                        f"{detail or type(exc).__name__}",
+                        flush=True,
+                    )
+                    backend_outcome = RenderBackendOutcome(
+                        backend_used="browser",
+                        fallback_reason="core_compatibility_failed",
+                        fallback_detail=detail or type(exc).__name__,
+                    )
         else:
             print(
                 f"Render backend decision: backend_requested={args.render_backend} "
