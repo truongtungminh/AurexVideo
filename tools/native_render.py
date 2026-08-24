@@ -24,7 +24,7 @@ except ModuleNotFoundError:
 
 
 CORE_SCHEMA_VERSION = 2
-CORE_MVP_LAYER_TYPES = frozenset({"solid", "image", "video", "text"})
+CORE_LAYER_TYPES = frozenset({"solid", "image", "video", "text"})
 VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".m4v", ".webm"})
 
 
@@ -45,6 +45,7 @@ class NativeScene:
     layer_types: tuple[str, ...]
     staging_dir: Path | None = None
     features: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class NativeRenderPlan:
     capabilities: dict[str, object]
     staging_dir: Path | None = None
     scene_features: tuple[str, ...] = ()
+    scene_warnings: tuple[str, ...] = ()
 
     @property
     def command(self) -> list[str]:
@@ -275,7 +277,7 @@ def _validate_scene_document(document: dict[str, object], manifest_dir: Path) ->
                 reason="native_scene_invalid",
             )
         layer_type = str(layer.get("type") or "").strip().lower()
-        if layer_type not in CORE_MVP_LAYER_TYPES:
+        if layer_type not in CORE_LAYER_TYPES:
             display = layer_type or "<missing>"
             raise NativeRenderUnavailable(
                 f"Core V2 không hỗ trợ layer type '{display}'.",
@@ -368,6 +370,8 @@ def resolve_native_scene(
     metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
     raw_features = metadata.get("features") if isinstance(metadata, dict) else None
     features = tuple(str(item) for item in raw_features if str(item).strip()) if isinstance(raw_features, list) else tuple(layer_types)
+    raw_warnings = metadata.get("warnings") if isinstance(metadata, dict) else None
+    warnings = tuple(str(item) for item in raw_warnings if str(item).strip()) if isinstance(raw_warnings, list) else ()
     source = staging_dir / "native-scene-v2.json"
     return NativeScene(
         source,
@@ -377,6 +381,7 @@ def resolve_native_scene(
         layer_types,
         staging_dir.resolve(),
         features,
+        warnings,
     )
 
 
@@ -616,6 +621,7 @@ def build_native_render_plan(
             capabilities=capabilities,
             staging_dir=scene.staging_dir,
             scene_features=scene.features,
+            scene_warnings=scene.warnings,
         )
     except Exception:
         manifest.unlink(missing_ok=True)

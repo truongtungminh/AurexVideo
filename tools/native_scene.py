@@ -96,6 +96,23 @@ def _safe_filename(source: Path) -> str:
     return f"{digest}-{name}"
 
 
+def _legacy_pose_alias(source: Path) -> Path:
+    """Resolve old pose names/extensions after a character asset migration."""
+    if source.is_file():
+        return source
+    match = re.search(r"(?:^|[-_])(\d+)$", source.stem)
+    if not match or not source.parent.is_dir():
+        return source
+    pose_number = match.group(1)
+    candidates = [
+        source.parent / f"pose-{pose_number}{source.suffix}",
+        source.parent / f"pose-{pose_number}.mp4",
+        source.parent / f"pose-{pose_number}.png",
+        source.parent / f"pose-{pose_number}.webp",
+    ]
+    return next((candidate for candidate in candidates if candidate.is_file()), source)
+
+
 def _stage_asset(
     project: Path,
     value: object,
@@ -112,6 +129,7 @@ def _stage_asset(
         source = candidate.resolve()
     else:
         source = (project / candidate).resolve()
+    source = _legacy_pose_alias(source)
     if not source.is_file():
         raise SceneCompileError(
             f"Không tìm thấy asset {label}: {raw}",
@@ -301,6 +319,7 @@ def compile_standard_topic(
     background_color = str(topic.get("backgroundColor") or "#f5eee3")
 
     layers: list[dict[str, Any]] = []
+    warnings: list[str] = []
     if background_type == "image" and str(topic.get("backgroundImage") or "").strip():
         layers.append({
             "id": "background-image",
@@ -323,10 +342,38 @@ def compile_standard_topic(
     for index, event in enumerate(pose_events):
         pose_name = str(event.get("pose") or "")
         pose = pose_assets.get(pose_name) if isinstance(pose_assets, dict) else None
+        resolved_pose_name = pose_name
+        if not isinstance(pose, dict) and isinstance(pose_assets, dict) and pose_assets:
+            resolved_pose_name = "question" if isinstance(pose_assets.get("question"), dict) else next(iter(pose_assets))
+            pose = pose_assets.get(resolved_pose_name)
+            warnings.append(f"pose '{pose_name}' không tồn tại; dùng '{resolved_pose_name}' giống Browser fallback")
         if not isinstance(pose, dict):
             continue
         source_value = pose.get("speaking") or pose.get("closed")
-        source_path = _stage_asset(project, source_value, staging_dir, asset_cache, label=f"pose {pose_name}")
+        try:
+            source_path = _stage_asset(project, source_value, staging_dir, asset_cache, label=f"pose {pose_name}")
+        except SceneCompileError:
+            fallback_name = None
+            fallback_pose: dict[str, Any] | None = None
+            for candidate_name, candidate in pose_assets.items():
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_source = candidate.get("speaking") or candidate.get("closed")
+                candidate_path = Path(str(candidate_source or ""))
+                candidate_resolved = candidate_path.resolve() if candidate_path.is_absolute() else (project / candidate_path).resolve()
+                if candidate_resolved.is_file():
+                    fallback_name = str(candidate_name)
+                    fallback_pose = candidate
+                    break
+            if fallback_pose is None or fallback_name is None:
+                raise
+            warnings.append(
+                f"asset của pose '{pose_name}' không tồn tại; dùng '{fallback_name}' giống Browser fallback"
+            )
+            resolved_pose_name = fallback_name
+            pose = fallback_pose
+            source_value = pose.get("speaking") or pose.get("closed")
+            source_path = _stage_asset(project, source_value, staging_dir, asset_cache, label=f"pose {fallback_name}")
         start = max(0.0, _number(event.get("time")))
         end = duration if index + 1 >= len(pose_events) else min(duration, _number(pose_events[index + 1].get("time"), duration))
         if end <= start:
@@ -334,7 +381,7 @@ def compile_standard_topic(
         is_video = Path(source_path).suffix.lower() in VIDEO_SUFFIXES
         rect = {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0} if profile.get("presenter_full_stage") and is_video else dict(profile.get("presenter_rect", {"x": 0.18, "y": 0.475, "width": 0.64, "height": 0.51}))
         layer: dict[str, Any] = {
-            "id": f"presenter-{index:03d}-{pose_name}",
+            "id": f"presenter-{index:03d}-{resolved_pose_name}",
             "type": "video" if is_video else "image",
             "zIndex": 1,
             "startFrame": _frame(start, frame_count),
@@ -516,6 +563,7 @@ def compile_standard_topic(
             "compiler": "aurex-scene-ir-v2",
             "characterId": character_id,
             "features": features,
+            "warnings": warnings,
         },
         "layers": layers,
     }
