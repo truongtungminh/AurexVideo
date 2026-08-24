@@ -18,7 +18,7 @@ const elements = Object.fromEntries([
   "maziaoConfigState", "elevenApiKey", "elevenVoiceId", "elevenModelId", "saveElevenConfig", "elevenConfigState",
   "aurexttsProvider", "aurexttsVoice", "aurexttsStyle", "aurexttsTtsSpeed", "aurexttsBaseUrl",
   "checkAurextts", "aurexttsConfigState",
-  "edgeVoice", "renderSpeed", "renderSize", "startRender", "stopRender", "renderLive",
+  "edgeVoice", "renderSpeed", "renderSize", "renderBackend", "startRender", "stopRender", "renderLive",
   "renderLiveTitle", "renderPercent", "renderProgress", "renderLogs", "renderOutput",
   "socialState", "uploadSettingsLink", "openUploadCenter", "renderUpload",
   "characterDialog", "characterForm", "createCharacterButton", "characterSelect", "characterCover", "characterMeta",
@@ -477,6 +477,7 @@ async function startRender() {
       speed: Number(elements.renderSpeed.value),
       volume: Number(elements.renderVolume.value),
       size: elements.renderSize.value,
+      renderBackend: elements.renderBackend?.value || "auto",
       uploadYoutube: false,
       uploadFacebook: false,
     };

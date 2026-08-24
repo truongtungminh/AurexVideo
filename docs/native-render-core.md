@@ -49,15 +49,34 @@ Manifest schema version `1` là hợp đồng ổn định giữa pipeline chu�
 
 CLI chỉ ghi output sau khi toàn bộ frame hoàn tất: encoder ghi vào file tạm rồi mới atomically move/replace output. Vì vậy render lỗi không để lại MP4 dở dang tại đường dẫn đích.
 
-## Tích hợp vào pipeline hiện tại
+## Tích hợp Core-first
 
-Native core được triển khai theo mô hình opt-in/fallback. Trong phần Cài đặt nâng cao của bộ máy render có ba lựa chọn:
+UI, API và CLI mặc định dùng `Auto`. Mỗi job preflight theo thứ tự: đọc scene contract, kiểm tra layer `solid/image`, đọc `aurex-render capabilities`, validate manifest bằng chính Core, rồi mới render. Kết quả có ba chế độ:
 
-- `Browser`: mặc định, giữ parity với project hiện tại.
-- `Auto`: thử native; nếu máy/project chưa đủ điều kiện thì tự quay về Browser và ghi lý do trong log.
-- `Aurex Render Core`: yêu cầu native manifest; thiếu binary hoặc manifest sẽ làm job dừng rõ ràng để tránh tưởng rằng đã render native.
+- `Auto`: chạy `aurex-render` khi cả scene và máy đủ capability; nếu không thì fallback Browser.
+- `Aurex Render Core`: strict mode, thiếu capability sẽ dừng job thay vì fallback.
+- `Browser`: compatibility mode do người dùng chọn rõ ràng.
 
-Project opt-in bằng cách thêm vào `topic.json`:
+Mỗi `final_video.render-report.json` luôn ghi hợp đồng quyết định:
+
+```json
+{
+  "backend_requested": "auto",
+  "backend_used": "browser",
+  "fallback_reason": "unsupported_scene_features:text,karaoke,pose-video",
+  "fallback_detail": "Core MVP chỉ hỗ trợ solid/image; scene hiện tại cần text, karaoke, pose-video.",
+  "capability_report": {
+    "core_mvp_layer_types": ["solid", "image"],
+    "decision": "fallback"
+  }
+}
+```
+
+Fallback không bao giờ được gắn nhãn native. Job API cũng trả `backend_requested`, `backend_used`, `fallback_reason` sau khi hoàn tất.
+
+### Scene contract native
+
+Project có thể dùng manifest file đầy đủ:
 
 ```json
 {
@@ -65,6 +84,41 @@ Project opt-in bằng cách thêm vào `topic.json`:
 }
 ```
 
-Manifest được copy tạm theo đúng thư mục project, cập nhật canvas/FPS/frame count theo voiceover, rồi xóa sau job. Sau khi core xuất H.264, AurexVideo chỉ mux narration AAC vào bằng `-c:v copy`; branding/outro mới re-encode một lần theo profile đã chọn. Chỉ chuyển project sang native sau khi project tạo được manifest schema `1` và tất cả layer đều nằm trong capability report. Nếu native không khả dụng hoặc manifest không hợp lệ, caller phải giữ output browser và ghi rõ lý do fallback.
+Hoặc dùng adapter inline; bridge sẽ sinh manifest tạm và tự điền canvas/FPS/frame count:
+
+```json
+{
+  "nativeRenderScene": {
+    "backgroundColor": "#101820",
+    "layers": [
+      {
+        "id": "card",
+        "type": "image",
+        "source": "assets/card.png",
+        "rect": {"x": 0.1, "y": 0.15, "width": 0.8, "height": 0.7},
+        "contentMode": "fit"
+      }
+    ]
+  }
+}
+```
+
+`nativeRenderScene` và native manifest là full-scene contract, không phải lớp phủ một phần. Image source phải nằm trong cùng thư mục project/manifest, dùng đường dẫn tương đối không có `..`. Manifest tạm được validate bằng CLI rồi xóa sau job. Core xuất H.264; AurexVideo mux audio đã mix bằng `-c:v copy`, còn branding/outro đi qua finalizer hiện hữu.
+
+### Inventory workspace ngày 2026-08-24
+
+Workspace hiện có 218 topic thuộc 7 brand. Không topic nào khai báo full-scene native contract, và mọi topic đều có text/label/karaoke cùng pose timeline; vì vậy chúng chạy `Auto → Browser` đúng chủ đích. Phân loại chính:
+
+| Brand | Project | Pose video | Pose image | Native hiện tại |
+|---|---:|---:|---:|---|
+| Aurex | 99 | 58 | 41 | fallback |
+| anhtinhbiettuot | 40 | 0 | 40 | fallback |
+| bietchichomet | 39 | 39 | 0 | fallback |
+| engzy | 10 | 10 | 0 | fallback |
+| july | 1 | 1 | 0 | fallback |
+| knowzy | 7 | 0 | 7 | fallback |
+| popsy | 22 | 0 | 22 | fallback |
+
+Native thật được kiểm chứng bằng fixture `solid/image` và example manifest của Core. Các topic hiện hữu không bị sửa để đạt con số native giả.
 
 Lộ trình tiếp theo để đưa các project bietchichomet sang native là bổ sung decoder tuần tự cho pose-video, text/karaoke và audio; không nên giả lập các layer đó bằng ảnh tĩnh vì sẽ làm thay đổi nội dung video.

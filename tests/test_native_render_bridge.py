@@ -16,9 +16,13 @@ from tools.native_render import (  # noqa: E402
     _prepare_manifest,
     audio_mux_command,
     resolve_native_manifest,
+    resolve_native_scene,
+    topic_scene_features,
 )
 from tools.render_project import (  # noqa: E402
+    RenderBackendOutcome,
     native_manifest_image_signatures,
+    render_backend_report,
     render_native_backend,
     resolve_render_backend,
 )
@@ -90,9 +94,96 @@ class NativeRenderBridgeTests(unittest.TestCase):
             second = native_manifest_image_signatures(manifest)
             self.assertNotEqual(first, second)
 
-    def test_backend_defaults_to_browser_and_supports_native_alias(self) -> None:
-        self.assertEqual(resolve_render_backend(None), "browser")
+    def test_backend_defaults_to_auto_and_supports_native_alias(self) -> None:
+        self.assertEqual(resolve_render_backend(None), "auto")
         self.assertEqual(resolve_render_backend("native-core"), "native")
+
+    def test_standard_pose_video_text_scene_reports_unsupported_features(self) -> None:
+        topic = {
+            "leftLabel": "Hố đen",
+            "rightLabel": "Sao neutron",
+            "segments": [{"start": 0, "end": 1, "text": "Đây là hố đen."}],
+            "poseTimeline": [{"time": 0, "pose": "pose-1"}],
+            "poseAssets": {
+                "pose-1": {"closed": "poses/pose-1.mp4", "speaking": "poses/pose-1.mp4"},
+            },
+            "leftImage": "assets/left.png",
+            "rightImage": "assets/right.png",
+        }
+
+        self.assertEqual(
+            topic_scene_features(topic),
+            ("text", "karaoke", "pose-video", "pose-timeline", "comparison-layout"),
+        )
+
+    def test_standard_scene_without_native_contract_falls_back_explicitly(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            topic_path = Path(temp) / "topic.json"
+            topic_path.write_text(json.dumps({
+                "segments": [{"text": "Karaoke vẫn phải giữ nguyên."}],
+                "poseTimeline": [{"time": 0, "pose": "pose-1"}],
+                "poseAssets": {"pose-1": {"closed": "pose-1.mp4"}},
+            }), encoding="utf-8")
+
+            with self.assertRaises(NativeRenderUnavailable) as raised:
+                resolve_native_scene(topic_path)
+
+            self.assertTrue(raised.exception.reason.startswith("unsupported_scene_features:"))
+            self.assertIn("pose-video", raised.exception.reason)
+            self.assertIn("text", raised.exception.reason)
+            self.assertIn("karaoke", raised.exception.reason)
+
+    def test_inline_solid_image_scene_is_a_complete_native_contract(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            root = Path(temp)
+            (root / "card.png").write_bytes(b"image fixture")
+            topic_path = root / "topic.json"
+            topic_path.write_text(json.dumps({
+                "nativeRenderScene": {
+                    "backgroundColor": "#102030",
+                    "layers": [
+                        {
+                            "id": "accent",
+                            "type": "solid",
+                            "rect": {"x": 0, "y": 0, "width": 1, "height": 1},
+                            "color": "#112233",
+                        },
+                        {
+                            "id": "card",
+                            "type": "image",
+                            "rect": {"x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8},
+                            "source": "card.png",
+                            "contentMode": "fit",
+                        },
+                    ],
+                },
+            }), encoding="utf-8")
+
+            scene = resolve_native_scene(topic_path)
+
+            self.assertEqual(scene.origin, "nativeRenderScene")
+            self.assertEqual(scene.layer_types, ("image", "solid"))
+            self.assertEqual(scene.document["schemaVersion"], 1)
+            self.assertEqual(scene.document["canvas"]["backgroundColor"], "#102030")
+
+    def test_inline_image_scene_rejects_parent_asset_path(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            topic_path = Path(temp) / "topic.json"
+            topic_path.write_text(json.dumps({
+                "nativeRenderScene": {
+                    "layers": [{
+                        "id": "escape",
+                        "type": "image",
+                        "rect": {"x": 0, "y": 0, "width": 1, "height": 1},
+                        "source": "../outside.png",
+                    }],
+                },
+            }), encoding="utf-8")
+
+            with self.assertRaises(NativeRenderUnavailable) as raised:
+                resolve_native_scene(topic_path)
+
+            self.assertEqual(raised.exception.reason, "native_image_path_unsafe")
 
     def test_auto_falls_back_when_native_process_fails(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
@@ -101,7 +192,7 @@ class NativeRenderBridgeTests(unittest.TestCase):
                 "tools.render_project.build_native_render_plan",
                 side_effect=RuntimeError("simulated native failure"),
             ):
-                used_native = render_native_backend(
+                outcome = render_native_backend(
                     backend="auto",
                     topic_path=root / "topic.rendered.json",
                     resource_root=root,
@@ -117,7 +208,27 @@ class NativeRenderBridgeTests(unittest.TestCase):
                     quality=get_render_profile("standard"),
                     token="test",
                 )
-            self.assertFalse(used_native)
+            self.assertFalse(outcome.used_native)
+            self.assertEqual(outcome.backend_used, "browser")
+            self.assertTrue(outcome.fallback_reason.startswith("native_runtime_failed:"))
+
+    def test_backend_report_contract_never_claims_fallback_is_native(self) -> None:
+        report = render_backend_report(
+            "auto",
+            RenderBackendOutcome(
+                backend_used="browser",
+                fallback_reason="unsupported_scene_features:text,karaoke,pose-video",
+                fallback_detail="Core MVP chỉ hỗ trợ solid/image.",
+            ),
+        )
+
+        self.assertEqual(report["backend_requested"], "auto")
+        self.assertEqual(report["backend_used"], "browser")
+        self.assertEqual(
+            report["fallback_reason"],
+            "unsupported_scene_features:text,karaoke,pose-video",
+        )
+        self.assertEqual(report["capability_report"]["decision"], "fallback")
 
 
 if __name__ == "__main__":
