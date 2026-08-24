@@ -285,7 +285,7 @@ public final class RenderEngine {
                     pixelFormat: "32BGRA->420v",
                     codec: "H.264",
                     colorSpace: "BT.709 video-range",
-                    audio: "not-supported-in-mvp",
+                    audio: "audio-muxed-by-aurexvideo-pipeline",
                     zeroCopyVideoPath: true,
                     pipeline: scenePipeline,
                     metalDevice: compositor.deviceName,

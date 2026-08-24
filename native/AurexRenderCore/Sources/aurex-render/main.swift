@@ -22,7 +22,7 @@ private struct ErrorResult: Codable {
 
 private enum CLI {
     static let help = """
-    AurexRenderCore MVP
+    AurexRenderCore V2
 
     Usage:
       aurex-render capabilities

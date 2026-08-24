@@ -65,6 +65,7 @@ class RenderBackendOutcome:
     video_encoder: str | None = None
     browser_invocations: int = 0
     scene_features: tuple[str, ...] = ()
+    scene_warnings: tuple[str, ...] = ()
 
     @property
     def used_native(self) -> bool:
@@ -84,6 +85,7 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
         "native_core_version": outcome.core_version,
         "core_version": outcome.core_version,
         "native_scene_features": list(outcome.scene_features),
+        "native_scene_warnings": list(outcome.scene_warnings),
         "core_compatibility_mode": outcome.compatibility_mode,
         "scene_renderer": outcome.scene_renderer,
         "video_encoder": outcome.video_encoder,
@@ -102,6 +104,7 @@ def render_backend_report(requested: str, outcome: RenderBackendOutcome) -> dict
             "scene_contract": outcome.manifest_origin,
             "scene_layer_types": list(outcome.layer_types),
             "scene_features": list(outcome.scene_features),
+            "scene_warnings": list(outcome.scene_warnings),
             "core_version": outcome.core_version,
             "fallback_reason": outcome.fallback_reason,
             "fallback_detail": outcome.fallback_detail,
@@ -796,6 +799,7 @@ def render_native_backend(
             "native_manifest_origin": plan.manifest_origin,
             "native_layer_types": list(plan.layer_types),
             "native_scene_features": list(plan.scene_features),
+            "native_scene_warnings": list(plan.scene_warnings),
             "native_core_version": core_version,
             "core_version": core_version,
             "audio_multiplexed": True,
@@ -818,6 +822,7 @@ def render_native_backend(
             scene_renderer="aurex-native-scene",
             video_encoder="aurex-render",
             scene_features=plan.scene_features,
+            scene_warnings=plan.scene_warnings,
         )
     except NativeRenderUnavailable as exc:
         fallback_reason = exc.reason
