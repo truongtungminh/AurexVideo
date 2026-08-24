@@ -1,7 +1,9 @@
 (() => {
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
-  const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v2';
+  // v3 intentionally resets the old Browser-first preference so existing
+  // installs adopt the Core-first Auto policy after the native bridge rollout.
+  const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v3';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
   const RENDER_ENGINE_STORAGE_KEY = 'aurexvideo-render-engine-v1';
   const RENDER_ENGINES = new Set(['vieneu', 'maziao', 'edgetts']);
