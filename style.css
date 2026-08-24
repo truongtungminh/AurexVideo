@@ -496,7 +496,7 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
 }
 
 .stage.character-bietchichomet .media-slot-left {
-  left: 4%;
+  left: 3%;
   border-color: #8b5a2b;          /* viền gỗ */
   background: #fbf7f2;
 }
@@ -509,17 +509,19 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
 
 /* Đẩy topic label xuống thấp hơn phù hợp với media-slot mới. */
 .stage.character-bietchichomet .topic-label-stack {
-  top: 26%;
+  top: 23.5%;
 }
 .stage.character-bietchichomet .topic-label-left {
-  left: 12%;
+  left: 3%;
 }
-
+.stage.character-bietchichomet .topic-label-right {
+     left: 44.6%;
+}
 /* Vintage label + karaoke only for bietchichomet.
    Màu nhãn (color) giờ do character manifest + app.js quản lý (Phương án A),
    nên KHÔNG hard-code color ở đây để tránh bị inline style đè. */
 .stage.character-bietchichomet .topic-label {
-  font-size: 4.2cqw;
+  font-size: 5cqw;
 }
 
 .stage.character-bietchichomet .karaoke.vietnamese.visible {
