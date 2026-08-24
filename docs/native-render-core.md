@@ -107,12 +107,12 @@ Hoặc dùng adapter inline; bridge sẽ sinh manifest tạm và tự điền ca
 
 ### Inventory workspace ngày 2026-08-24
 
-Workspace hiện có 218 topic thuộc 7 brand. Không topic nào khai báo full-scene native contract, và mọi topic đều có text/label/karaoke cùng pose timeline; vì vậy chúng chạy `Auto → Browser` đúng chủ đích. Phân loại chính:
+Workspace hiện có 228 topic thuộc 7 brand. Không topic nào khai báo full-scene native contract, và mọi topic đều có text/label/karaoke cùng pose timeline; vì vậy chúng chạy `Auto → Browser` đúng chủ đích. Phân loại chính:
 
 | Brand | Project | Pose video | Pose image | Native hiện tại |
 |---|---:|---:|---:|---|
 | Aurex | 99 | 58 | 41 | fallback |
-| anhtinhbiettuot | 40 | 0 | 40 | fallback |
+| anhtinhbiettuot | 50 | 0 | 50 | fallback |
 | bietchichomet | 39 | 39 | 0 | fallback |
 | engzy | 10 | 10 | 0 | fallback |
 | july | 1 | 1 | 0 | fallback |
