@@ -485,9 +485,9 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
    Style card: bo góc tròn, viền gỗ liền nét bao quanh, nền nhạt, không đổ bóng.
    Chỉ áp dụng khi #stage có class character-bietchichomet. */
 .stage.character-bietchichomet .media-slot {
-  width: 40%;
-  height: 21%;
-  top: 25%;
+  width: 42%;
+  height: 23%;
+  top: 24%;
   border: 0.6cqw solid;           /* viền gỗ liền nét, bao quanh */
   border-radius: 2.2cqw;
   background: #fbf7f2;
@@ -496,13 +496,13 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
 }
 
 .stage.character-bietchichomet .media-slot-left {
-  left: 16.5%;
+  left: 4%;
   border-color: #8b5a2b;          /* viền gỗ */
   background: #fbf7f2;
 }
 
 .stage.character-bietchichomet .media-slot-right {
-  left: 54%;
+  left: 46%;
   border-color: #8b5a2b;          /* viền gỗ */
   background: #edf1f4;
 }
