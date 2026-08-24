@@ -490,6 +490,26 @@ def character_pose_config(character_id: str, language: str = "vi") -> tuple[dict
     return pose_assets, pose_labels
 
 
+def sync_topic_character_pose_config(topic: dict) -> dict:
+    """Refresh a character-backed topic from its current manifest pose config.
+
+    Pose ids alone are not enough to tell whether a saved topic is current:
+    manifests also control playback options such as ``loopStart`` and
+    ``loopEnd``.  Keep the manifest authoritative whenever it can be read,
+    while leaving legacy topics without a manifest usable.
+    """
+    character_id = str(topic.get("characterId") or "").strip()
+    if not character_id:
+        return topic
+    try:
+        pose_assets, pose_labels = character_pose_config(character_id)
+    except (FileNotFoundError, ValueError):
+        return topic
+    topic["poseAssets"] = pose_assets
+    topic["poseLabels"] = pose_labels
+    return topic
+
+
 def default_pose_sequence(character_id: str, pose_assets: dict[str, dict[str, str]]) -> list[str]:
     ids = list(pose_assets)
     if character_id == "bietchichomet":
@@ -903,22 +923,15 @@ def read_topic(slug: str) -> dict:
     current_sfx = value.get("sfx", {}) if isinstance(value.get("sfx"), dict) else {}
     value["sfx"] = {**DEFAULT_SFX, **current_sfx}
 
-    character_id = str(value.get("characterId") or "").strip()
-    synced_assets: dict[str, dict[str, str]] | None = None
-    synced_labels: dict[str, str] | None = None
-    if character_id and character_id != "human-presenter":
-        try:
-            synced_assets, synced_labels = character_pose_config(character_id)
-        except (FileNotFoundError, ValueError):
-            synced_assets = None
-            synced_labels = None
-
+    previous_pose_assets = value.get("poseAssets")
+    previous_pose_labels = value.get("poseLabels")
+    sync_topic_character_pose_config(value)
+    pose_config_changed = (
+        value.get("poseAssets") != previous_pose_assets
+        or value.get("poseLabels") != previous_pose_labels
+    )
     pose_assets = value.get("poseAssets") if isinstance(value.get("poseAssets"), dict) else {}
-    if synced_assets and list(pose_assets) != list(synced_assets):
-        pose_assets = synced_assets
-        value["poseAssets"] = pose_assets
-        value["poseLabels"] = synced_labels or {}
-    elif not pose_assets:
+    if not pose_assets:
         pose_assets = dict(DEFAULT_POSE_ASSETS)
         value["poseAssets"] = pose_assets
         labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
@@ -926,6 +939,9 @@ def read_topic(slug: str) -> dict:
     else:
         labels = value.get("poseLabels") if isinstance(value.get("poseLabels"), dict) else {}
         value["poseLabels"] = {pose: str(labels.get(pose) or DEFAULT_POSE_LABELS.get(pose) or pose) for pose in pose_assets}
+
+    if pose_config_changed:
+        atomic_write_json(path, value)
 
     valid_poses = list(pose_assets)
     fallback_pose = "question" if "question" in pose_assets else valid_poses[0]

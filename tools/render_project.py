@@ -25,6 +25,7 @@ from aurexvideo_paths import (
     ffmpeg_executable,
     resolve_vieneu_python,
 )
+from m3_backend import sync_topic_character_pose_config
 from media_probe import AUDIO_PEAK_LIMITER, has_audio_stream, media_duration, validate_rendered_video
 try:
     from render_quality import RENDER_PROFILE_VERSION, RenderProfile, get_render_profile, quality_profile_names
@@ -646,9 +647,19 @@ def alignment_signature(prepared_topic: Path, render_audio: Path, whisper_model:
         file_digest(align_script).encode("ascii"),
     ])
     return hashlib.sha256(payload).hexdigest()
-def render_signature(topic_path: Path, args: argparse.Namespace) -> str:
-    topic = topic_path.read_bytes()
-    topic_value = json.loads(topic.decode("utf-8"))
+def load_render_topic(topic_path: Path) -> dict:
+    topic_value = json.loads(topic_path.read_text(encoding="utf-8"))
+    if not isinstance(topic_value, dict):
+        raise ValueError("topic.json phải là một JSON object.")
+    return sync_topic_character_pose_config(topic_value)
+
+
+def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value: dict | None = None) -> str:
+    if topic_value is None:
+        topic = topic_path.read_bytes()
+        topic_value = json.loads(topic.decode("utf-8"))
+    else:
+        topic = json.dumps(topic_value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     topic_assets: list[str] = []
     candidate_values: list[object] = [
         topic_value.get("voiceover"),
@@ -990,7 +1001,8 @@ def main() -> None:
     args.render_backend = resolve_render_backend(args.render_backend)
     quality = get_render_profile(args.quality_profile)
 
-    signature = render_signature(topic_path, args)
+    original = load_render_topic(topic_path)
+    signature = render_signature(topic_path, args, topic_value=original)
     output = project / "output" / "final_video.mp4"
     signature_file = output.with_suffix(".signature.json")
     if output.is_file() and output.stat().st_size > 0 and signature_file.is_file():
@@ -1025,7 +1037,6 @@ def main() -> None:
             print(f"Render cache postflight không đạt ({exc}); tạo lại video.", flush=True)
 
     token = uuid.uuid4().hex[:8]
-    original = json.loads(topic_path.read_text(encoding="utf-8"))
     write_script(project, original)
     source_audio = create_voiceover(args, project, topic_path, token)
     render_audio = prepare_render_audio(source_audio, project, args.speed, args.volume)
