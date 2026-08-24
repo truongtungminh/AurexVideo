@@ -4,7 +4,7 @@ import CoreMedia
 import Foundation
 
 @Test func exposesMVPContractVersion() {
-    #expect(AurexRenderCore.manifestSchemaVersion == 1)
+    #expect(AurexRenderCore.manifestSchemaVersion == 2)
     #expect(!AurexRenderCore.version.isEmpty)
 }
 

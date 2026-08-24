@@ -172,7 +172,12 @@ public final class RenderEngine {
             manifestSchemaVersion: AurexRenderCore.manifestSchemaVersion,
             metalDevice: AurexRenderCore.metalDeviceName,
             h264Encoders: try H264EncoderDiscovery.availableEncoders(),
-            supportedLayerTypes: [SceneLayerType.solid.rawValue, SceneLayerType.image.rawValue],
+            supportedLayerTypes: [
+                SceneLayerType.solid.rawValue,
+                SceneLayerType.image.rawValue,
+                SceneLayerType.video.rawValue,
+                SceneLayerType.text.rawValue,
+            ],
             supportedHardwarePolicies: [
                 HardwareAccelerationPolicy.automatic.rawValue,
                 HardwareAccelerationPolicy.prefer.rawValue,
@@ -208,6 +213,11 @@ public final class RenderEngine {
             frameCount: manifest.canvas.frameCount
         )
         let compositor = try MetalCompositor(document: document)
+        let usesVideoLayers = manifest.layers.contains { $0.type == .video }
+        let usesTextLayers = manifest.layers.contains { $0.type == .text }
+        let scenePipeline = usesVideoLayers || usesTextLayers
+            ? "AVAssetReader + CoreText + Metal->IOSurface CVPixelBuffer->AVAssetWriter/VideoToolbox"
+            : "Metal->IOSurface CVPixelBuffer->AVAssetWriter/VideoToolbox"
         let encoders = try H264EncoderDiscovery.availableEncoders()
         let candidates = try H264EncoderDiscovery.candidates(
             for: manifest.output.hardwareAcceleration,
@@ -277,7 +287,7 @@ public final class RenderEngine {
                     colorSpace: "BT.709 video-range",
                     audio: "not-supported-in-mvp",
                     zeroCopyVideoPath: true,
-                    pipeline: "Metal->IOSurface CVPixelBuffer->AVAssetWriter/VideoToolbox",
+                    pipeline: scenePipeline,
                     metalDevice: compositor.deviceName,
                     timeline: TimelineReport(
                         frameRateNumerator: manifest.canvas.frameRate.numerator,
