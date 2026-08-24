@@ -19,7 +19,11 @@ from tools.native_render import (  # noqa: E402
     resolve_native_scene,
     topic_scene_features,
 )
-from tools.native_scene import compile_standard_topic  # noqa: E402
+from tools.native_scene import (  # noqa: E402
+    _STYLE_PROFILES,
+    _css_label_rects,
+    compile_standard_topic,
+)
 from tools.render_project import (  # noqa: E402
     RenderBackendOutcome,
     native_manifest_image_signatures,
@@ -181,6 +185,25 @@ class NativeRenderBridgeTests(unittest.TestCase):
                     self.assertFalse(Path(source).is_absolute())
                     self.assertNotIn("..", Path(source).parts)
                     self.assertTrue((stage / source).is_file())
+
+    def test_bietchichomet_label_box_matches_preview_css_anchor(self) -> None:
+        profile = _STYLE_PROFILES["bietchichomet"]
+
+        rect, sub_rect = _css_label_rects(
+            profile,
+            "left",
+            label_text="Windows",
+            sub_text="",
+            show_sub_label=False,
+            canvas_width=1080,
+            canvas_height=1920,
+        )
+
+        self.assertIsNone(sub_rect)
+        self.assertAlmostEqual(rect["x"], 0.030)
+        self.assertAlmostEqual(rect["width"], 0.444)
+        self.assertAlmostEqual(rect["y"] + rect["height"], 0.240)
+        self.assertAlmostEqual(rect["height"], 54 * 0.98 / 1920)
 
     def test_inline_solid_image_scene_is_a_complete_native_contract(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
