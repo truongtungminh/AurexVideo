@@ -567,7 +567,10 @@ def audio_mux_command(
         "-use_editlist",
         "0",
         "-avoid_negative_ts",
-        "make_zero",
+        # The native H.264 stream already starts at PTS 0. ``make_zero``
+        # shifts AAC priming into the first copied video sample and changes
+        # the measured FPS; keep the linear timestamps untouched instead.
+        "disabled",
         "-movflags",
         "+faststart",
         str(output),
