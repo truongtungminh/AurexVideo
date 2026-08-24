@@ -80,6 +80,18 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertEqual(command[command.index("-c:v") + 1], "copy")
         self.assertIn("-shortest", command)
 
+    def test_audio_mux_keeps_native_timestamps_linear(self) -> None:
+        command = audio_mux_command(
+            ffmpeg=Path("/usr/local/bin/ffmpeg"),
+            video=Path("native.mp4"),
+            audio=Path("voice.wav"),
+            output=Path("final.mp4"),
+            audio_bitrate="256k",
+        )
+
+        self.assertEqual(command[command.index("-use_editlist") + 1], "0")
+        self.assertEqual(command[command.index("-avoid_negative_ts") + 1], "disabled")
+
     def test_native_image_bytes_participate_in_cache_inputs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
             root = Path(temp)
