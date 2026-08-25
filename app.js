@@ -41,6 +41,8 @@ let lastSfxAt = -Infinity;
 let sfxPlayers = {};
 let previewStopTime = null;
 let previewSimulationRaf = 0;
+let previewSimulationTime = 0;
+let voiceoverAvailable = true;
 let poseSwapRaf = 0;
 let currentComparisonKey = "";
 let currentComparisonScene = null;
@@ -116,6 +118,52 @@ function resolveTopicAsset(path) {
 function formatTime(value) {
   const seconds = Math.max(0, Math.floor(Number(value) || 0));
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function previewDuration() {
+  const audioDuration = Number(elements.voiceover.duration);
+  if (voiceoverAvailable && Number.isFinite(audioDuration) && audioDuration > 0) return audioDuration;
+  return Math.max(0, Number(topic?.duration) || 0);
+}
+
+function previewTime() {
+  return voiceoverAvailable ? (elements.voiceover.currentTime || 0) : previewSimulationTime;
+}
+
+function seekPreview(time) {
+  const nextTime = Math.max(0, Number(time) || 0);
+  previewSimulationTime = nextTime;
+  if (!voiceoverAvailable) return nextTime;
+  try {
+    elements.voiceover.currentTime = nextTime;
+  } catch {
+    // A failed media load can leave an audio element with no seekable timeline.
+    voiceoverAvailable = false;
+  }
+  return nextTime;
+}
+
+function previewIsPlaying() {
+  return !voiceoverAvailable ? Boolean(previewSimulationRaf) : !elements.voiceover.paused && !elements.voiceover.ended;
+}
+
+function waitForVoiceoverReady() {
+  if (!voiceoverAvailable) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (available) => {
+      if (settled) return;
+      settled = true;
+      voiceoverAvailable = available;
+      resolve(available);
+    };
+    if (elements.voiceover.readyState >= 1) {
+      finish(true);
+      return;
+    }
+    elements.voiceover.addEventListener("loadedmetadata", () => finish(true), { once: true });
+    elements.voiceover.addEventListener("error", () => finish(false), { once: true });
+  });
 }
 
 function baseComparison(nextTopic = topic) {
@@ -985,7 +1033,7 @@ function renderAt(time, allowPoseSfx = false) {
   applyComparisonToView(comparisonAt(time));
   renderKaraoke(time);
   setPose(poseAt(time), time, allowPoseSfx);
-  const duration = elements.voiceover.duration || topic.duration || 0;
+  const duration = previewDuration();
   elements.timeText.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
   elements.progress.value = duration > 0 ? Math.round(time / duration * 1000) : 0;
 }
@@ -1110,12 +1158,12 @@ async function prepareOfflineRender() {
 }
 
 function animationLoop() {
-  const time = elements.voiceover.currentTime || 0;
+  const time = previewTime();
   renderAt(time, true);
   if (previewStopTime !== null && time >= previewStopTime - 0.015) {
     elements.voiceover.pause();
     stopBackgroundMusic();
-    elements.voiceover.currentTime = previewStopTime;
+    seekPreview(previewStopTime);
     renderAt(previewStopTime);
     previewStopTime = null;
     elements.playButton.textContent = "Phát";
@@ -1142,19 +1190,32 @@ async function waitForAudioClockStart() {
 
 async function startPlayback(fromStart = false) {
   previewStopTime = null;
+  if (!voiceoverAvailable) {
+    const duration = previewDuration();
+    const start = fromStart || previewSimulationTime >= duration - 0.015 ? 0 : previewSimulationTime;
+    lastPoseIndex = -1;
+    lastSfxAt = -Infinity;
+    simulatePreviewRange(start, duration, {
+      onComplete: () => { elements.playButton.textContent = "Phát"; },
+    });
+    elements.syncMarker.classList.remove("visible");
+    if (!window.__AUREX_DEMO_STARTED_PERF__) window.__AUREX_DEMO_STARTED_PERF__ = performance.now();
+    elements.playButton.textContent = "Tạm dừng";
+    return;
+  }
   if (fromStart || elements.voiceover.ended) {
-    elements.voiceover.currentTime = 0;
+    seekPreview(0);
     lastPoseIndex = -1;
     lastSfxAt = -Infinity;
   }
-  syncBackgroundMusic(elements.voiceover.currentTime || 0, { playing: false });
+  syncBackgroundMusic(previewTime(), { playing: false });
   await elements.voiceover.play();
   // In headless capture, play() can resolve before the media clock advances.
   // Keep the magenta sync frame visible until audio timing truly starts so
   // the separately muxed voiceover and recorded karaoke share the same zero.
   await waitForAudioClockStart();
-  syncBackgroundMusic(elements.voiceover.currentTime || 0, { playing: !offlineRender });
-  renderAt(elements.voiceover.currentTime || 0, true);
+  syncBackgroundMusic(previewTime(), { playing: !offlineRender });
+  renderAt(previewTime(), true);
   elements.syncMarker.classList.remove("visible");
   if (!window.__AUREX_DEMO_STARTED_PERF__) window.__AUREX_DEMO_STARTED_PERF__ = performance.now();
   elements.playButton.textContent = "Tạm dừng";
@@ -1163,9 +1224,13 @@ async function startPlayback(fromStart = false) {
 }
 
 async function playPreviewRange(start, end) {
+  if (!voiceoverAvailable) {
+    simulatePreviewRange(start, end);
+    return;
+  }
   stopPreviewMotion();
   previewStopTime = Math.max(start + 0.08, end);
-  elements.voiceover.currentTime = start;
+  seekPreview(start);
   lastPoseIndex = -1;
   lastSfxAt = -Infinity;
   renderAt(start, true);
@@ -1176,7 +1241,7 @@ async function playPreviewRange(start, end) {
   raf = requestAnimationFrame(animationLoop);
 }
 
-function simulatePreviewRange(start, end, { allowSfx = true, allowBgm = true } = {}) {
+function simulatePreviewRange(start, end, { allowSfx = true, allowBgm = true, onComplete } = {}) {
   stopPreviewMotion();
   lastPoseIndex = -1;
   lastSfxAt = -Infinity;
@@ -1186,10 +1251,16 @@ function simulatePreviewRange(start, end, { allowSfx = true, allowBgm = true } =
   const tick = (now) => {
     const elapsed = Math.max(0, (now - startedAt) / 1000);
     const time = Math.min(end, start + elapsed);
+    previewSimulationTime = time;
     renderAt(time, allowSfx);
     if (elapsed < duration) previewSimulationRaf = requestAnimationFrame(tick);
-    else if (allowBgm) stopBackgroundMusic();
+    else {
+      previewSimulationRaf = 0;
+      if (allowBgm) stopBackgroundMusic();
+      onComplete?.();
+    }
   };
+  previewSimulationTime = start;
   renderAt(start, allowSfx);
   previewSimulationRaf = requestAnimationFrame(tick);
 }
@@ -1220,26 +1291,26 @@ function pausePlayback() {
   stopBackgroundMusic();
   elements.playButton.textContent = "Phát";
   cancelAnimationFrame(raf);
-  renderAt(elements.voiceover.currentTime || 0);
+  renderAt(previewTime());
 }
 
 function bindControls() {
   elements.playButton.addEventListener("click", () => {
-    if (elements.voiceover.paused) startPlayback();
+    if (!previewIsPlaying()) startPlayback().catch(console.error);
     else pausePlayback();
   });
-  elements.restartButton.addEventListener("click", () => startPlayback(true));
+  elements.restartButton.addEventListener("click", () => startPlayback(true).catch(console.error));
   elements.progress.addEventListener("input", () => {
-    const duration = elements.voiceover.duration || topic.duration || 0;
-    elements.voiceover.currentTime = Number(elements.progress.value) / 1000 * duration;
+    const duration = previewDuration();
+    const time = seekPreview(Number(elements.progress.value) / 1000 * duration);
     lastPoseIndex = -1;
-    syncBackgroundMusic(elements.voiceover.currentTime || 0, { playing: !elements.voiceover.paused });
-    renderAt(elements.voiceover.currentTime);
+    syncBackgroundMusic(time, { playing: previewIsPlaying() });
+    renderAt(time);
   });
   elements.voiceover.addEventListener("ended", () => {
     elements.playButton.textContent = "Phát";
     cancelAnimationFrame(raf);
-    const duration = elements.voiceover.duration || topic.duration || 0;
+    const duration = previewDuration();
     // Audio can end between two animation frames. Force one final karaoke
     // render, then wait for the browser to paint it before stopping capture.
     renderAt(duration);
@@ -1422,8 +1493,17 @@ async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   applyComparisonToView(baseComparison(topic), true);
   applyKaraokeStyle(topic);
   updateMediaFocus(currentPose);
-  if (!preserveAudio) elements.voiceover.src = resolveTopicAsset(topic.voiceover);
-  syncBackgroundMusic(elements.voiceover.currentTime || 0, { playing: !elements.voiceover.paused && !offlineRender });
+  if (!preserveAudio) {
+    const voiceoverPath = String(topic.voiceover || "").trim();
+    voiceoverAvailable = Boolean(voiceoverPath);
+    previewSimulationTime = 0;
+    if (voiceoverPath) elements.voiceover.src = resolveTopicAsset(voiceoverPath);
+    else {
+      elements.voiceover.removeAttribute("src");
+      elements.voiceover.load();
+    }
+  }
+  syncBackgroundMusic(previewTime(), { playing: previewIsPlaying() && !offlineRender });
   requestAnimationFrame(fitHeadings);
 }
 
@@ -1462,16 +1542,16 @@ async function init() {
   lastPresenterSource = teacher.src;
   elements.teacher.addEventListener("loadeddata", scheduleImportedPresenterLayout);
   elements.teacher.addEventListener("seeked", scheduleImportedPresenterLayout);
+  elements.voiceover.addEventListener("error", () => {
+    voiceoverAvailable = false;
+  });
   bindControls();
 
   await Promise.all([
     elements.leftImage.decode().catch(() => {}),
     elements.rightImage.decode().catch(() => {}),
     waitForMediaReady(elements.teacher).catch(() => {}),
-    new Promise((resolve) => {
-      if (elements.voiceover.readyState >= 1) resolve();
-      else elements.voiceover.addEventListener("loadedmetadata", resolve, { once: true });
-    }),
+    waitForVoiceoverReady(),
   ]);
 
   applyComparisonToView(comparisonAt(0), true);
@@ -1501,7 +1581,7 @@ window.addEventListener("message", async (event) => {
     await applyTopicToView(event.data.topic, { preserveAudio: true });
     const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
     previewTimeLock = previewComparisonId ? time : null;
-    elements.voiceover.currentTime = time;
+    seekPreview(time);
     renderAt(time);
   }
   if (event.data.type === "tho-preview-comparison-lock") {
@@ -1509,14 +1589,14 @@ window.addEventListener("message", async (event) => {
     previewComparisonId = String(event.data.comparisonId || "");
     const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
     previewTimeLock = previewComparisonId ? time : null;
-    elements.voiceover.currentTime = time;
+    seekPreview(time);
     lastPoseIndex = -1;
     renderAt(time);
   }
   if (event.data.type === "tho-seek") {
     stopPreviewMotion();
     const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
-    elements.voiceover.currentTime = time;
+    seekPreview(time);
     lastPoseIndex = -1;
     renderAt(time);
   }
