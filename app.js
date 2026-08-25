@@ -148,21 +148,35 @@ function previewIsPlaying() {
 }
 
 function waitForVoiceoverReady() {
+  if (!String(topic?.voiceover || "").trim()) {
+    voiceoverAvailable = false;
+    return Promise.resolve(false);
+  }
   if (!voiceoverAvailable) return Promise.resolve(false);
   return new Promise((resolve) => {
     let settled = false;
+    let timeoutId = null;
+    const cleanup = () => {
+      elements.voiceover.removeEventListener("loadedmetadata", onReady);
+      elements.voiceover.removeEventListener("error", onError);
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    };
     const finish = (available) => {
       if (settled) return;
       settled = true;
+      cleanup();
       voiceoverAvailable = available;
       resolve(available);
     };
+    const onReady = () => finish(true);
+    const onError = () => finish(false);
     if (elements.voiceover.readyState >= 1) {
       finish(true);
       return;
     }
-    elements.voiceover.addEventListener("loadedmetadata", () => finish(true), { once: true });
-    elements.voiceover.addEventListener("error", () => finish(false), { once: true });
+    elements.voiceover.addEventListener("loadedmetadata", onReady, { once: true });
+    elements.voiceover.addEventListener("error", onError, { once: true });
+    timeoutId = setTimeout(() => finish(false), 10000);
   });
 }
 
@@ -1196,7 +1210,10 @@ async function startPlayback(fromStart = false) {
     lastPoseIndex = -1;
     lastSfxAt = -Infinity;
     simulatePreviewRange(start, duration, {
-      onComplete: () => { elements.playButton.textContent = "Phát"; },
+      onComplete: () => {
+        elements.playButton.textContent = "Phát";
+        window.__AUREX_DEMO_DONE__ = true;
+      },
     });
     elements.syncMarker.classList.remove("visible");
     if (!window.__AUREX_DEMO_STARTED_PERF__) window.__AUREX_DEMO_STARTED_PERF__ = performance.now();
@@ -1287,10 +1304,8 @@ function showPreviewBlank() {
 }
 
 function pausePlayback() {
-  elements.voiceover.pause();
-  stopBackgroundMusic();
+  stopPreviewMotion();
   elements.playButton.textContent = "Phát";
-  cancelAnimationFrame(raf);
   renderAt(previewTime());
 }
 
