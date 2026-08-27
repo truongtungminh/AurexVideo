@@ -501,8 +501,7 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
   width: calc(93% - var(--safe-zone-x) * 2);
 }
 
-.stage.character-bietchichomet .single-image-scene .topic-label-left
-{
+.stage.character-bietchichomet.single-image-scene .topic-label-stack {
     display: none;
 }
 
