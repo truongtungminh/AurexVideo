@@ -13,7 +13,7 @@ import social_upload.tiktok as tiktok
 
 
 class TiktokSchedulerTests(unittest.TestCase):
-    def test_scheduled_upload_queues_locally_without_calling_zernio(self) -> None:
+    def test_scheduled_upload_moves_to_vps_without_calling_zernio(self) -> None:
         scheduled_at = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         payload = {
             "project": "demo",
@@ -30,16 +30,33 @@ class TiktokSchedulerTests(unittest.TestCase):
                  patch.object(tiktok, "resolve_social_brand_connection", return_value=("connection-1", {"api_key": "sk_test", "account_id": "acct_1", "_brand_connection": True})), \
                  patch.object(tiktok, "final_video_path_for_project", return_value=path), \
                  patch.object(tiktok, "read_expected_video_bytes", return_value=b"video"), \
-                 patch.object(tiktok, "schedule_upload", return_value={"id": "schedule-1", "scheduledPublishAt": scheduled_at}) as queue, \
+                 patch.object(tiktok, "schedule_on_vps", return_value={"id": "worker-1", "scheduledPublishAt": scheduled_at}) as queue, \
                  patch.object(tiktok, "record_scheduled_social_upload") as record, \
                  patch.object(tiktok, "urlopen") as urlopen:
                 result = tiktok.tiktok_upload_video(payload)
 
-            queue.assert_called_once_with("tiktok", {**payload, "brand": "popsy"}, scheduled_at)
-            record.assert_called_once_with(Path("/tmp"), "tiktok", scheduled_at, brand="popsy", connection_id="connection-1")
+            queue.assert_called_once_with(
+                "tiktok",
+                path,
+                "Scheduled post",
+                scheduled_at,
+                project="demo",
+                brand="popsy",
+                account_id="acct_1",
+                tiktok_settings=None,
+            )
+            record.assert_called_once_with(
+                Path("/tmp"),
+                "tiktok",
+                scheduled_at,
+                brand="popsy",
+                connection_id="connection-1",
+                worker_id="worker-1",
+            )
             urlopen.assert_not_called()
             self.assertEqual(result["state"], "SCHEDULED")
-            self.assertEqual(result["schedule_id"], "schedule-1")
+            self.assertEqual(result["schedule_id"], "worker-1")
+            self.assertEqual(result["worker_id"], "worker-1")
         finally:
             path.unlink(missing_ok=True)
 
