@@ -102,13 +102,22 @@ def schedule_on_vps(
     return {**body, "scheduledPublishAt": scheduled_at, "expectedMediaSha256": digest}
 
 
-def watch_tiktok_post(post_id: str, *, project: str = "", brand: str = "", account_id: str = "") -> dict:
+def watch_tiktok_post(
+    post_id: str,
+    *,
+    project: str = "",
+    brand: str = "",
+    account_id: str = "",
+    scheduled_for: str = "",
+) -> dict:
     payload = {
         "postId": str(post_id or "").strip(),
         "project": str(project or "").strip(),
         "brand": str(brand or "").strip(),
         "accountId": str(account_id or "").strip(),
     }
+    if scheduled_for:
+        payload["scheduledFor"] = _future(scheduled_for)
     if not payload["postId"]:
         raise ValueError("TikTok post id is required.")
     return _worker_request("/watch-tiktok", "POST", payload)
@@ -152,7 +161,14 @@ def _write_watch_outbox(items: list[dict]) -> None:
     temp.replace(path)
 
 
-def queue_tiktok_watch(post_id: str, *, project: str = "", brand: str = "", account_id: str = "") -> dict:
+def queue_tiktok_watch(
+    post_id: str,
+    *,
+    project: str = "",
+    brand: str = "",
+    account_id: str = "",
+    scheduled_for: str = "",
+) -> dict:
     post_id = str(post_id or "").strip()
     if not post_id:
         raise ValueError("TikTok post id is required.")
@@ -164,6 +180,8 @@ def queue_tiktok_watch(post_id: str, *, project: str = "", brand: str = "", acco
         "attempts": 0,
         "nextAttemptAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    if scheduled_for:
+        item["scheduledFor"] = _future(scheduled_for)
     with _WATCH_OUTBOX_LOCK:
         items = _read_watch_outbox()
         if not any(str(current.get("postId") or "").strip() == post_id for current in items):
@@ -197,6 +215,7 @@ def flush_tiktok_watch_outbox() -> int:
                     project=str(item.get("project") or ""),
                     brand=str(item.get("brand") or ""),
                     account_id=str(item.get("accountId") or ""),
+                    scheduled_for=str(item.get("scheduledFor") or ""),
                 )
                 synced += 1
             except Exception as exc:
