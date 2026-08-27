@@ -501,6 +501,9 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
   width: calc(93% - var(--safe-zone-x) * 2);
 }
 
+.stage.character-bietchichomet.single-image-scene .comparison-label-field {
+  display: none;
+}
 /* Đẩy topic label xuống thấp hơn phù hợp với media-slot mới. */
 .stage.character-bietchichomet .topic-label-stack {
   top: 24%;
