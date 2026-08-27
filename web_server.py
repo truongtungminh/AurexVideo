@@ -125,6 +125,7 @@ DEFAULT_PORT = 4173
 PACKAGED_ENGINE_MARKER_NAME = ".aurexvideo-packaged-engine"
 DEV_ENTITLEMENT_UNLOCK_ENV = "AUREXVIDEO_DEV_ENTITLEMENT_UNLOCK"
 DESKTOP_BUILD_PROFILE_ENV = "AUREXVIDEO_DESKTOP_BUILD_PROFILE"
+EMBEDDED_DESKTOP_ENV = "AUREXVIDEO_EMBEDDED_DESKTOP"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_LOG_CHARS = 240_000
 AUDIO_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm", ".flac"}
@@ -363,6 +364,17 @@ def development_entitlement_unlock_enabled() -> bool:
         os.environ.get(DEV_ENTITLEMENT_UNLOCK_ENV) == "1"
         and os.environ.get(DESKTOP_BUILD_PROFILE_ENV) == "debug"
     )
+
+
+def embedded_desktop_mode_enabled() -> bool:
+    """Keep embedded desktop launches from opening a separate browser window."""
+    return os.environ.get(EMBEDDED_DESKTOP_ENV) == "1" or os.environ.get("AUREXVIDEO_DESKTOP") == "1"
+
+
+def desktop_build_profile() -> str:
+    """Return the launcher profile advertised to the desktop supervisor."""
+    profile = os.environ.get(DESKTOP_BUILD_PROFILE_ENV, "").strip().lower()
+    return profile if profile in {"debug", "release"} else "standalone"
 
 
 def entitlement_is_active_pro(entitlement: dict | None) -> bool:
@@ -9463,6 +9475,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                     "source_root": str(PROJECT_ROOT),
                     "source_mode": source_root_mode(),
                     "projects": len(list_projects()),
+                    "desktop_build_profile": desktop_build_profile(),
+                    "development_entitlement_unlock": development_entitlement_unlock_enabled(),
                 },
             )
             return
@@ -11050,7 +11064,7 @@ def main() -> None:
     sys.stdout.flush()
     # Không tự mở trình duyệt khi chạy bên trong desktop app (Swift đã nhúng WKWebView).
     # Chỉ mở browser mặc định khi chạy standalone (dev / dòng lệnh).
-    if not os.environ.get("AUREXVIDEO_DESKTOP"):
+    if not embedded_desktop_mode_enabled():
         webbrowser.open(url)
     try:
         server.serve_forever()

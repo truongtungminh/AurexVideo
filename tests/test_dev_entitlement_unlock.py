@@ -84,8 +84,30 @@ class LauncherReleaseGuardTests(unittest.TestCase):
         self.assertIn('command.env(DESKTOP_BUILD_PROFILE_ENV, "release");', release_guard)
         self.assertIn("command.env_remove(DEV_ENTITLEMENT_UNLOCK_ENV);", release_guard)
         self.assertEqual(source.count('command.env(DEV_ENTITLEMENT_UNLOCK_ENV, "1");'), 1)
+        self.assertNotIn('.env("AUREXVIDEO_DESKTOP", "1")', source)
+        self.assertIn('.env("AUREXVIDEO_EMBEDDED_DESKTOP", "1")', source)
         self.assertIn("configure_development_entitlement_unlock(&mut command);", source[spawn_start:])
 
+    def test_launcher_rejects_a_backend_with_the_wrong_profile(self) -> None:
+        source = (ENGINE_ROOT / "tauri-src" / "src" / "main.rs").read_text(encoding="utf-8")
+        watchdog_start = source.index("fn run_server_watchdog")
+        watchdog = source[watchdog_start:]
+
+        self.assertIn("fn backend_matches_runtime_profile()", source)
+        self.assertIn("/api/health", source)
+        self.assertIn("if backend_matches_runtime_profile()", watchdog)
+        self.assertIn("existing backend profile mismatch; replacing it", watchdog)
+        self.assertIn("try_wait()", watchdog)
+        self.assertIn("stop_requested.store(true, Ordering::Release)", source)
+
+    def test_health_contract_exposes_build_profile_and_dev_unlock_state(self) -> None:
+        source = (ENGINE_ROOT / "web_server.py").read_text(encoding="utf-8")
+
+        self.assertIn('"desktop_build_profile": desktop_build_profile(),', source)
+        self.assertIn(
+            '"development_entitlement_unlock": development_entitlement_unlock_enabled(),',
+            source,
+        )
 
 if __name__ == "__main__":
     unittest.main()

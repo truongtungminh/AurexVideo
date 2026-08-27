@@ -36,10 +36,12 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         "media_rects": {
             "left": {"x": 0.030, "y": 0.240, "width": 0.420, "height": 0.230},
             "right": {"x": 0.460, "y": 0.240, "width": 0.420, "height": 0.230},
+            "single": {"x": 0.050, "y": 0.171, "width": 0.900, "height": 0.50625},
         },
         "label_rects": {
             "left": {"x": 0.030, "y": 0.2125, "width": 0.444, "height": 0.0275},
             "right": {"x": 0.446, "y": 0.2125, "width": 0.444, "height": 0.0275},
+            "single": {"x": 0.050, "y": 0.2125, "width": 0.900, "height": 0.0275},
         },
         # CSS equivalent: .topic-label-stack { top: 24%;
         # transform: translateY(-100%); }. The compiler expands the line box
@@ -60,10 +62,12 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         "media_rects": {
             "left": {"x": 0.050, "y": 0.171, "width": 0.444, "height": 0.256},
             "right": {"x": 0.506, "y": 0.171, "width": 0.444, "height": 0.256},
+            "single": {"x": 0.050, "y": 0.171, "width": 0.900, "height": 0.50625},
         },
         "label_rects": {
             "left": {"x": 0.050, "y": 0.070, "width": 0.444, "height": 0.100},
             "right": {"x": 0.506, "y": 0.070, "width": 0.444, "height": 0.100},
+            "single": {"x": 0.050, "y": 0.070, "width": 0.900, "height": 0.100},
         },
         "karaoke_rect": {"x": 0.050, "y": 0.462, "width": 0.900, "height": 0.090},
         "label_font_size": 58.0,
@@ -329,6 +333,14 @@ def _css_label_rects(
     return label_rect, sub_rect
 
 
+def _is_single_image_scene(scene: dict[str, Any]) -> bool:
+    """Keep native layout compatible with single scenes from old and new drafts."""
+    return (
+        str(scene.get("layout") or "").strip().lower() == "single"
+        or str(scene.get("id") or "").startswith("single-image-")
+    )
+
+
 def compile_standard_topic(
     topic_path: Path,
     *,
@@ -479,16 +491,18 @@ def compile_standard_topic(
         start_frame, end_frame = _frame(start, frame_count), _frame(end, frame_count)
         if end_frame <= start_frame:
             continue
-        for side in ("left", "right"):
+        single = _is_single_image_scene(scene)
+        for side in (("left",) if single else ("left", "right")):
+            slot = "single" if single else side
             image_value = scene.get(f"{side}Image")
             if not str(image_value or "").strip():
                 continue
-            outer = _rect(profile["media_rects"].get(side), profile["media_rects"]["left"])
+            outer = _rect(profile["media_rects"].get(slot), profile["media_rects"]["left"])
             image_rect = dict(outer)
             if profile.get("border"):
                 inset = float(profile.get("border_inset", 0.0))
                 layers.append({
-                    "id": f"comparison-{scene_index:03d}-{side}-border",
+                    "id": f"comparison-{scene_index:03d}-{slot}-border",
                     "type": "solid",
                     "zIndex": 2,
                     "startFrame": start_frame,
@@ -503,13 +517,13 @@ def compile_standard_topic(
                     "height": max(0.001, outer["height"] - 2 * inset),
                 }
             layers.append({
-                "id": f"comparison-{scene_index:03d}-{side}-image",
+                "id": f"comparison-{scene_index:03d}-{slot}-image",
                 "type": "image",
                 "zIndex": 3,
                 "startFrame": start_frame,
                 "endFrame": end_frame,
                 "rect": image_rect,
-                "source": _stage_asset(project, image_value, staging_dir, asset_cache, label=f"{side} comparison"),
+                "source": _stage_asset(project, image_value, staging_dir, asset_cache, label=f"{slot} comparison"),
                 "contentMode": "fill",
                 "zoom": max(1.0, min(3.0, _number(scene.get(f"{side}ImageZoom"), 1.0))),
                 "panX": max(-50.0, min(50.0, _number(scene.get(f"{side}ImageX")))),
@@ -520,7 +534,7 @@ def compile_standard_topic(
             show_sub_label = scene.get("showSubLabels") is True
             label_rect, sub_rect = _css_label_rects(
                 profile,
-                side,
+                slot,
                 label_text=label_value,
                 sub_text=sub_value,
                 show_sub_label=show_sub_label,
@@ -529,7 +543,7 @@ def compile_standard_topic(
             )
             if label_value:
                 layers.append(_text_layer(
-                    f"comparison-{scene_index:03d}-{side}-label",
+                    f"comparison-{scene_index:03d}-{slot}-label",
                     start_frame=start_frame,
                     end_frame=end_frame,
                     rect=label_rect,
@@ -542,7 +556,7 @@ def compile_standard_topic(
                 ))
             if show_sub_label and sub_value and sub_rect is not None:
                 layers.append(_text_layer(
-                    f"comparison-{scene_index:03d}-{side}-sub-label",
+                    f"comparison-{scene_index:03d}-{slot}-sub-label",
                     start_frame=start_frame,
                     end_frame=end_frame,
                     rect=sub_rect,

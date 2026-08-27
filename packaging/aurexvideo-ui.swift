@@ -865,7 +865,8 @@ final class AppState: ObservableObject {
         proc.currentDirectoryURL = engineDir
         var env = ProcessInfo.processInfo.environment
         env["AUREXVIDEO_UI_LANGUAGE"] = lang
-        env["AUREXVIDEO_DESKTOP"] = "1"
+        env["AUREXVIDEO_EMBEDDED_DESKTOP"] = "1"
+        env["AUREXVIDEO_DESKTOP_BUILD_PROFILE"] = "release"
         env["AUREX_DATA_ROOT"] = studioDir.path
         env["AUREX_BOOTSTRAP_DATA_ROOT"] = studioDir.path
         if let vieneu {

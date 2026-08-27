@@ -241,7 +241,16 @@ function applyComparisonToView(scene, force = false) {
   currentComparisonKey = key;
   currentComparisonScene = scene;
   const single = isSingleImageScene(scene);
+  const leftSlot = elements.leftImage.parentElement;
+  const rightSlot = elements.rightImage.parentElement;
   elements.stage.classList.toggle("single-image-scene", single);
+  // A single-image scene is a distinct, centered slot—not the left side of a
+  // comparison. Keep the DOM class in sync with the layout contract so the
+  // preview and browser renderer share the same semantics.
+  leftSlot.classList.toggle("media-slot-single", single);
+  leftSlot.classList.toggle("media-slot-left", !single);
+  leftSlot.hidden = false;
+  rightSlot.hidden = single;
   elements.leftLabel.textContent = formatTopicLabel(scene.leftLabel);
   elements.rightLabel.textContent = single ? "" : formatTopicLabel(scene.rightLabel);
   elements.leftLabel.style.color = String(
@@ -256,9 +265,6 @@ function applyComparisonToView(scene, force = false) {
   if (single) {
     elements.rightSubLabel.hidden = true;
     elements.rightSubLabel.textContent = "";
-    elements.rightImage.parentElement.hidden = true;
-  } else {
-    elements.rightImage.parentElement.hidden = false;
   }
   applySubLabel(elements.leftSubLabel, scene.leftSubLabel, scene.leftSubLabelColor || topic.leftSubLabelColor, scene);
   applySubLabel(elements.rightSubLabel, single ? "" : scene.rightSubLabel, scene.rightSubLabelColor || topic.rightSubLabelColor, scene);
