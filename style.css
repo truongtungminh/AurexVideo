@@ -174,22 +174,9 @@ body {
   left: 50.6%;
 }
 
-.stage.single-image-scene .topic-label-left {
-  left: var(--safe-zone-x);
-  width: calc(100% - var(--safe-zone-x) * 2);
-}
-
 .stage.single-image-scene .topic-label-right,
 .stage.single-image-scene .media-slot-right {
   display: none;
-}
-
-.stage.single-image-scene .media-slot-left {
-  left: var(--safe-zone-x);
-  width: calc(100% - var(--safe-zone-x) * 2);
-  height: auto;
-  aspect-ratio: 16 / 9;
-  filter: none;
 }
 
 .media-slot.dimmed {
@@ -1093,3 +1080,19 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   color: #A71916 !important;
 }
 
+/* A single image is a centered 16:9 scene, never the left half of a pair.
+   Keep this after character overrides so its geometry stays identical in the
+   editor preview and the browser video renderer for every character. */
+.stage.single-image-scene .topic-label-left {
+  left: var(--safe-zone-x);
+  width: calc(100% - var(--safe-zone-x) * 2);
+}
+
+.stage.single-image-scene .media-slot-single {
+  left: var(--safe-zone-x);
+  top: 17.1%;
+  width: calc(100% - var(--safe-zone-x) * 2);
+  height: auto;
+  aspect-ratio: 16 / 9;
+  filter: none;
+}

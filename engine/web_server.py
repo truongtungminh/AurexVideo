@@ -96,6 +96,9 @@ VENV_ROOT = (REPO_ROOT / ".venv").resolve()
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4173
 PACKAGED_ENGINE_MARKER_NAME = ".aurexvideo-packaged-engine"
+DEV_ENTITLEMENT_UNLOCK_ENV = "AUREXVIDEO_DEV_ENTITLEMENT_UNLOCK"
+DESKTOP_BUILD_PROFILE_ENV = "AUREXVIDEO_DESKTOP_BUILD_PROFILE"
+EMBEDDED_DESKTOP_ENV = "AUREXVIDEO_EMBEDDED_DESKTOP"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_LOG_CHARS = 240_000
 AUDIO_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm", ".flac"}
@@ -308,10 +311,27 @@ def current_account() -> dict:
     return {}
 
 
+def development_entitlement_unlock_enabled() -> bool:
+    """Allow local entitlement bypasses only for an injected debug build."""
+    return (
+        os.environ.get(DEV_ENTITLEMENT_UNLOCK_ENV) == "1"
+        and os.environ.get(DESKTOP_BUILD_PROFILE_ENV) == "debug"
+    )
+
+
+def embedded_desktop_mode_enabled() -> bool:
+    """Keep embedded desktop launches from opening a separate browser window."""
+    return os.environ.get(EMBEDDED_DESKTOP_ENV) == "1" or os.environ.get("AUREXVIDEO_DESKTOP") == "1"
+
+
+def desktop_build_profile() -> str:
+    """Return the launcher profile advertised to the desktop supervisor."""
+    profile = os.environ.get(DESKTOP_BUILD_PROFILE_ENV, "").strip().lower()
+    return profile if profile in {"debug", "release"} else "standalone"
+
+
 def entitlement_is_active_pro(entitlement: dict | None) -> bool:
-    # Desktop app (Swift shell) is always full-featured: no trial, no Pro gating.
-    # AUREXVIDEO_DESKTOP is set by the launcher, so local builds are fully unlocked.
-    if os.environ.get("AUREXVIDEO_DESKTOP"):
+    if development_entitlement_unlock_enabled():
         return True
     entitlement = entitlement if isinstance(entitlement, dict) else {}
     plan = str(entitlement.get("product_id") or entitlement.get("plan") or "").strip().lower()
@@ -332,9 +352,6 @@ def entitlement_is_active_pro(entitlement: dict | None) -> bool:
 
 
 def trial_branding_required(account: dict | None = None) -> bool:
-    # Desktop app is fully unlocked — never show trial branding.
-    if os.environ.get("AUREXVIDEO_DESKTOP"):
-        return False
     account = account if isinstance(account, dict) else current_account()
     entitlement = account.get("entitlement") if isinstance(account.get("entitlement"), dict) else {}
     return not entitlement_is_active_pro(entitlement)
@@ -443,8 +460,7 @@ def local_development_render_enabled() -> bool:
 
 
 def reserve_trial_export(project: str) -> tuple[str | None, dict | None]:
-    # Desktop app is fully unlocked — no licensing/export limits.
-    if os.environ.get("AUREXVIDEO_DESKTOP"):
+    if development_entitlement_unlock_enabled():
         return None, None
     if os.environ.get("AUREX_NATIVE_BRIDGE") != "1":
         if local_development_render_enabled():
@@ -8335,6 +8351,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                     "source_root": str(PROJECT_ROOT),
                     "source_mode": source_root_mode(),
                     "projects": len(list_projects()),
+                    "desktop_build_profile": desktop_build_profile(),
+                    "development_entitlement_unlock": development_entitlement_unlock_enabled(),
                 },
             )
             return
@@ -9424,7 +9442,7 @@ def main() -> None:
     sys.stdout.flush()
     # Không tự mở trình duyệt khi chạy bên trong desktop app (Swift đã nhúng WKWebView).
     # Chỉ mở browser mặc định khi chạy standalone (dev / dòng lệnh).
-    if not os.environ.get("AUREXVIDEO_DESKTOP"):
+    if not embedded_desktop_mode_enabled():
         webbrowser.open(url)
     try:
         server.serve_forever()

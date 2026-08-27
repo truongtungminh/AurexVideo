@@ -7,6 +7,10 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -179,6 +183,41 @@ fn wait_for_server(timeout: Duration) -> bool {
 }
 
 #[cfg(debug_assertions)]
+fn expected_backend_profile() -> (&'static str, bool) {
+    ("debug", true)
+}
+
+#[cfg(not(debug_assertions))]
+fn expected_backend_profile() -> (&'static str, bool) {
+    ("release", false)
+}
+
+fn backend_matches_runtime_profile() -> bool {
+    let url = format!("http://{}:{}/api/health", SERVER_HOST, SERVER_PORT);
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+    let response = match client.get(url).send() {
+        Ok(response) if response.status().is_success() => response,
+        _ => return false,
+    };
+    let body = match response.text() {
+        Ok(body) => body,
+        Err(_) => return false,
+    };
+    let (profile, dev_unlock) = expected_backend_profile();
+    body.contains(&format!("\"desktop_build_profile\": \"{}\"", profile))
+        && body.contains(&format!(
+            "\"development_entitlement_unlock\": {}",
+            dev_unlock
+        ))
+}
+
+#[cfg(debug_assertions)]
 fn configure_development_entitlement_unlock(command: &mut Command) {
     command.env(DESKTOP_BUILD_PROFILE_ENV, "debug");
     command.env(DEV_ENTITLEMENT_UNLOCK_ENV, "1");
@@ -206,7 +245,7 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
         .arg("--port").arg(SERVER_PORT.to_string())
         .arg("--source-root").arg(studio_dir().join("project"))
         .current_dir(engine)
-        .env("AUREXVIDEO_DESKTOP", "1")
+        .env("AUREXVIDEO_EMBEDDED_DESKTOP", "1")
         .env("AUREX_DATA_ROOT", studio_dir())
         .env("AUREX_BOOTSTRAP_DATA_ROOT", studio_dir())
         .env("PYTHONUNBUFFERED", "1")
@@ -265,16 +304,30 @@ fn terminate_unhealthy_server_on_port() {
     }
 }
 
-fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
+fn run_server_watchdog(python: PathBuf, engine: PathBuf, stop_requested: Arc<AtomicBool>) {
     let mut consecutive_failures = 0u32;
     loop {
+        if stop_requested.load(Ordering::Acquire) {
+            return;
+        }
         if wait_for_server(Duration::from_secs(2)) {
-            consecutive_failures = 0;
-            append_server_log("[launcher] using healthy backend already listening on port 4173\n");
-            while wait_for_server(Duration::from_secs(2)) {
-                std::thread::sleep(Duration::from_secs(2));
+            if backend_matches_runtime_profile() {
+                consecutive_failures = 0;
+                append_server_log("[launcher] using healthy backend with matching build profile on port 4173\n");
+                while wait_for_server(Duration::from_secs(2)) {
+                    if stop_requested.load(Ordering::Acquire) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+                append_server_log("[launcher] existing backend stopped responding; taking ownership\n");
+            } else {
+                append_server_log("[launcher] existing backend profile mismatch; replacing it\n");
             }
-            append_server_log("[launcher] existing backend stopped responding; taking ownership\n");
+        }
+
+        if stop_requested.load(Ordering::Acquire) {
+            return;
         }
 
         terminate_unhealthy_server_on_port();
@@ -288,16 +341,31 @@ fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
                 if let Some(stderr) = server.stderr.take() {
                     drain_server_output(stderr, true);
                 }
-                match server.wait() {
-                    Ok(status) => append_server_log(&format!(
-                        "\n[launcher] backend exited status={} uptime={:.1}s\n",
-                        status,
-                        started_at.elapsed().as_secs_f64()
-                    )),
-                    Err(error) => append_server_log(&format!(
-                        "\n[launcher] failed waiting for backend: {}\n",
-                        error
-                    )),
+                loop {
+                    if stop_requested.load(Ordering::Acquire) {
+                        let _ = server.kill();
+                        let _ = server.wait();
+                        append_server_log("\n[launcher] backend stopped during app exit\n");
+                        return;
+                    }
+                    match server.try_wait() {
+                        Ok(Some(status)) => {
+                            append_server_log(&format!(
+                                "\n[launcher] backend exited status={} uptime={:.1}s\n",
+                                status,
+                                started_at.elapsed().as_secs_f64()
+                            ));
+                            break;
+                        }
+                        Ok(None) => std::thread::sleep(Duration::from_millis(250)),
+                        Err(error) => {
+                            append_server_log(&format!(
+                                "\n[launcher] failed waiting for backend: {}\n",
+                                error
+                            ));
+                            break;
+                        }
+                    }
                 }
             }
             Err(error) => {
@@ -315,7 +383,12 @@ fn run_server_watchdog(python: PathBuf, engine: PathBuf) {
             "[launcher] restarting backend in {}s (failure {})\n",
             delay, consecutive_failures
         ));
-        std::thread::sleep(Duration::from_secs(delay));
+        for _ in 0..(delay * 4) {
+            if stop_requested.load(Ordering::Acquire) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
     }
 }
 
@@ -339,7 +412,9 @@ fn main() {
     let engine = engine_dir();
     // Keep the backend supervised for the entire app lifetime. If Python exits,
     // preserve its output in server.log and restart it with bounded backoff.
-    std::thread::spawn(move || run_server_watchdog(python, engine));
+    let stop_requested = Arc::new(AtomicBool::new(false));
+    let watchdog_stop_requested = Arc::clone(&stop_requested);
+    std::thread::spawn(move || run_server_watchdog(python, engine, watchdog_stop_requested));
 
     if !wait_for_server(Duration::from_secs(90)) {
         eprintln!("[aurexvideo] WARNING: server did not respond in 90s");
@@ -351,6 +426,11 @@ fn main() {
             let _ = app;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running AurexVideo");
+        .build(tauri::generate_context!())
+        .expect("error while building AurexVideo")
+        .run(move |_app_handle, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                stop_requested.store(true, Ordering::Release);
+            }
+        });
 }

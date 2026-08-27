@@ -239,6 +239,43 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(rect["y"] + rect["height"], 0.240)
         self.assertAlmostEqual(rect["height"], 54 * 0.98 / 1920)
 
+    def test_single_image_scene_uses_one_centered_native_slot(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            root = Path(temp)
+            (root / "assets").mkdir()
+            (root / "assets/single.png").write_bytes(b"single")
+            topic_path = root / "topic.rendered.json"
+            topic_path.write_text(json.dumps({
+                "duration": 1.0,
+                "segments": [{"start": 0, "end": 1, "text": "Ảnh đơn."}],
+                "baseComparisonEnabled": False,
+                "comparisons": [{
+                    "id": "single-image-example",
+                    "layout": "single",
+                    "startSentence": 1,
+                    "leftLabel": "Ảnh đơn",
+                    "leftImage": "assets/single.png",
+                    "rightImage": "assets/ignored.png",
+                }],
+            }), encoding="utf-8")
+
+            document = compile_standard_topic(
+                topic_path,
+                staging_dir=root / ".stage",
+                resource_root=ENGINE_ROOT,
+            )
+
+            images = [layer for layer in document["layers"] if layer["type"] == "image"]
+            self.assertEqual([layer["id"] for layer in images], ["comparison-000-single-image"])
+            self.assertEqual(
+                images[0]["rect"],
+                {"x": 0.050, "y": 0.171, "width": 0.900, "height": 0.50625},
+            )
+            labels = [layer for layer in document["layers"] if layer["id"] == "comparison-000-single-label"]
+            self.assertEqual(len(labels), 1)
+            self.assertEqual(labels[0]["rect"]["x"], 0.050)
+            self.assertEqual(labels[0]["rect"]["width"], 0.900)
+
     def test_inline_solid_image_scene_is_a_complete_native_contract(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
             root = Path(temp)
