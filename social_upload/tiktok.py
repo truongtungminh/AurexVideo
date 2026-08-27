@@ -3,8 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,15 +19,49 @@ from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
     read_expected_video_bytes,
+    record_scheduled_social_upload,
     record_social_upload,
     require_project,
     upload_brand_for_project,
 )
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
+from .scheduler import schedule_upload
 
 ZERNIO_BASE_URL = "https://zernio.com/api/v1"
 MAX_TIKTOK_VIDEO_BYTES = 500 * 1024 * 1024
 MAX_TIKTOK_CAPTION_LENGTH = 2200
+TIKTOK_DIRECT_POST_CAPACITY_CODES = frozenset({
+    "TIKTOK_DIRECT_POST_CAPACITY",
+    "TIKTOK_DIRECT_POST_CAPACITY_EXCEEDED",
+    "TIKTOK_DIRECT_POST_CAPACITY_REACHED",
+    "TIKTOK_DIRECT_POST_DAILY_LIMIT_REACHED",
+    "TIKTOK_DIRECT_POST_LIMIT_EXCEEDED",
+    "TIKTOK_DIRECT_POST_LIMIT_REACHED",
+    "TIKTOK_DIRECT_POST_QUOTA_EXCEEDED",
+    "TIKTOK_DIRECT_POST_QUOTA_REACHED",
+})
+TIKTOK_DIRECT_POST_CAPACITY_MESSAGES = frozenset({
+    "tiktok creator has reached the daily posting limit. please try again later.",
+    "tiktok direct post capacity reached.",
+    "tiktok direct post capacity exceeded.",
+})
+
+
+class ZernioRequestError(RuntimeError):
+    """A Zernio API error retaining machine-readable response details."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        response: dict | None = None,
+        raw_response: str = "",
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = response or {}
+        self.raw_response = raw_response
 
 
 def zernio_config(config: dict | None = None) -> dict:
@@ -141,8 +174,21 @@ def _json_request(url: str, method: str, body: dict | None, config: dict, header
         with urlopen(request, timeout=120) as response:
             raw = response.read().decode("utf-8", "replace")
     except HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise RuntimeError(f"Zernio HTTP {exc.code}: {detail[:800]}") from exc
+        try:
+            detail = exc.read().decode("utf-8", "replace")
+        finally:
+            exc.close()
+        try:
+            parsed = json.loads(detail) if detail.strip() else {}
+        except json.JSONDecodeError:
+            parsed = {}
+        response = parsed if isinstance(parsed, dict) else {}
+        raise ZernioRequestError(
+            f"Zernio HTTP {exc.code}: {detail[:800]}",
+            status_code=exc.code,
+            response=response,
+            raw_response=detail,
+        ) from exc
     except URLError as exc:
         raise RuntimeError(f"Zernio request failed: {exc}") from exc
     if not raw.strip():
@@ -150,8 +196,15 @@ def _json_request(url: str, method: str, body: dict | None, config: dict, header
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("Zernio trả về dữ liệu JSON không hợp lệ.") from exc
-    return parsed if isinstance(parsed, dict) else {}
+        raise ZernioRequestError(
+            "Zernio trả về dữ liệu JSON không hợp lệ.",
+            raw_response=raw,
+        ) from exc
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, str):
+        return {"error": parsed}
+    return {}
 
 
 def _put_file(url: str, video_path: Path) -> None:
@@ -184,6 +237,108 @@ def _post_url(response: dict) -> str:
     return ""
 
 
+def _error_values(value: object, *, key: str = "") -> list[tuple[str, str]]:
+    """Return scalar error values while preserving their response keys."""
+    if isinstance(value, dict):
+        values: list[tuple[str, str]] = []
+        for child_key, child_value in value.items():
+            values.extend(_error_values(child_value, key=str(child_key).lower()))
+        return values
+    if isinstance(value, list):
+        values: list[tuple[str, str]] = []
+        for child_value in value:
+            values.extend(_error_values(child_value, key=key))
+        return values
+    if isinstance(value, (str, int)):
+        return [(key, str(value))]
+    return []
+
+
+def _response_has_error(response: dict) -> bool:
+    if not isinstance(response, dict):
+        return False
+    error = response.get("error")
+    if isinstance(error, dict):
+        code = str(error.get("code") or "").strip().casefold()
+        message = str(error.get("message") or "").strip()
+        if code not in {"", "ok", "0", "200"} or message:
+            return True
+    elif error:
+        return True
+    if response.get("errors"):
+        return True
+    if response.get("success") is False or response.get("ok") is False:
+        return True
+    if str(response.get("status") or "").strip().lower() in {"error", "failed", "failure"}:
+        return True
+    for key, raw_value in _error_values(response):
+        normalized = raw_value.strip().lower()
+        if key in {"error", "errors", "error_message", "errormessage"} and normalized:
+            return True
+        if key == "status" and normalized in {"error", "failed", "failure"}:
+            return True
+    return False
+
+
+def _is_tiktok_direct_post_capacity_error(value: object) -> bool:
+    """Match only TikTok's direct-post capacity response, never generic failures."""
+    response = value.response if isinstance(value, ZernioRequestError) else value
+    values = _error_values(response)
+    if isinstance(value, ZernioRequestError) and value.raw_response:
+        values.append(("raw_response", value.raw_response))
+    for _, raw_value in values:
+        normalized = raw_value.strip().upper().replace("-", "_").replace(" ", "_")
+        if normalized in TIKTOK_DIRECT_POST_CAPACITY_CODES:
+            return True
+        message = raw_value.casefold()
+        if message in TIKTOK_DIRECT_POST_CAPACITY_MESSAGES:
+            return True
+        if "capacity" in message and (
+            "tiktok" in message
+            or "direct post" in message
+            or "direct posting" in message
+        ):
+            return True
+    raw_text = str(value).casefold()
+    return "capacity" in raw_text and (
+        "tiktok" in raw_text
+        or "direct post" in raw_text
+        or "direct posting" in raw_text
+    )
+
+
+def _post_error(response: dict) -> ZernioRequestError:
+    detail = json.dumps(response, ensure_ascii=False)[:800]
+    return ZernioRequestError(f"Zernio tạo post bị từ chối: {detail}", response=response)
+
+
+def _post_with_creator_inbox_fallback(post_body: dict, zernio: dict) -> tuple[dict, bool]:
+    """Create one direct post and retry it once as a Creator Inbox draft on capacity."""
+    fallback_attempted = False
+    body = post_body
+    while True:
+        try:
+            response = _json_request(
+                f"{zernio['base_url']}/posts",
+                "POST",
+                body,
+                zernio,
+                {"X-Request-ID": str(uuid.uuid4())},
+            )
+            if _is_tiktok_direct_post_capacity_error(response) or _response_has_error(response):
+                raise _post_error(response)
+            return response, fallback_attempted
+        except RuntimeError as exc:
+            if fallback_attempted or not _is_tiktok_direct_post_capacity_error(exc):
+                raise
+            fallback_attempted = True
+            settings = post_body.get("tiktokSettings")
+            if settings is not None and not isinstance(settings, dict):
+                raise RuntimeError("TikTok post có tiktokSettings không hợp lệ cho Creator Inbox fallback.") from exc
+            body = {**post_body, "tiktokSettings": {**(settings or {}), "draft": True}}
+            body.pop("publishNow", None)
+
+
 def tiktok_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     project_dir = require_project(project)
@@ -203,10 +358,34 @@ def tiktok_upload_video(payload: dict) -> dict:
         caption = str(metadata.get("instagramCaption") or metadata.get("facebookCaption") or "").strip()
     if len(caption) > MAX_TIKTOK_CAPTION_LENGTH:
         raise ValueError("TikTok caption tối đa 2.200 ký tự.")
+    tiktok_settings = payload.get("tiktokSettings")
+    if tiktok_settings is not None and not isinstance(tiktok_settings, dict):
+        raise ValueError("TikTok tiktokSettings phải là object.")
     scheduled = parse_scheduled_publish_at(payload)
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="TikTok")
     video_bytes = read_expected_video_bytes(video_path, payload)
+    if scheduled:
+        queued = schedule_upload("tiktok", payload, scheduled)
+        record_scheduled_social_upload(
+            project_dir,
+            "tiktok",
+            queued["scheduledPublishAt"],
+            brand=brand,
+            connection_id=connection_id,
+        )
+        return {
+            "ok": True,
+            "platform": "tiktok",
+            "project": project,
+            "brand": brand,
+            "connection_id": connection_id,
+            "state": "SCHEDULED",
+            "scheduledPublishAt": queued["scheduledPublishAt"],
+            "schedule_id": queued["id"],
+            "worker_id": queued["id"],
+            "message": "Đã xếp lịch TikTok trên máy này; worker sẽ thử đăng đúng giờ và tự chuyển sang Creator Inbox/Draft nếu Zernio quá tải. Hãy giữ AurexVideo mở.",
+        }
     presign = _json_request(f"{zernio['base_url']}/media/presign", "POST", {
         "filename": video_path.name,
         "contentType": "video/mp4",
@@ -222,25 +401,52 @@ def tiktok_upload_video(payload: dict) -> dict:
         "mediaItems": [{"type": "video", "url": public_url}],
         "platforms": [{"platform": "tiktok", "accountId": zernio["account_id"]}],
     }
-    if scheduled:
-        timezone_name = str(payload.get("scheduleTimezone") or "UTC").strip() or "UTC"
-        try:
-            local_zone = ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            raise ValueError(f"Timezone không hợp lệ: {timezone_name}")
-        local_scheduled = datetime.fromisoformat(scheduled.replace("Z", "+00:00")).astimezone(local_zone).replace(tzinfo=None).isoformat(timespec="seconds")
-        post_body.update({"scheduledFor": local_scheduled, "timezone": timezone_name})
-    else:
+    if tiktok_settings is not None:
+        post_body["tiktokSettings"] = dict(tiktok_settings)
+    requested_draft = bool(isinstance(tiktok_settings, dict) and tiktok_settings.get("draft"))
+    if not requested_draft:
         post_body["publishNow"] = True
-    response = _json_request(f"{zernio['base_url']}/posts", "POST", post_body, zernio, {"X-Request-ID": str(uuid.uuid4())})
+    response, used_creator_inbox = _post_with_creator_inbox_fallback(post_body, zernio)
     post = _unwrap(response, "post")
     post = post if isinstance(post, dict) else {}
     post_id = str(post.get("_id") or post.get("id") or response.get("postId") or "").strip()
     if not post_id:
         raise RuntimeError(f"Zernio tạo post không trả về post id: {response}")
     url = _post_url(response)
-    details = {"url": url, "post_id": post_id, "state": "SCHEDULED" if scheduled else "PUBLISHED", "scheduled_at": scheduled or "", "connection_id": connection_id}
+    used_creator_inbox = used_creator_inbox or requested_draft
+    fallback_due_to_capacity = used_creator_inbox and not requested_draft
+    state = "DRAFT" if used_creator_inbox else "PUBLISHED"
+    details = {
+        "url": url,
+        "post_id": post_id,
+        "state": state,
+        "scheduled_at": scheduled or "",
+        "connection_id": connection_id,
+        "delivery": "CREATOR_INBOX" if used_creator_inbox else "DIRECT_POST",
+        "fallback_reason": "TIKTOK_DIRECT_POST_CAPACITY" if fallback_due_to_capacity else "",
+    }
     if brand:
         details["brand"] = brand
     record_social_upload(project, "tiktok", details)
-    return {"ok": True, "platform": "tiktok", "project": project, "brand": brand, "connection_id": connection_id, "post_id": post_id, "url": url, "scheduledPublishAt": scheduled or "", "message": "Đã lên lịch TikTok qua Zernio." if scheduled else "Đã đăng TikTok qua Zernio."}
+    return {
+        "ok": True,
+        "platform": "tiktok",
+        "project": project,
+        "brand": brand,
+        "connection_id": connection_id,
+        "post_id": post_id,
+        "url": url,
+        "state": state,
+        "delivery": "CREATOR_INBOX" if used_creator_inbox else "DIRECT_POST",
+        "fallbackReason": "TIKTOK_DIRECT_POST_CAPACITY" if fallback_due_to_capacity else "",
+        "scheduledPublishAt": scheduled or "",
+        "message": (
+            "TikTok direct đang quá tải; đã gửi video vào Creator Inbox dưới dạng bản nháp. Hãy hoàn tất đăng trong TikTok."
+            if fallback_due_to_capacity
+            else (
+                "Đã gửi TikTok vào Creator Inbox dưới dạng bản nháp; hãy hoàn tất đăng trong TikTok."
+                if used_creator_inbox
+                else "Đã đăng TikTok qua Zernio."
+            )
+        ),
+    }

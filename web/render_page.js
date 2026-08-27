@@ -317,7 +317,7 @@
     if (!row || !cell) return;
     const detail = project.social_status_detail || {};
     const label = String(project.social_status || detail.label || 'Pending');
-    const tone = String(project.social_status_class || (detail.scheduled ? 'warn' : detail.posted ? 'ok' : 'bad'));
+    const tone = String(project.social_status_class || (detail.scheduled || detail.drafted ? 'warn' : detail.posted ? 'ok' : 'bad'));
     cell.title = String(project.social_status_title || detail.title || '');
     let badge = cell.querySelector('.social-status');
     if (!badge) {
@@ -1432,6 +1432,7 @@
     const succeeded = [];
     const failed = [];
     const links = [];
+    let drafted = false;
     let facebookUploadedAt = 0;
     setUploadResult('');
     renderComposerDestinations();
@@ -1441,13 +1442,15 @@
         try {
           const data = await uploadComposerPlatform(platform.id, project, scheduledPublishAt);
           if (!data) throw new Error('Nền tảng không trả về kết quả upload.');
-          succeeded.push(platform.label);
+          const isDraft = ['DRAFT', 'INBOX'].includes(String(data.state || '').toUpperCase());
+          if (isDraft) drafted = true;
+          succeeded.push(isDraft ? `${platform.label} (Creator Inbox/Draft)` : platform.label);
           if (platform.id === 'facebook') {
             facebookUploadedAt = Date.now();
             state.facebookCommentTargetId = data.source_comment_target_id || data.post_id || data.video_id || '';
             updateFacebookCommentButton();
           }
-          if (data.url) links.push({ label: `Mở ${platform.label}`, href: data.url });
+          if (data.url) links.push({ label: `Mở ${isDraft ? `${platform.label} Draft` : platform.label}`, href: data.url });
           if (data.studio_url) links.push({ label: 'Mở YouTube Studio', href: data.studio_url });
         } catch (error) {
           failed.push(`${platform.label}: ${error.message || String(error)}`);
@@ -1469,7 +1472,7 @@
         }
       }
       const level = failed.length ? (succeeded.length ? 'warn' : 'bad') : 'good';
-      const completedVerb = scheduledPublishAt ? 'Đã lên lịch' : 'Đã đăng';
+      const completedVerb = scheduledPublishAt ? 'Đã lên lịch' : (drafted ? 'Đã xử lý' : 'Đã đăng');
       const summary = failed.length
         ? `${completedVerb}: ${succeeded.join(', ') || 'chưa có nền tảng nào'}\n${failed.join('\n')}`
         : `${completedVerb} ${succeeded.join(', ')}.`;
@@ -4597,7 +4600,7 @@
       const project = state.uploadProject || state.project;
       if (!project) return setUploadStatus('Vui lòng render project trước.', 'bad');
       uploadTiktok.disabled = true; setUploadStatus('Đang upload TikTok qua Zernio...', 'warn');
-      try { const data = await uploadTiktokVideo(project); setUploadStatus(data.message || 'Đăng TikTok xong.', 'good'); setUploadResult(data.message || 'Uploaded.', 'good', data.url ? [{ label: 'Mở TikTok', href: data.url }] : []); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); } finally { await refreshSocialStatus(); }
+      try { const data = await uploadTiktokVideo(project); const isDraft = ['DRAFT', 'INBOX'].includes(String(data.state || '').toUpperCase()); setUploadStatus(data.message || 'Đăng TikTok xong.', 'good'); setUploadResult(data.message || 'Uploaded.', 'good', data.url ? [{ label: isDraft ? 'Mở Creator Inbox/Draft' : 'Mở TikTok', href: data.url }] : []); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); } finally { await refreshSocialStatus(); }
     });
   }
 
@@ -5080,7 +5083,11 @@
   if (initialProject) setSelectedProject(initialProject, false);
   refreshProjectStatuses().catch(() => {});
   const projectStatusTimer = window.setInterval(() => refreshProjectStatuses().catch(() => {}), 5000);
-  window.addEventListener('beforeunload', () => window.clearInterval(projectStatusTimer));
+  const socialStatusTimer = window.setInterval(() => refreshDashboardProjectSocialStatuses().catch(() => {}), 15000);
+  window.addEventListener('beforeunload', () => {
+    window.clearInterval(projectStatusTimer);
+    window.clearInterval(socialStatusTimer);
+  });
   if (typeof syncEdgeVoiceCustomField === 'function') syncEdgeVoiceCustomField();
   syncSpeedPresets();
 

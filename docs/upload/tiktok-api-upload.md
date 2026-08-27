@@ -1,6 +1,8 @@
 # Hướng dẫn chuẩn bị TikTok API để upload video
 
-TikTok upload hiện được để lại làm tài liệu triển khai sau. Hướng khuyến nghị là **Content Posting API** với `video.upload`: upload video vào TikTok Inbox/Draft để user mở app TikTok, chỉnh caption/cover rồi tự post. Direct Post `video.publish` cần approval/audit kỹ hơn.
+TikTok upload hiện đi qua **Zernio**. AurexVideo thử direct post trước; nếu Zernio trả lỗi TikTok direct posting đang **at capacity**, app chỉ retry một lần bằng `tiktokSettings.draft: true` để đưa video vào Creator Inbox/Draft. Người dùng cần mở TikTok và hoàn tất đăng bản nháp.
+
+Lịch TikTok được giữ trong local scheduler của AurexVideo và worker gọi Zernio đúng giờ, vì vậy fallback capacity cũng được xử lý ở thời điểm đăng. Khi dùng hẹn giờ, cần giữ AurexVideo đang chạy; queue được lưu bền vững và sẽ chạy bù khi app mở lại.
 
 ## 1. Cần chuẩn bị
 
@@ -224,7 +226,7 @@ Lưu `publish_id` từ response init và gọi API get status để biết TikTo
 Khi implement trong `web_server.py`, nên dùng:
 
 - `final_video_path_for_project(project)` để lấy MP4 local.
-- TikTok Draft không nhận caption qua endpoint inbox upload, nên caption/title cần hoàn thiện trong app TikTok sau khi nhận draft.
+- Với fallback Creator Inbox, caption/title có thể cần kiểm tra và hoàn thiện trong app TikTok sau khi nhận draft.
 - `write_social_config(config)` để lưu token với chmod `600`.
 
 Nếu triển khai lại TikTok, nên bắt đầu bằng `video.upload` vào draft/inbox trước, vì ít rủi ro hơn direct publish.
