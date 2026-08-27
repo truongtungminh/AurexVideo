@@ -429,6 +429,7 @@ def tiktok_upload_video(payload: dict) -> dict:
                 project=project,
                 brand=brand,
                 account_id=zernio["account_id"],
+                scheduled_for=scheduled,
             )
         except Exception as exc:
             # The scheduled post already exists at Zernio; do not make the user
@@ -441,6 +442,7 @@ def tiktok_upload_video(payload: dict) -> dict:
                     project=project,
                     brand=brand,
                     account_id=zernio["account_id"],
+                    scheduled_for=scheduled,
                 )
             except Exception as queue_exc:
                 monitor_error = f"{monitor_error}; không lưu được hàng đợi theo dõi: {str(queue_exc)[:300]}"

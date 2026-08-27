@@ -57,7 +57,13 @@ class TiktokSchedulerTests(unittest.TestCase):
             self.assertEqual(scheduled_body["platforms"][0]["accountId"], "acct_1")
             self.assertRegex(requests[1][3]["X-Request-ID"], r"^[0-9a-f-]{36}$")
             put_file.assert_called_once_with("https://upload.example/put", path)
-            watch.assert_called_once_with("post-scheduled-1", project="demo", brand="popsy", account_id="acct_1")
+            watch.assert_called_once_with(
+                "post-scheduled-1",
+                project="demo",
+                brand="popsy",
+                account_id="acct_1",
+                scheduled_for=scheduled_at,
+            )
             record.assert_called_once_with(
                 Path("/tmp"),
                 "tiktok",

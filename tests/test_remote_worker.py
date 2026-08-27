@@ -67,11 +67,13 @@ class RemoteWorkerTests(unittest.TestCase):
                 project="demo",
                 brand="bietchichomet",
                 account_id="acct_1",
+                scheduled_for="2030-01-01T00:00:00Z",
             )
 
         self.assertEqual(result["postId"], "post_1")
         self.assertEqual(request.call_args.args[:2], ("/watch-tiktok", "POST"))
         self.assertEqual(request.call_args.args[2]["accountId"], "acct_1")
+        self.assertEqual(request.call_args.args[2]["scheduledFor"], "2030-01-01T00:00:00Z")
 
     def test_watch_outbox_survives_worker_registration_failure(self) -> None:
         with tempfile.TemporaryDirectory() as root, patch.object(
@@ -88,12 +90,14 @@ class RemoteWorkerTests(unittest.TestCase):
                 project="demo",
                 brand="bietchichomet",
                 account_id="acct_1",
+                scheduled_for="2030-01-01T00:00:00Z",
             )
             self.assertEqual(queued["postId"], "post_1")
             self.assertEqual(remote_worker.flush_tiktok_watch_outbox(), 0)
             saved = json.loads((Path(root) / "tiktok-watch-outbox.json").read_text())
             self.assertEqual(saved[0]["postId"], "post_1")
             self.assertEqual(saved[0]["attempts"], 1)
+            self.assertEqual(saved[0]["scheduledFor"], "2030-01-01T00:00:00Z")
 
         with tempfile.TemporaryDirectory() as root, patch.object(
             remote_worker,
