@@ -78,6 +78,7 @@
     uploadBrands: [],
     brandRoutes: {},
     socialStatus: {},
+    socialStatusSnapshot: {},
     uploadTargets: new Set(),
     uploadTargetsBrand: '',
     brandConnectionTarget: null,
@@ -317,7 +318,7 @@
     if (!row || !cell) return;
     const detail = project.social_status_detail || {};
     const label = String(project.social_status || detail.label || 'Pending');
-    const tone = String(project.social_status_class || (detail.scheduled || detail.drafted ? 'warn' : detail.posted ? 'ok' : 'bad'));
+    const tone = String(project.social_status_class || (detail.failed ? 'bad' : (detail.scheduled || detail.drafted ? 'warn' : detail.posted ? 'ok' : 'bad')));
     cell.title = String(project.social_status_title || detail.title || '');
     let badge = cell.querySelector('.social-status');
     if (!badge) {
@@ -351,15 +352,52 @@
     }
   }
 
+  function socialStatusKey(detail) {
+    if (!detail || typeof detail !== 'object') return '';
+    return [detail.state, detail.title, detail.error].map((value) => String(value || '')).join('|');
+  }
+
+  function socialStatusOutcomeMessage(detail) {
+    if (!detail || typeof detail !== 'object') return '';
+    const failedPlatforms = Array.isArray(detail.failed_platforms) ? detail.failed_platforms.filter(Boolean) : [];
+    const draftPlatforms = Array.isArray(detail.draft_platforms) ? detail.draft_platforms.filter(Boolean) : [];
+    if (detail.failed) {
+      const platformLabel = failedPlatforms.join(', ') || 'Social';
+      const reason = String(detail.error || '').trim();
+      return `${platformLabel} hẹn giờ bị lỗi${reason ? `: ${reason}` : '.'} Kiểm tra trạng thái “Lỗi đăng” trên Dashboard.`;
+    }
+    if (detail.drafted) {
+      const platformLabel = draftPlatforms.join(', ') || 'TikTok';
+      return `${platformLabel} đã chuyển video vào Creator Inbox/Draft. Mở TikTok để hoàn tất đăng.`;
+    }
+    return '';
+  }
+
+  function showUploadSocialOutcome(project) {
+    const panel = $('#uploadPanel');
+    if (!panel || panel.hidden || !project) return;
+    const detail = project.social_status_detail || {};
+    const message = socialStatusOutcomeMessage(detail);
+    if (message) setUploadStatus(message, detail.failed ? 'bad' : 'warn');
+  }
+
   async function refreshDashboardProjectSocialStatuses() {
-    if (!$('#projectList')) return;
+    if (!$('#projectList') && !$('#uploadPanel')) return;
     const response = await fetch('/api/projects', { cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     (Array.isArray(data.projects) ? data.projects : []).forEach((project) => {
       const current = projectMap.get(project?.name);
       if (current) Object.assign(current, project);
-      applyProjectSocialStatus(project);
+      if ($('#projectList')) applyProjectSocialStatus(project);
+      const projectName = String(project?.name || '');
+      const selectedProjectName = String(state.uploadProject || state.project || '');
+      const nextKey = socialStatusKey(project?.social_status_detail);
+      const previousKey = state.socialStatusSnapshot[projectName] || '';
+      if (projectName && projectName === selectedProjectName && previousKey && previousKey !== nextKey) {
+        showUploadSocialOutcome(project);
+      }
+      if (projectName) state.socialStatusSnapshot[projectName] = nextKey;
     });
     const projectSort = $('#projectSort');
     if (projectSort) applyProjectSort(projectSort.value || PROJECT_RECENT);
@@ -2525,6 +2563,7 @@
     const panel = $('#uploadPanel');
     if (!panel) return;
     state.uploadProject = projectName;
+    state.socialStatusSnapshot[projectName] = socialStatusKey(projectMap.get(projectName)?.social_status_detail);
     state.outputUrl = videoUrl || state.outputUrl;
     state.facebookCommentTargetId = '';
     state.uploadBrand = '';
@@ -2543,6 +2582,7 @@
     renderComposerDestinations();
     await loadUploadMetadata(projectName);
     await refreshSocialStatus();
+    showUploadSocialOutcome(projectMap.get(projectName));
   }
 
   function setRenderState(title = '', logs = [], tone = 'running', progress = {}) {

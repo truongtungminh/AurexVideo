@@ -466,6 +466,8 @@ def _record_social_upload(project_dir: Path, platform: str, details: dict) -> di
     }
     if state in {"SCHEDULED", "DRAFT", "INBOX"}:
         entry["queuedAt"] = now_iso()
+    elif state == "FAILED":
+        entry["failedAt"] = now_iso()
     else:
         entry["postedAt"] = now_iso()
     brand = canonical_brand(details.get("brand") or details.get("brandId"))
@@ -474,6 +476,9 @@ def _record_social_upload(project_dir: Path, platform: str, details: dict) -> di
     connection_id = str(details.get("connection_id") or details.get("connectionId") or "").strip()
     if connection_id:
         entry["connectionId"] = connection_id
+    error = str(details.get("error") or "").strip()
+    if error:
+        entry["error"] = error[:1000]
     social[platform] = entry
     existing["social"] = social
     write_project_upload_metadata(project_dir, existing)
@@ -506,6 +511,27 @@ def record_scheduled_social_upload(
     if connection_id:
         details["connection_id"] = connection_id
     return _record_social_upload(project_dir, platform, details)
+
+
+def record_scheduled_social_failure(
+    project: str,
+    platform: str,
+    error: str,
+    *,
+    scheduled_at: str = "",
+    brand: str = "",
+    connection_id: str = "",
+) -> dict:
+    """Persist a safe, dashboard-visible failure from a local social worker."""
+    details = {
+        "state": "FAILED",
+        "error": str(error or "").strip(),
+        "scheduled_at": scheduled_at,
+        "brand": brand,
+    }
+    if connection_id:
+        details["connection_id"] = connection_id
+    return record_social_upload(project, platform, details)
 
 
 def normalize_scheduled_social_time(value: object) -> str:
@@ -566,7 +592,8 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
     """Return the dashboard social status using a UTC-aware current time.
 
     A scheduled entry becomes published for dashboard purposes when its due time
-    is reached, even if its upload worker has not yet recorded a URL or post ID.
+    is reached, even if its upload worker has not yet recorded a URL or post ID,
+    unless the worker has explicitly recorded a failure.
     """
     metadata = read_project_upload_metadata(project_dir)
     social = metadata.get("social", {}) if isinstance(metadata.get("social"), dict) else {}
@@ -577,9 +604,14 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
         current_time = current_time.astimezone(timezone.utc)
     published_platforms: list[tuple[str, dict]] = []
     draft_platforms: list[tuple[str, dict]] = []
+    failed_platforms: list[tuple[str, dict]] = []
     scheduled_platforms: list[tuple[str, dict]] = []
     for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("threads", "Threads"), ("binance", "Binance Square")):
         entry = social.get(platform)
+        entry_state = str(entry.get("state") or "").strip().upper() if isinstance(entry, dict) else ""
+        if entry_state == "FAILED":
+            failed_platforms.append((label, entry))
+            continue
         schedule = scheduled_social_details(entry)
         if schedule:
             scheduled_time = datetime.fromisoformat(schedule["scheduled_at"].replace("Z", "+00:00"))
@@ -600,24 +632,57 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
         scheduled_platforms.sort(key=lambda item: item[1]["scheduled_at"])
         next_label, next_schedule = scheduled_platforms[0]
         platforms = [label for label, _ in scheduled_platforms] + [label for label, _ in published_platforms]
+        failure_labels = [label for label, _ in failed_platforms]
+        failure_details = next((entry for _, entry in failed_platforms if entry.get("error")), {})
+        failure_error = str(failure_details.get("error") or "").strip()
+        title = f"{next_label} · {next_schedule['scheduled_label']}"
+        if failure_labels:
+            title = f"{title} · Lỗi: {' · '.join(failure_labels)}"
+            if failure_error:
+                title = f"{title}: {failure_error[:240]}"
         return {
             "posted": bool(published_platforms),
             "scheduled": True,
             "state": "scheduled",
-            "label": "Đã lên lịch",
-            "title": f"{next_label} · {next_schedule['scheduled_label']}",
+            "label": "Đã lên lịch · Có lỗi" if failure_labels else "Đã lên lịch",
+            "title": title,
             "platforms": platforms,
             "scheduled_platforms": [label for label, _ in scheduled_platforms],
             "drafted": bool(draft_platforms),
             "draft_platforms": [label for label, _ in draft_platforms],
+            "failed": bool(failed_platforms),
+            "failed_platforms": [label for label, _ in failed_platforms],
             **next_schedule,
         }
     if not published_platforms:
+        if failed_platforms:
+            failed_labels = [label for label, _ in failed_platforms]
+            failure_details = next((entry for _, entry in failed_platforms if entry.get("error")), {})
+            error = str(failure_details.get("error") or "").strip()
+            title = f"{' · '.join(failed_labels)} · Lỗi đăng theo lịch"
+            if error:
+                title = f"{title}: {error[:240]}"
+            return {
+                "posted": False,
+                "drafted": bool(draft_platforms),
+                "failed": True,
+                "scheduled": False,
+                "state": "failed",
+                "label": "Lỗi đăng",
+                "title": title,
+                "platforms": [],
+                "draft_platforms": [label for label, _ in draft_platforms],
+                "failed_platforms": failed_labels,
+                "scheduled_at": "",
+                "scheduled_label": "",
+                "error": error,
+            }
         if draft_platforms:
             draft_labels = [label for label, _ in draft_platforms]
             return {
                 "posted": False,
                 "drafted": True,
+                "failed": False,
                 "scheduled": False,
                 "state": "draft",
                 "label": "Draft",
@@ -630,6 +695,7 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
         return {
             "posted": False,
             "drafted": False,
+            "failed": False,
             "scheduled": False,
             "state": "pending",
             "label": "Pending",
@@ -641,13 +707,16 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
     return {
         "posted": True,
         "drafted": bool(draft_platforms),
+        "failed": bool(failed_platforms),
         "scheduled": False,
-        "state": "mixed" if draft_platforms else "complete",
-        "label": "Published + Draft" if draft_platforms else "Published",
+        "state": "mixed" if (draft_platforms or failed_platforms) else "complete",
+        "label": "Published + Draft + Failed" if (draft_platforms and failed_platforms) else ("Published + Failed" if failed_platforms else ("Published + Draft" if draft_platforms else "Published")),
         "title": " · ".join(label for label, _ in published_platforms)
-        + (f" · Draft: {' · '.join(label for label, _ in draft_platforms)}" if draft_platforms else ""),
+        + (f" · Draft: {' · '.join(label for label, _ in draft_platforms)}" if draft_platforms else "")
+        + (f" · Lỗi: {' · '.join(label for label, _ in failed_platforms)}" if failed_platforms else ""),
         "platforms": [label for label, _ in published_platforms],
         "draft_platforms": [label for label, _ in draft_platforms],
+        "failed_platforms": [label for label, _ in failed_platforms],
         **next((details for _, details in published_platforms if details), {}),
         "scheduled_at": "",
         "scheduled_label": "",

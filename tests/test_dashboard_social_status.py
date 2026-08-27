@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -135,6 +136,66 @@ class DashboardSocialStatusTests(unittest.TestCase):
         self.assertTrue(status["drafted"])
         self.assertEqual(status["draft_platforms"], ["TikTok"])
         self.assertIn("Creator Inbox", status["title"])
+
+    def test_failed_scheduled_status_is_not_reported_as_published(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata(
+            {
+                "tiktok": {
+                    "state": "FAILED",
+                    "scheduledAt": "2030-01-01T00:00:00Z",
+                    "failedAt": "2030-01-01T00:01:00Z",
+                    "error": "Zernio tạo post bị từ chối.",
+                }
+            }
+        )
+        try:
+            status = metadata.project_social_status(project_dir, now=self.NOW)
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(status["label"], "Lỗi đăng")
+        self.assertEqual(status["state"], "failed")
+        self.assertFalse(status["posted"])
+        self.assertTrue(status["failed"])
+        self.assertEqual(status["failed_platforms"], ["TikTok"])
+        self.assertIn("Zernio tạo post bị từ chối", status["title"])
+
+    def test_failed_platform_is_visible_alongside_a_future_schedule(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata(
+            {
+                "youtube": {"state": "SCHEDULED", "scheduledAt": "2030-01-01T01:00:00Z"},
+                "tiktok": {"state": "FAILED", "error": "TikTok account unavailable."},
+            }
+        )
+        try:
+            status = metadata.project_social_status(project_dir, now=self.NOW)
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(status["label"], "Đã lên lịch · Có lỗi")
+        self.assertTrue(status["scheduled"])
+        self.assertTrue(status["failed"])
+        self.assertEqual(status["failed_platforms"], ["TikTok"])
+        self.assertIn("Lỗi: TikTok", status["title"])
+
+    def test_record_scheduled_failure_persists_dashboard_error(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata({})
+        try:
+            with patch.object(metadata, "PROJECT_ROOT", Path(temp_dir.name)):
+                saved = metadata.record_scheduled_social_failure(
+                    "demo",
+                    "tiktok",
+                    "TikTok direct posting is at capacity right now.",
+                    scheduled_at="2030-01-01T00:00:00Z",
+                    brand="popsy",
+                )
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(saved["state"], "FAILED")
+        self.assertEqual(saved["scheduledAt"], "2030-01-01T00:00:00Z")
+        self.assertTrue(saved["failedAt"])
+        self.assertEqual(saved["error"], "TikTok direct posting is at capacity right now.")
 
     def test_published_and_draft_status_is_mixed(self) -> None:
         temp_dir, project_dir = self._project_with_metadata(

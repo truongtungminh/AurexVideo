@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .metadata import record_scheduled_social_failure
+
 _LOCK = threading.RLock()
 _STARTED = False
 _STOP = threading.Event()
@@ -97,6 +99,19 @@ def _run_item(item: dict) -> None:
         result = {}
         status = "failed"
         error = str(exc)[:1000]
+        if platform == "tiktok":
+            try:
+                record_scheduled_social_failure(
+                    str(payload.get("project") or "").strip(),
+                    "tiktok",
+                    error,
+                    scheduled_at=str(item.get("scheduledPublishAt") or "").strip(),
+                    brand=str(payload.get("brand") or "").strip(),
+                )
+            except Exception:
+                # The queue remains the source of truth if the project was
+                # removed or its metadata cannot be written.
+                pass
     with _LOCK:
         items = _read()
         for current in items:
