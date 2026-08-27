@@ -13,16 +13,25 @@ import social_upload.tiktok as tiktok
 
 
 class TiktokSchedulerTests(unittest.TestCase):
-    def test_scheduled_upload_moves_to_vps_without_calling_zernio(self) -> None:
+    def test_scheduled_upload_creates_zernio_post_and_registers_vps_watch(self) -> None:
         scheduled_at = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         payload = {
             "project": "demo",
             "brand": "popsy",
             "tiktokCaption": "Scheduled post",
             "scheduledPublishAt": scheduled_at,
+            "scheduleTimezone": "Asia/Ho_Chi_Minh",
         }
         path = Path("/tmp/tiktok-scheduled-test.mp4")
         path.write_bytes(b"video")
+        requests = []
+
+        def fake_request(url, method, body, config, headers=None):
+            requests.append((url, method, body, headers or {}))
+            if url.endswith("/media/presign"):
+                return {"data": {"uploadUrl": "https://upload.example/put", "publicUrl": "https://cdn.example/video.mp4"}}
+            return {"data": {"post": {"_id": "post-scheduled-1", "status": "scheduled"}}}
+
         try:
             with patch.object(tiktok, "read_social_config", return_value={"zernio": {"api_key": "sk_test", "account_id": "acct_1"}}), \
                  patch.object(tiktok, "require_project", return_value=Path("/tmp")), \
@@ -30,33 +39,39 @@ class TiktokSchedulerTests(unittest.TestCase):
                  patch.object(tiktok, "resolve_social_brand_connection", return_value=("connection-1", {"api_key": "sk_test", "account_id": "acct_1", "_brand_connection": True})), \
                  patch.object(tiktok, "final_video_path_for_project", return_value=path), \
                  patch.object(tiktok, "read_expected_video_bytes", return_value=b"video"), \
-                 patch.object(tiktok, "schedule_on_vps", return_value={"id": "worker-1", "scheduledPublishAt": scheduled_at}) as queue, \
+                 patch.object(tiktok, "_json_request", side_effect=fake_request), \
+                 patch.object(tiktok, "_put_file") as put_file, \
+                 patch.object(tiktok, "watch_tiktok_post", return_value={"id": "watch-1"}) as watch, \
                  patch.object(tiktok, "record_scheduled_social_upload") as record, \
-                 patch.object(tiktok, "urlopen") as urlopen:
+                 patch.object(tiktok, "queue_tiktok_watch") as outbox:
                 result = tiktok.tiktok_upload_video(payload)
 
-            queue.assert_called_once_with(
-                "tiktok",
-                path,
-                "Scheduled post",
-                scheduled_at,
-                project="demo",
-                brand="popsy",
-                account_id="acct_1",
-                tiktok_settings=None,
-            )
+            self.assertEqual(len(requests), 2)
+            self.assertTrue(requests[0][0].endswith("/media/presign"))
+            self.assertEqual(requests[1][0], "https://zernio.com/api/v1/posts")
+            scheduled_body = requests[1][2]
+            self.assertEqual(scheduled_body["scheduledFor"], scheduled_at)
+            self.assertEqual(scheduled_body["timezone"], "Asia/Ho_Chi_Minh")
+            self.assertFalse(scheduled_body["isDraft"])
+            self.assertNotIn("publishNow", scheduled_body)
+            self.assertEqual(scheduled_body["platforms"][0]["accountId"], "acct_1")
+            self.assertRegex(requests[1][3]["X-Request-ID"], r"^[0-9a-f-]{36}$")
+            put_file.assert_called_once_with("https://upload.example/put", path)
+            watch.assert_called_once_with("post-scheduled-1", project="demo", brand="popsy", account_id="acct_1")
             record.assert_called_once_with(
                 Path("/tmp"),
                 "tiktok",
                 scheduled_at,
                 brand="popsy",
                 connection_id="connection-1",
-                worker_id="worker-1",
+                post_id="post-scheduled-1",
+                worker_id="watch-1",
             )
-            urlopen.assert_not_called()
+            outbox.assert_not_called()
             self.assertEqual(result["state"], "SCHEDULED")
-            self.assertEqual(result["schedule_id"], "worker-1")
-            self.assertEqual(result["worker_id"], "worker-1")
+            self.assertEqual(result["schedule_id"], "post-scheduled-1")
+            self.assertEqual(result["post_id"], "post-scheduled-1")
+            self.assertEqual(result["worker_id"], "watch-1")
         finally:
             path.unlink(missing_ok=True)
 

@@ -499,6 +499,7 @@ def record_scheduled_social_upload(
     *,
     brand: str = "",
     connection_id: str = "",
+    post_id: str = "",
     worker_id: str = "",
 ) -> dict:
     """Persist the dashboard-safe part of a queued social upload.
@@ -514,6 +515,8 @@ def record_scheduled_social_upload(
     details = {"state": "SCHEDULED", "scheduled_at": scheduled_at, "brand": brand}
     if connection_id:
         details["connection_id"] = connection_id
+    if post_id:
+        details["post_id"] = post_id
     if worker_id:
         details["worker_id"] = worker_id
     return _record_social_upload(project_dir, platform, details)

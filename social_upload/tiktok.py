@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import uuid
 from datetime import timedelta
@@ -24,7 +25,7 @@ from .metadata import (
     require_project,
     upload_brand_for_project,
 )
-from .remote_worker import queue_tiktok_watch, schedule_on_vps, watch_tiktok_post
+from .remote_worker import queue_tiktok_watch, watch_tiktok_post
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 
 ZERNIO_BASE_URL = "https://zernio.com/api/v1"
@@ -237,6 +238,17 @@ def _post_url(response: dict) -> str:
     return ""
 
 
+def _post_from_response(response: dict) -> dict:
+    data = response.get("data") if isinstance(response.get("data"), dict) else response
+    if not isinstance(data, dict):
+        return {}
+    for key in ("post", "existingPost"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
 def _error_values(value: object, *, key: str = "") -> list[tuple[str, str]]:
     """Return scalar error values while preserving their response keys."""
     if isinstance(value, dict):
@@ -366,23 +378,77 @@ def tiktok_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="TikTok")
     video_bytes = read_expected_video_bytes(video_path, payload)
     if scheduled:
-        queued = schedule_on_vps(
-            "tiktok",
-            video_path,
-            caption,
-            scheduled,
-            project=project,
-            brand=brand,
-            account_id=zernio["account_id"],
-            tiktok_settings=tiktok_settings,
+        if isinstance(tiktok_settings, dict) and tiktok_settings.get("draft") is True:
+            raise ValueError("Không thể dùng tiktokSettings.draft=true khi hẹn giờ TikTok.")
+        presign = _json_request(f"{zernio['base_url']}/media/presign", "POST", {
+            "filename": video_path.name,
+            "contentType": "video/mp4",
+            "size": len(video_bytes),
+        }, zernio)
+        upload_url = str(_unwrap(presign, "uploadUrl") or "").strip()
+        public_url = str(_unwrap(presign, "publicUrl") or "").strip()
+        if not upload_url or not public_url:
+            raise RuntimeError(f"Zernio presign không trả đủ uploadUrl/publicUrl: {presign}")
+        _put_file(upload_url, video_path)
+        scheduled_body = {
+            "content": caption,
+            "mediaItems": [{"type": "video", "url": public_url}],
+            "platforms": [{"platform": "tiktok", "accountId": zernio["account_id"]}],
+            "scheduledFor": scheduled,
+            "timezone": str(payload.get("scheduleTimezone") or "UTC").strip() or "UTC",
+            "isDraft": False,
+        }
+        if tiktok_settings:
+            scheduled_body["tiktokSettings"] = dict(tiktok_settings)
+        request_fingerprint = hashlib.sha256(
+            (project + "\n" + brand + "\n" + zernio["account_id"] + "\n" + scheduled + "\n" + caption).encode("utf-8")
+            + hashlib.sha256(video_bytes).digest()
+        ).hexdigest()
+        request_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "aurexvideo:tiktok-schedule:" + request_fingerprint))
+        response = _json_request(
+            f"{zernio['base_url']}/posts",
+            "POST",
+            scheduled_body,
+            zernio,
+            {"X-Request-ID": request_id},
         )
+        if _response_has_error(response):
+            raise _post_error(response)
+        post = _post_from_response(response)
+        post_id = str(post.get("_id") or post.get("id") or response.get("postId") or "").strip()
+        if not post_id:
+            raise RuntimeError(f"Zernio tạo scheduled TikTok post không trả về post id: {response}")
+        monitor_error = ""
+        watcher = {}
+        try:
+            watcher = watch_tiktok_post(
+                post_id,
+                project=project,
+                brand=brand,
+                account_id=zernio["account_id"],
+            )
+        except Exception as exc:
+            # The scheduled post already exists at Zernio; do not make the user
+            # retry creation and risk a duplicate. The local outbox retries only
+            # watcher registration when the VPS is reachable again.
+            monitor_error = str(exc)[:500]
+            try:
+                queue_tiktok_watch(
+                    post_id,
+                    project=project,
+                    brand=brand,
+                    account_id=zernio["account_id"],
+                )
+            except Exception as queue_exc:
+                monitor_error = f"{monitor_error}; không lưu được hàng đợi theo dõi: {str(queue_exc)[:300]}"
         record_scheduled_social_upload(
             project_dir,
             "tiktok",
-            queued["scheduledPublishAt"],
+            scheduled,
             brand=brand,
             connection_id=connection_id,
-            worker_id=str(queued.get("id") or queued.get("worker_id") or ""),
+            post_id=post_id,
+            worker_id=str(watcher.get("id") or "") if isinstance(watcher, dict) else "",
         )
         return {
             "ok": True,
@@ -391,10 +457,13 @@ def tiktok_upload_video(payload: dict) -> dict:
             "brand": brand,
             "connection_id": connection_id,
             "state": "SCHEDULED",
-            "scheduledPublishAt": queued["scheduledPublishAt"],
-            "schedule_id": queued["id"],
-            "worker_id": queued.get("id") or queued.get("worker_id") or "",
-            "message": "Đã chuyển lịch TikTok lên VPS; VPS sẽ đăng đúng giờ, theo dõi Zernio và retry lỗi tạm thời sau 5 phút.",
+            "post_id": post_id,
+            "scheduledPublishAt": scheduled,
+            "schedule_id": post_id,
+            "worker_id": str(watcher.get("id") or "") if isinstance(watcher, dict) else "",
+            "monitoring": not monitor_error,
+            "monitoringError": monitor_error,
+            "message": "Đã tạo scheduled post trên Zernio; VPS sẽ theo dõi trạng thái và retry lỗi tạm thời sau 5 phút.",
         }
     presign = _json_request(f"{zernio['base_url']}/media/presign", "POST", {
         "filename": video_path.name,
