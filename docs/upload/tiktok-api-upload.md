@@ -2,7 +2,7 @@
 
 TikTok upload hiện đi qua **Zernio**. AurexVideo thử direct post trước; nếu Zernio trả lỗi TikTok direct posting đang **at capacity**, app chỉ retry một lần bằng `tiktokSettings.draft: true` để đưa video vào Creator Inbox/Draft. Người dùng cần mở TikTok và hoàn tất đăng bản nháp.
 
-Lịch TikTok được giữ trong local scheduler của AurexVideo và worker gọi Zernio đúng giờ, vì vậy fallback capacity cũng được xử lý ở thời điểm đăng. Khi dùng hẹn giờ, cần giữ AurexVideo đang chạy; queue được lưu bền vững và sẽ chạy bù khi app mở lại.
+Lịch TikTok được giữ trong local scheduler của AurexVideo và worker gọi Zernio đúng giờ, vì vậy fallback capacity cũng được xử lý ở thời điểm đăng. Khi dùng hẹn giờ, nên mở AurexVideo vào giờ hẹn; queue được lưu bền vững và sẽ chạy bù khi app mở lại nếu ứng dụng đã đóng.
 
 ## 1. Cần chuẩn bị
 

@@ -60,6 +60,30 @@ class TiktokSchedulerTests(unittest.TestCase):
         self.assertEqual(saved["result"], {"state": "DRAFT"})
         self.assertNotIn("error", saved)
 
+    def test_run_item_records_tiktok_failure_for_dashboard(self) -> None:
+        item = {
+            "id": "social_schedule_tiktok_failed",
+            "platform": "tiktok",
+            "payload": {"project": "demo", "brand": "popsy"},
+            "scheduledPublishAt": "2030-01-01T00:00:00Z",
+        }
+        with patch.object(tiktok, "tiktok_upload_video", side_effect=RuntimeError("Zernio capacity unavailable")), \
+             patch.object(scheduler, "record_scheduled_social_failure") as record_failure, \
+             patch.object(scheduler, "_read", return_value=[item]), \
+             patch.object(scheduler, "_write") as write:
+            scheduler._run_item(item)
+
+        record_failure.assert_called_once_with(
+            "demo",
+            "tiktok",
+            "Zernio capacity unavailable",
+            scheduled_at="2030-01-01T00:00:00Z",
+            brand="popsy",
+        )
+        saved = write.call_args.args[0][0]
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "Zernio capacity unavailable")
+
 
 if __name__ == "__main__":
     unittest.main()

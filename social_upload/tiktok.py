@@ -384,7 +384,7 @@ def tiktok_upload_video(payload: dict) -> dict:
             "scheduledPublishAt": queued["scheduledPublishAt"],
             "schedule_id": queued["id"],
             "worker_id": queued["id"],
-            "message": "Đã xếp lịch TikTok trên máy này; worker sẽ thử đăng đúng giờ và tự chuyển sang Creator Inbox/Draft nếu Zernio quá tải. Hãy giữ AurexVideo mở.",
+            "message": "Đã xếp lịch TikTok trên máy này; worker sẽ thử đăng đúng giờ và tự chuyển sang Creator Inbox/Draft nếu Zernio quá tải. Hãy mở AurexVideo vào giờ hẹn; nếu app đóng, mở lại để queue chạy bù.",
         }
     presign = _json_request(f"{zernio['base_url']}/media/presign", "POST", {
         "filename": video_path.name,

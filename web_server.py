@@ -775,7 +775,7 @@ def list_projects() -> list[dict]:
                 "brand": brand,
                 "character": character_id,
                 "social_status": social_status["label"],
-                "social_status_class": "warn" if (social_status.get("scheduled") or social_status.get("drafted")) else ("ok" if social_status.get("posted") else "bad"),
+                "social_status_class": "bad" if social_status.get("failed") else ("warn" if (social_status.get("scheduled") or social_status.get("drafted")) else ("ok" if social_status.get("posted") else "bad")),
                 "social_status_title": social_status["title"],
                 "social_status_detail": social_status,
                 "social_status_scheduled_at": social_status.get("scheduled_at", ""),
@@ -6958,7 +6958,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
             <div class="platform-card-head"><div class="platform-title"><span>♪</span><span>TikTok · Zernio</span></div><button class="small-link icon-btn" id="openTiktokConfig" type="button">{ui_icon("key")}<span>Cấu hình Zernio</span></button></div>
             <div class="field upload-field field-description"><span class="field-label field-label-between"><span class="field-label-main">{ui_icon("list", "field-icon")}<span>Caption TikTok</span></span><button class="copy-field-btn" data-copy-target="tiktokCaption" type="button" aria-label="Copy Caption TikTok" title="Copy Caption TikTok">{ui_icon("copy")}</button></span><textarea id="tiktokCaption" rows="7" maxlength="2200" placeholder="Caption TikTok, tối đa 2.200 ký tự"></textarea></div>
             <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="tiktokScheduleToggle" /><span>Hẹn giờ đăng</span></span></label>
-            <div class="field upload-field compact schedule-row" id="tiktokScheduleRow" hidden><input type="datetime-local" id="tiktokScheduleTime" /><p class="form-note">AurexVideo sẽ thử đăng đúng giờ; nếu Zernio báo quá tải, video tự chuyển vào Creator Inbox/Draft. Cần giữ app mở.</p></div>
+            <div class="field upload-field compact schedule-row" id="tiktokScheduleRow" hidden><input type="datetime-local" id="tiktokScheduleTime" /><p class="form-note">AurexVideo sẽ thử đăng đúng giờ; nếu Zernio báo quá tải, video tự chuyển vào Creator Inbox/Draft. Hãy mở app vào giờ hẹn; nếu app đóng, mở lại để queue chạy bù.</p></div>
             <p class="form-note platform-config-note" id="tiktokConfigState">Cần cấu hình Zernio API key và TikTok account ID.</p>
             <div class="platform-actions"><button class="upload-btn tiktok" id="uploadTiktok" type="button">{ui_icon("upload")}<span>Đăng TikTok</span></button></div>
           </section>
