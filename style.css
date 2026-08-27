@@ -494,6 +494,13 @@ html[data-theme="dark"] body.render-mode.preview-frame .stage {
   background: #edf1f4;
 }
 
+/* One extra state class intentionally wins the shared single-slot geometry
+   declared later in this file, while remaining scoped to this character. */
+.stage.character-bietchichomet.single-image-scene .media-slot-single {
+  top: 20.1%;
+  width: calc(93% - var(--safe-zone-x) * 2);
+}
+
 /* Đẩy topic label xuống thấp hơn phù hợp với media-slot mới. */
 .stage.character-bietchichomet .topic-label-stack {
   top: 24%;
