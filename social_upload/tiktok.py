@@ -395,7 +395,10 @@ def tiktok_upload_video(payload: dict) -> dict:
             "mediaItems": [{"type": "video", "url": public_url}],
             "platforms": [{"platform": "tiktok", "accountId": zernio["account_id"]}],
             "scheduledFor": scheduled,
-            "timezone": str(payload.get("scheduleTimezone") or "UTC").strip() or "UTC",
+            # `scheduled` is already normalised to an ISO-8601 UTC timestamp.
+            # Pair it with UTC so Zernio cannot reinterpret the same clock time
+            # as a Vietnam-local wall-clock value and shift it by seven hours.
+            "timezone": "UTC",
             "isDraft": False,
         }
         if tiktok_settings:
