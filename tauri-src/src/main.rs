@@ -16,8 +16,6 @@ const APP_VERSION: &str = "0.2.4";
 const GITHUB_REPO: &str = "truongtungminh/AurexVideo";
 const SERVER_PORT: u16 = 4173;
 const SERVER_HOST: &str = "127.0.0.1";
-const DEV_ENTITLEMENT_UNLOCK_ENV: &str = "AUREXVIDEO_DEV_ENTITLEMENT_UNLOCK";
-const DESKTOP_BUILD_PROFILE_ENV: &str = "AUREXVIDEO_DESKTOP_BUILD_PROFILE";
 
 // Where the app stores its data (outside the .app bundle so OTA doesn't lose user data)
 fn support_dir() -> PathBuf {
@@ -179,53 +177,6 @@ fn wait_for_server(timeout: Duration) -> bool {
     false
 }
 
-#[cfg(debug_assertions)]
-fn expected_backend_profile() -> (&'static str, bool) {
-    ("debug", true)
-}
-
-#[cfg(not(debug_assertions))]
-fn expected_backend_profile() -> (&'static str, bool) {
-    ("release", false)
-}
-
-fn backend_matches_runtime_profile() -> bool {
-    let url = format!("http://{}:{}/api/health", SERVER_HOST, SERVER_PORT);
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-    {
-        Ok(client) => client,
-        Err(_) => return false,
-    };
-    let response = match client.get(url).send() {
-        Ok(response) if response.status().is_success() => response,
-        _ => return false,
-    };
-    let body = match response.text() {
-        Ok(body) => body,
-        Err(_) => return false,
-    };
-    let (profile, dev_unlock) = expected_backend_profile();
-    body.contains(&format!("\"desktop_build_profile\": \"{}\"", profile))
-        && body.contains(&format!(
-            "\"development_entitlement_unlock\": {}",
-            dev_unlock
-        ))
-}
-
-#[cfg(debug_assertions)]
-fn configure_development_entitlement_unlock(command: &mut Command) {
-    command.env(DESKTOP_BUILD_PROFILE_ENV, "debug");
-    command.env(DEV_ENTITLEMENT_UNLOCK_ENV, "1");
-}
-
-#[cfg(not(debug_assertions))]
-fn configure_development_entitlement_unlock(command: &mut Command) {
-    command.env(DESKTOP_BUILD_PROFILE_ENV, "release");
-    command.env_remove(DEV_ENTITLEMENT_UNLOCK_ENV);
-}
-
 fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
     let _support = support_dir();
     studio_dir().join("project").parent().map(|_| ());
@@ -235,8 +186,7 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
     fs::create_dir_all(studio_dir().join("assets")).ok();
 
     let server_py = engine.join("web_server.py");
-    let mut command = Command::new(python);
-    command
+    let child = Command::new(python)
         .arg(&server_py)
         .arg("--host").arg(SERVER_HOST)
         .arg("--port").arg(SERVER_PORT.to_string())
@@ -247,9 +197,7 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
         .env("AUREX_BOOTSTRAP_DATA_ROOT", studio_dir())
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    configure_development_entitlement_unlock(&mut command);
-    let child = command
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("failed to spawn web_server: {}", e))?;
     Ok(child)
@@ -308,19 +256,15 @@ fn run_server_watchdog(python: PathBuf, engine: PathBuf, stop_requested: Arc<Ato
             return;
         }
         if wait_for_server(Duration::from_secs(2)) {
-            if backend_matches_runtime_profile() {
-                consecutive_failures = 0;
-                append_server_log("[launcher] using healthy backend with matching build profile on port 4173\n");
-                while wait_for_server(Duration::from_secs(2)) {
-                    if stop_requested.load(Ordering::Acquire) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_secs(2));
+            consecutive_failures = 0;
+            append_server_log("[launcher] using healthy backend on port 4173\n");
+            while wait_for_server(Duration::from_secs(2)) {
+                if stop_requested.load(Ordering::Acquire) {
+                    return;
                 }
-                append_server_log("[launcher] existing backend stopped responding; taking ownership\n");
-            } else {
-                append_server_log("[launcher] existing backend profile mismatch; replacing it\n");
+                std::thread::sleep(Duration::from_secs(2));
             }
+            append_server_log("[launcher] existing backend stopped responding; taking ownership\n");
         }
 
         terminate_unhealthy_server_on_port();
