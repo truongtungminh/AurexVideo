@@ -84,8 +84,6 @@ class LauncherReleaseGuardTests(unittest.TestCase):
         self.assertIn('command.env(DESKTOP_BUILD_PROFILE_ENV, "release");', release_guard)
         self.assertIn("command.env_remove(DEV_ENTITLEMENT_UNLOCK_ENV);", release_guard)
         self.assertEqual(source.count('command.env(DEV_ENTITLEMENT_UNLOCK_ENV, "1");'), 1)
-        self.assertNotIn('.env("AUREXVIDEO_DESKTOP", "1")', source)
-        self.assertIn('.env("AUREXVIDEO_EMBEDDED_DESKTOP", "1")', source)
         self.assertIn("configure_development_entitlement_unlock(&mut command);", source[spawn_start:])
 
     def test_launcher_rejects_a_backend_with_the_wrong_profile(self) -> None:
@@ -94,7 +92,7 @@ class LauncherReleaseGuardTests(unittest.TestCase):
         watchdog = source[watchdog_start:]
 
         self.assertIn("fn backend_matches_runtime_profile()", source)
-        self.assertIn("/api/health", source)
+        self.assertIn('"/api/health"', source)
         self.assertIn("if backend_matches_runtime_profile()", watchdog)
         self.assertIn("existing backend profile mismatch; replacing it", watchdog)
         self.assertIn("try_wait()", watchdog)

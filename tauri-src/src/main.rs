@@ -7,10 +7,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -324,10 +321,6 @@ fn run_server_watchdog(python: PathBuf, engine: PathBuf, stop_requested: Arc<Ato
             } else {
                 append_server_log("[launcher] existing backend profile mismatch; replacing it\n");
             }
-        }
-
-        if stop_requested.load(Ordering::Acquire) {
-            return;
         }
 
         terminate_unhealthy_server_on_port();
