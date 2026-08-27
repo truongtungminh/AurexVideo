@@ -150,12 +150,14 @@ async function upload(platform) {
                 ? { project: state.selected, threadsText: elements.threadsText.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
                 : { project: state.selected, duration: Number(elements.binanceDuration.value), text: elements.binanceCaption.value };
     const result = await api(`/api/social/${platform}/upload`, { method: "POST", body: JSON.stringify(payload) });
-    elements.uploadResult.replaceChildren(document.createTextNode("Upload hoàn tất. "));
+    const resultMessage = result.message || "Upload hoàn tất.";
+    elements.uploadResult.replaceChildren(document.createTextNode(resultMessage + (result.url ? " " : "")));
     if (result.url) {
       const link = document.createElement("a"); link.href = result.url; link.target = "_blank"; link.textContent = "Mở bài đã đăng ↗";
+      if (["DRAFT", "INBOX"].includes(String(result.state || "").toUpperCase())) link.textContent = "Mở Creator Inbox/Draft ↗";
       elements.uploadResult.append(link);
     }
-    showToast(`Đã upload ${platform}.`);
+    showToast(resultMessage);
   } catch (error) {
     elements.uploadResult.textContent = error.message;
     showToast(error.message, true);

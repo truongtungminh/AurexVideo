@@ -121,6 +121,39 @@ class DashboardSocialStatusTests(unittest.TestCase):
             published_dir.cleanup()
             pending_dir.cleanup()
 
+    def test_draft_is_not_reported_as_published(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata(
+            {"tiktok": {"postId": "post-1", "state": "DRAFT"}}
+        )
+        try:
+            status = metadata.project_social_status(project_dir, now=self.NOW)
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(status["label"], "Draft")
+        self.assertFalse(status["posted"])
+        self.assertTrue(status["drafted"])
+        self.assertEqual(status["draft_platforms"], ["TikTok"])
+        self.assertIn("Creator Inbox", status["title"])
+
+    def test_published_and_draft_status_is_mixed(self) -> None:
+        temp_dir, project_dir = self._project_with_metadata(
+            {
+                "youtube": {"postId": "video-1", "state": "PUBLISHED"},
+                "tiktok": {"postId": "post-1", "state": "DRAFT"},
+            }
+        )
+        try:
+            status = metadata.project_social_status(project_dir, now=self.NOW)
+        finally:
+            temp_dir.cleanup()
+
+        self.assertEqual(status["label"], "Published + Draft")
+        self.assertTrue(status["posted"])
+        self.assertTrue(status["drafted"])
+        self.assertEqual(status["platforms"], ["YouTube"])
+        self.assertEqual(status["draft_platforms"], ["TikTok"])
+
     def test_published_status_exposes_posted_time(self) -> None:
         temp_dir, project_dir = self._project_with_metadata(
             {"youtube": {"postId": "video-1", "postedAt": "2030-01-01T07:45:00+07:00"}}

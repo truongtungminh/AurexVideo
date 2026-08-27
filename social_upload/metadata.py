@@ -464,7 +464,7 @@ def _record_social_upload(project_dir: Path, platform: str, details: dict) -> di
         "state": state,
         "scheduledAt": str(details.get("scheduledAt") or details.get("scheduled_at") or "").strip(),
     }
-    if state == "SCHEDULED":
+    if state in {"SCHEDULED", "DRAFT", "INBOX"}:
         entry["queuedAt"] = now_iso()
     else:
         entry["postedAt"] = now_iso()
@@ -576,6 +576,7 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
     else:
         current_time = current_time.astimezone(timezone.utc)
     published_platforms: list[tuple[str, dict]] = []
+    draft_platforms: list[tuple[str, dict]] = []
     scheduled_platforms: list[tuple[str, dict]] = []
     for platform, label in (("youtube", "YouTube"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("tiktok", "TikTok"), ("threads", "Threads"), ("binance", "Binance Square")):
         entry = social.get(platform)
@@ -589,6 +590,9 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
                     "published_at": schedule["scheduled_at"],
                     "published_label": schedule["scheduled_label"],
                 }))
+            continue
+        if isinstance(entry, dict) and str(entry.get("state") or "").strip().upper() in {"DRAFT", "INBOX"}:
+            draft_platforms.append((label, entry))
             continue
         if isinstance(entry, dict) and any(str(entry.get(key) or "").strip() for key in ("url", "videoId", "postId")):
             published_platforms.append((label, published_social_details(entry)))
@@ -604,11 +608,28 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
             "title": f"{next_label} · {next_schedule['scheduled_label']}",
             "platforms": platforms,
             "scheduled_platforms": [label for label, _ in scheduled_platforms],
+            "drafted": bool(draft_platforms),
+            "draft_platforms": [label for label, _ in draft_platforms],
             **next_schedule,
         }
     if not published_platforms:
+        if draft_platforms:
+            draft_labels = [label for label, _ in draft_platforms]
+            return {
+                "posted": False,
+                "drafted": True,
+                "scheduled": False,
+                "state": "draft",
+                "label": "Draft",
+                "title": f"{' · '.join(draft_labels)} · Creator Inbox",
+                "platforms": [],
+                "draft_platforms": draft_labels,
+                "scheduled_at": "",
+                "scheduled_label": "",
+            }
         return {
             "posted": False,
+            "drafted": False,
             "scheduled": False,
             "state": "pending",
             "label": "Pending",
@@ -619,11 +640,14 @@ def project_social_status(project_dir: Path, *, now: datetime | None = None) -> 
         }
     return {
         "posted": True,
+        "drafted": bool(draft_platforms),
         "scheduled": False,
-        "state": "complete",
-        "label": "Published",
-        "title": " · ".join(label for label, _ in published_platforms),
+        "state": "mixed" if draft_platforms else "complete",
+        "label": "Published + Draft" if draft_platforms else "Published",
+        "title": " · ".join(label for label, _ in published_platforms)
+        + (f" · Draft: {' · '.join(label for label, _ in draft_platforms)}" if draft_platforms else ""),
         "platforms": [label for label, _ in published_platforms],
+        "draft_platforms": [label for label, _ in draft_platforms],
         **next((details for _, details in published_platforms if details), {}),
         "scheduled_at": "",
         "scheduled_label": "",
