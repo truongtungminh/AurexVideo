@@ -51,7 +51,7 @@ class TiktokSchedulerTests(unittest.TestCase):
             self.assertEqual(requests[1][0], "https://zernio.com/api/v1/posts")
             scheduled_body = requests[1][2]
             self.assertEqual(scheduled_body["scheduledFor"], scheduled_at)
-            self.assertEqual(scheduled_body["timezone"], "Asia/Ho_Chi_Minh")
+            self.assertEqual(scheduled_body["timezone"], "UTC")
             self.assertFalse(scheduled_body["isDraft"])
             self.assertNotIn("publishNow", scheduled_body)
             self.assertEqual(scheduled_body["platforms"][0]["accountId"], "acct_1")
