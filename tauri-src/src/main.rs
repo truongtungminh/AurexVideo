@@ -15,6 +15,8 @@ const APP_VERSION: &str = "0.2.4";
 const GITHUB_REPO: &str = "truongtungminh/AurexVideo";
 const SERVER_PORT: u16 = 4173;
 const SERVER_HOST: &str = "127.0.0.1";
+const DEV_ENTITLEMENT_UNLOCK_ENV: &str = "AUREXVIDEO_DEV_ENTITLEMENT_UNLOCK";
+const DESKTOP_BUILD_PROFILE_ENV: &str = "AUREXVIDEO_DESKTOP_BUILD_PROFILE";
 
 // Where the app stores its data (outside the .app bundle so OTA doesn't lose user data)
 fn support_dir() -> PathBuf {
@@ -176,6 +178,18 @@ fn wait_for_server(timeout: Duration) -> bool {
     false
 }
 
+#[cfg(debug_assertions)]
+fn configure_development_entitlement_unlock(command: &mut Command) {
+    command.env(DESKTOP_BUILD_PROFILE_ENV, "debug");
+    command.env(DEV_ENTITLEMENT_UNLOCK_ENV, "1");
+}
+
+#[cfg(not(debug_assertions))]
+fn configure_development_entitlement_unlock(command: &mut Command) {
+    command.env(DESKTOP_BUILD_PROFILE_ENV, "release");
+    command.env_remove(DEV_ENTITLEMENT_UNLOCK_ENV);
+}
+
 fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
     let _support = support_dir();
     studio_dir().join("project").parent().map(|_| ());
@@ -185,7 +199,8 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
     fs::create_dir_all(studio_dir().join("assets")).ok();
 
     let server_py = engine.join("web_server.py");
-    let child = Command::new(python)
+    let mut command = Command::new(python);
+    command
         .arg(&server_py)
         .arg("--host").arg(SERVER_HOST)
         .arg("--port").arg(SERVER_PORT.to_string())
@@ -196,7 +211,9 @@ fn spawn_server(python: &Path, engine: &Path) -> Result<Child, String> {
         .env("AUREX_BOOTSTRAP_DATA_ROOT", studio_dir())
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure_development_entitlement_unlock(&mut command);
+    let child = command
         .spawn()
         .map_err(|e| format!("failed to spawn web_server: {}", e))?;
     Ok(child)
