@@ -24,8 +24,8 @@ from .metadata import (
     require_project,
     upload_brand_for_project,
 )
+from .remote_worker import schedule_on_vps, watch_tiktok_post
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
-from .scheduler import schedule_upload
 
 ZERNIO_BASE_URL = "https://zernio.com/api/v1"
 MAX_TIKTOK_VIDEO_BYTES = 500 * 1024 * 1024
@@ -366,13 +366,23 @@ def tiktok_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="TikTok")
     video_bytes = read_expected_video_bytes(video_path, payload)
     if scheduled:
-        queued = schedule_upload("tiktok", payload, scheduled)
+        queued = schedule_on_vps(
+            "tiktok",
+            video_path,
+            caption,
+            scheduled,
+            project=project,
+            brand=brand,
+            account_id=zernio["account_id"],
+            tiktok_settings=tiktok_settings,
+        )
         record_scheduled_social_upload(
             project_dir,
             "tiktok",
             queued["scheduledPublishAt"],
             brand=brand,
             connection_id=connection_id,
+            worker_id=str(queued.get("id") or queued.get("worker_id") or ""),
         )
         return {
             "ok": True,
@@ -383,8 +393,8 @@ def tiktok_upload_video(payload: dict) -> dict:
             "state": "SCHEDULED",
             "scheduledPublishAt": queued["scheduledPublishAt"],
             "schedule_id": queued["id"],
-            "worker_id": queued["id"],
-            "message": "Đã xếp lịch TikTok trên máy này; worker sẽ thử đăng đúng giờ và tự chuyển sang Creator Inbox/Draft nếu Zernio quá tải. Hãy mở AurexVideo vào giờ hẹn; nếu app đóng, mở lại để queue chạy bù.",
+            "worker_id": queued.get("id") or queued.get("worker_id") or "",
+            "message": "Đã chuyển lịch TikTok lên VPS; VPS sẽ đăng đúng giờ, theo dõi Zernio và retry lỗi tạm thời sau 5 phút.",
         }
     presign = _json_request(f"{zernio['base_url']}/media/presign", "POST", {
         "filename": video_path.name,
@@ -428,6 +438,18 @@ def tiktok_upload_video(payload: dict) -> dict:
     if brand:
         details["brand"] = brand
     record_social_upload(project, "tiktok", details)
+    monitor_error = ""
+    try:
+        watch_tiktok_post(
+            post_id,
+            project=project,
+            brand=brand,
+            account_id=zernio["account_id"],
+        )
+    except Exception as exc:
+        # The upload already exists at Zernio; monitoring failure must not make
+        # the caller retry the upload and accidentally create a duplicate post.
+        monitor_error = str(exc)[:500]
     return {
         "ok": True,
         "platform": "tiktok",
@@ -440,6 +462,8 @@ def tiktok_upload_video(payload: dict) -> dict:
         "delivery": "CREATOR_INBOX" if used_creator_inbox else "DIRECT_POST",
         "fallbackReason": "TIKTOK_DIRECT_POST_CAPACITY" if fallback_due_to_capacity else "",
         "scheduledPublishAt": scheduled or "",
+        "monitoring": not monitor_error,
+        "monitoringError": monitor_error,
         "message": (
             "TikTok direct đang quá tải; đã gửi video vào Creator Inbox dưới dạng bản nháp. Hãy hoàn tất đăng trong TikTok."
             if fallback_due_to_capacity

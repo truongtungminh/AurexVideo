@@ -476,6 +476,9 @@ def _record_social_upload(project_dir: Path, platform: str, details: dict) -> di
     connection_id = str(details.get("connection_id") or details.get("connectionId") or "").strip()
     if connection_id:
         entry["connectionId"] = connection_id
+    worker_id = str(details.get("worker_id") or details.get("workerId") or "").strip()
+    if worker_id:
+        entry["workerId"] = worker_id
     error = str(details.get("error") or "").strip()
     if error:
         entry["error"] = error[:1000]
@@ -496,6 +499,7 @@ def record_scheduled_social_upload(
     *,
     brand: str = "",
     connection_id: str = "",
+    worker_id: str = "",
 ) -> dict:
     """Persist the dashboard-safe part of a queued social upload.
 
@@ -510,6 +514,8 @@ def record_scheduled_social_upload(
     details = {"state": "SCHEDULED", "scheduled_at": scheduled_at, "brand": brand}
     if connection_id:
         details["connection_id"] = connection_id
+    if worker_id:
+        details["worker_id"] = worker_id
     return _record_social_upload(project_dir, platform, details)
 
 
