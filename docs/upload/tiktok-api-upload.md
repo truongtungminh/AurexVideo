@@ -1,8 +1,8 @@
 # Hướng dẫn chuẩn bị TikTok API để upload video
 
-TikTok upload hiện đi qua **Zernio**. AurexVideo thử direct post trước; nếu Zernio trả lỗi TikTok direct posting đang **at capacity**, app chỉ retry một lần bằng `tiktokSettings.draft: true` để đưa video vào Creator Inbox/Draft. Người dùng cần mở TikTok và hoàn tất đăng bản nháp.
+TikTok upload hiện đi qua **Zernio**. Với bài đăng ngay, AurexVideo thử direct post trước; nếu Zernio trả lỗi TikTok direct posting đang **at capacity**, app retry một lần bằng `tiktokSettings.draft: true` để đưa video vào Creator Inbox/Draft. Người dùng cần mở TikTok và hoàn tất đăng bản nháp.
 
-Lịch TikTok được giữ trong local scheduler của AurexVideo và worker gọi Zernio đúng giờ, vì vậy fallback capacity cũng được xử lý ở thời điểm đăng. Khi dùng hẹn giờ, nên mở AurexVideo vào giờ hẹn; queue được lưu bền vững và sẽ chạy bù khi app mở lại nếu ứng dụng đã đóng.
+Với bài hẹn giờ, AurexVideo tạo scheduled post trực tiếp trên Zernio ngay lúc đặt lịch (giờ Việt Nam được đổi sang timestamp UTC). VPS chỉ theo dõi post ID: không cần giữ AurexVideo mở, không poll trước giờ hẹn, bắt đầu kiểm tra khi tới giờ, retry lỗi tạm thời sau 5 phút, rồi dừng khi nhận marker `v_pub_url~` hoặc `v_inbox_url~`.
 
 ## 1. Cần chuẩn bị
 
