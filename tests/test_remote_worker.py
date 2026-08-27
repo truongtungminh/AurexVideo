@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -70,6 +72,41 @@ class RemoteWorkerTests(unittest.TestCase):
         self.assertEqual(result["postId"], "post_1")
         self.assertEqual(request.call_args.args[:2], ("/watch-tiktok", "POST"))
         self.assertEqual(request.call_args.args[2]["accountId"], "acct_1")
+
+    def test_watch_outbox_survives_worker_registration_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as root, patch.object(
+            remote_worker,
+            "_watch_outbox_path",
+            return_value=Path(root) / "tiktok-watch-outbox.json",
+        ), patch.object(
+            remote_worker,
+            "watch_tiktok_post",
+            side_effect=RuntimeError("worker offline"),
+        ):
+            queued = remote_worker.queue_tiktok_watch(
+                "post_1",
+                project="demo",
+                brand="bietchichomet",
+                account_id="acct_1",
+            )
+            self.assertEqual(queued["postId"], "post_1")
+            self.assertEqual(remote_worker.flush_tiktok_watch_outbox(), 0)
+            saved = json.loads((Path(root) / "tiktok-watch-outbox.json").read_text())
+            self.assertEqual(saved[0]["postId"], "post_1")
+            self.assertEqual(saved[0]["attempts"], 1)
+
+        with tempfile.TemporaryDirectory() as root, patch.object(
+            remote_worker,
+            "_watch_outbox_path",
+            return_value=Path(root) / "tiktok-watch-outbox.json",
+        ), patch.object(
+            remote_worker,
+            "watch_tiktok_post",
+            return_value={"ok": True},
+        ):
+            remote_worker.queue_tiktok_watch("post_2")
+            self.assertEqual(remote_worker.flush_tiktok_watch_outbox(), 1)
+            self.assertEqual(json.loads((Path(root) / "tiktok-watch-outbox.json").read_text()), [])
 
 
 if __name__ == "__main__":

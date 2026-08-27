@@ -48,12 +48,14 @@ class TiktokUploadTests(unittest.TestCase):
                  patch.object(tt, "read_expected_video_bytes", return_value=b"video"), \
                  patch.object(tt, "build_upload_metadata", return_value={"instagramCaption": "Caption"}), \
                  patch.object(tt, "record_social_upload") as record, \
+                 patch.object(tt, "watch_tiktok_post") as watch, \
                  patch.object(tt, "urlopen", side_effect=fake_urlopen):
                 result = tt.tiktok_upload_video({"project": "demo", "brand": "popsy", "tiktokCaption": "Hello"})
             self.assertEqual(result["post_id"], "post_1")
             self.assertEqual(result["url"], "https://tiktok.com/@a/video/1")
             self.assertEqual(result["state"], "PUBLISHED")
             self.assertEqual(result["delivery"], "DIRECT_POST")
+            watch.assert_called_once_with("post_1", project="demo", brand="popsy", account_id="acct_1")
             self.assertEqual(calls[0].method, "POST")
             presign_body = json.loads(calls[0].data.decode())
             self.assertEqual(presign_body["filename"], "tiktok-test.mp4")
@@ -98,6 +100,7 @@ class TiktokUploadTests(unittest.TestCase):
                          patch.object(tt, "final_video_path_for_project", return_value=path), \
                          patch.object(tt, "read_expected_video_bytes", return_value=b"video"), \
                          patch.object(tt, "record_social_upload") as record, \
+                         patch.object(tt, "watch_tiktok_post"), \
                          patch.object(tt, "urlopen", side_effect=fake_urlopen):
                         result = tt.tiktok_upload_video({"project": "demo", "brand": "popsy", "tiktokCaption": "Hello", "scheduleTimezone": "UTC"})
 

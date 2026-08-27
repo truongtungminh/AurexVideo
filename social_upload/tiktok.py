@@ -24,7 +24,7 @@ from .metadata import (
     require_project,
     upload_brand_for_project,
 )
-from .remote_worker import schedule_on_vps, watch_tiktok_post
+from .remote_worker import queue_tiktok_watch, schedule_on_vps, watch_tiktok_post
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 
 ZERNIO_BASE_URL = "https://zernio.com/api/v1"
@@ -450,6 +450,15 @@ def tiktok_upload_video(payload: dict) -> dict:
         # The upload already exists at Zernio; monitoring failure must not make
         # the caller retry the upload and accidentally create a duplicate post.
         monitor_error = str(exc)[:500]
+        try:
+            queue_tiktok_watch(
+                post_id,
+                project=project,
+                brand=brand,
+                account_id=zernio["account_id"],
+            )
+        except Exception as queue_exc:
+            monitor_error = f"{monitor_error}; không lưu được hàng đợi theo dõi: {str(queue_exc)[:300]}"
     return {
         "ok": True,
         "platform": "tiktok",

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .metadata import record_scheduled_social_failure
+from .remote_worker import flush_tiktok_watch_outbox
 
 _LOCK = threading.RLock()
 _STARTED = False
@@ -127,6 +128,10 @@ def _run_item(item: dict) -> None:
 
 def _worker() -> None:
     while not _STOP.wait(5):
+        try:
+            flush_tiktok_watch_outbox()
+        except Exception:
+            pass
         now = _utc_now()
         due = []
         with _LOCK:

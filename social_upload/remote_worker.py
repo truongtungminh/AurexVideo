@@ -4,12 +4,15 @@ import hashlib
 import json
 import os
 import subprocess
+import threading
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import read_social_config
+
+_WATCH_OUTBOX_LOCK = threading.RLock()
 
 
 def _future(value: str) -> str:
@@ -123,3 +126,86 @@ def worker_tiktok_status(post_id: str) -> dict:
     if not post_id:
         raise ValueError("TikTok post id is required.")
     return _worker_request(f"/tiktok/status/{post_id}")
+
+
+def _watch_outbox_path() -> Path:
+    root = Path(
+        os.environ.get("AUREX_DATA_ROOT")
+        or (Path.home() / "Library/Application Support/app.aurexvideo/studio")
+    ).expanduser().resolve()
+    return root / "tiktok-watch-outbox.json"
+
+
+def _read_watch_outbox() -> list[dict]:
+    try:
+        value = json.loads(_watch_outbox_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return value if isinstance(value, list) else []
+
+
+def _write_watch_outbox(items: list[dict]) -> None:
+    path = _watch_outbox_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.replace(path)
+
+
+def queue_tiktok_watch(post_id: str, *, project: str = "", brand: str = "", account_id: str = "") -> dict:
+    post_id = str(post_id or "").strip()
+    if not post_id:
+        raise ValueError("TikTok post id is required.")
+    item = {
+        "postId": post_id,
+        "project": str(project or "").strip(),
+        "brand": str(brand or "").strip(),
+        "accountId": str(account_id or "").strip(),
+        "attempts": 0,
+        "nextAttemptAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+    with _WATCH_OUTBOX_LOCK:
+        items = _read_watch_outbox()
+        if not any(str(current.get("postId") or "").strip() == post_id for current in items):
+            items.append(item)
+            _write_watch_outbox(items)
+    return item
+
+
+def flush_tiktok_watch_outbox() -> int:
+    """Register deferred watches when the local app is online again."""
+    with _WATCH_OUTBOX_LOCK:
+        items = _read_watch_outbox()
+        if not items:
+            return 0
+        remaining: list[dict] = []
+        synced = 0
+        current_time = datetime.now(timezone.utc)
+        for item in items:
+            try:
+                next_attempt = datetime.fromisoformat(
+                    str(item.get("nextAttemptAt") or "").replace("Z", "+00:00")
+                )
+            except ValueError:
+                next_attempt = current_time
+            if next_attempt > current_time:
+                remaining.append(item)
+                continue
+            try:
+                watch_tiktok_post(
+                    str(item.get("postId") or ""),
+                    project=str(item.get("project") or ""),
+                    brand=str(item.get("brand") or ""),
+                    account_id=str(item.get("accountId") or ""),
+                )
+                synced += 1
+            except Exception as exc:
+                failed = dict(item)
+                failed["attempts"] = int(failed.get("attempts") or 0) + 1
+                failed["lastError"] = str(exc)[:500]
+                failed["nextAttemptAt"] = (
+                    current_time + timedelta(minutes=5)
+                ).isoformat(timespec="seconds").replace("+00:00", "Z")
+                remaining.append(failed)
+        _write_watch_outbox(remaining)
+        return synced
