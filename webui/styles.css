@@ -290,13 +290,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .tab-pane[data-pane="content"] .background-style label,
 .tab-pane[data-pane="content"] .subtitle-style label,
 .tab-pane[data-pane="content"] .music-style label,
+.tab-pane[data-pane="content"] .intro-style label,
 .tab-pane[data-pane="content"] .upload-card > span { text-align: center; }
 .tab-pane[data-pane="content"] > label input,
 .tab-pane[data-pane="content"] .form-grid input,
 .tab-pane[data-pane="content"] .background-style input,
 .tab-pane[data-pane="content"] .background-style select,
 .tab-pane[data-pane="content"] .subtitle-style input,
-.tab-pane[data-pane="content"] .music-style input { text-align: center; }
+.tab-pane[data-pane="content"] .music-style input,
+.tab-pane[data-pane="content"] .intro-style input,
+.tab-pane[data-pane="content"] .intro-style select { text-align: center; }
 .tab-pane[data-pane="content"] > .eyebrow { display: flex; align-items: center; gap: 14px; margin: 2px 0 0; color: var(--accent-dark); font-size: 15px; font-weight: 950; letter-spacing: .1em; }
 .tab-pane[data-pane="content"] > .eyebrow::before,
 .tab-pane[data-pane="content"] > .eyebrow::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, #e8c6a8); }
@@ -1142,6 +1145,8 @@ html[data-theme="dark"] .editor-page .tab-pane[data-pane="content"] > .eyebrow::
   .single-image-label-grid,
   .upload-grid.single-image-upload-grid { width: 100%; }
   .background-controls-row { grid-template-columns: minmax(0, 1.15fr) minmax(72px, 0.85fr); }
+  .intro-overlays,
+  .intro-title-options { grid-template-columns: 1fr; }
   .comparison-label-grid { grid-template-columns: 1fr 1fr; }
   .editor-shell { padding: 8px; }
   .editor-mode-custom .editor-shell { padding: 8px; }

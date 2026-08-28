@@ -363,7 +363,7 @@ function applyIntro(nextTopic = topic, time = 0) {
       image.removeAttribute("src");
     }
     if (video) {
-      if (video.getAttribute("src") !== mediaSource) {
+      if ((video.getAttribute("src") || "") !== mediaSource) {
         if (mediaSource) video.setAttribute("src", mediaSource);
         else video.removeAttribute("src");
         video.load();
@@ -408,7 +408,7 @@ function applyIntro(nextTopic = topic, time = 0) {
     logo.hidden = !logoSource;
     if (logoSource) {
       const scale = Math.min(1.6, Math.max(0.5, Number(intro.logoScale) || 1));
-      logo.style.width = \`\${Math.min(62, Math.max(22, 38 * scale))}%\`;
+      logo.style.width = `${Math.min(62, Math.max(22, 38 * scale))}%`;
     }
   }
   const title = elements.stageIntroTitle;
@@ -1076,6 +1076,81 @@ async function seekOfflineVideoTo(video, targetTime) {
   offlineMediaSyncStats.seekWaitMs += performance.now() - startedAt;
 }
 
+async function seekOfflineIntroVideoTo(video, targetTime) {
+  const startedAt = performance.now();
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timeout khi đồng bộ video intro tại ${targetTime.toFixed(3)}s`));
+    }, 5000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.pause();
+      cleanup();
+      resolve();
+    };
+    const onSeeked = () => {
+      // A source change can queue a stale seeked event at time 0. Only accept
+      // an event that actually lands on this frame's requested timestamp.
+      if (Math.abs((Number(video.currentTime) || 0) - targetTime) > OFFLINE_MEDIA_SYNC_TOLERANCE) return;
+      finish();
+    };
+    const onError = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`Không seek được video intro: ${mediaSource(video)}`));
+    };
+    if (Math.abs((Number(video.currentTime) || 0) - targetTime) <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
+      finish();
+      return;
+    }
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onError, { once: true });
+    try {
+      video.currentTime = targetTime;
+    } catch (error) {
+      onError(error);
+    }
+  });
+  offlineMediaSyncStats.seeks += 1;
+  offlineMediaSyncStats.seekWaitMs += performance.now() - startedAt;
+}
+
+async function syncIntroVideoToOfflineTimeline(time) {
+  const video = elements.stageIntroVideo;
+  if (!offlineRender || !video || !customIntroIsActive(topic, time)) return;
+  if (video.hidden || !isVideoAssetSource(mediaSource(video))) return;
+  if (!mediaReady(video)) await waitForMediaReady(video).catch(() => {});
+  if (!mediaReady(video)) return;
+  const duration = Number(video.duration);
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const targetTime = Math.min(Math.max(0, Number(time) || 0), Math.max(0, duration - 0.001));
+  const drift = Math.abs((Number(video.currentTime) || 0) - targetTime);
+  offlineMediaSyncStats.maxRequestedDriftMs = Math.max(
+    offlineMediaSyncStats.maxRequestedDriftMs,
+    drift * 1000,
+  );
+  if (drift <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
+    video.pause();
+    offlineMediaSyncStats.skippedSeeks += 1;
+    offlineMediaSyncStats.lastPresentedDriftMs = drift * 1000;
+    offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, drift * 1000);
+    return;
+  }
+  await seekOfflineIntroVideoTo(video, targetTime);
+  const presentedDrift = Math.abs((Number(video.currentTime) || 0) - targetTime) * 1000;
+  offlineMediaSyncStats.lastPresentedDriftMs = presentedDrift;
+  offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, presentedDrift);
+}
+
 async function playOfflineVideoTo(video, targetTime) {
   const startedAt = performance.now();
   await new Promise((resolve, reject) => {
@@ -1251,6 +1326,7 @@ function renderAt(time, allowPoseSfx = false) {
   elements.stage.classList.remove("preview-blank");
   if (isCustomProject()) applyCustomSlide(customSlideAt(time));
   else applyComparisonToView(comparisonAt(time));
+  applyIntro(topic, time);
   renderKaraoke(time);
   setPose(poseAt(time), time, allowPoseSfx);
   const duration = previewDuration();
@@ -1270,6 +1346,9 @@ function offlineImagePaths() {
     }
   });
   (Array.isArray(topic.slides) ? topic.slides : []).forEach((slide) => (slide.layers || []).forEach((layer) => { if (layer?.type === "image" && layer.src) paths.push(layer.src); }));
+  const intro = customIntroConfig(topic);
+  if (intro.logo) paths.push(intro.logo);
+  if (intro.media && !isVideoAssetSource(intro.media)) paths.push(intro.media);
   Object.values(topic.poseAssets || {}).forEach((pose) => {
     paths.push(pose?.closed, pose?.speaking);
   });
@@ -1305,8 +1384,15 @@ async function renderOfflineFrame(time) {
     elements.stageBackgroundImage && !elements.stageBackgroundImage.hidden
       ? elements.stageBackgroundImage.decode().catch(() => {})
       : Promise.resolve(),
+    elements.stageIntroImage && !elements.stageIntroImage.hidden
+      ? elements.stageIntroImage.decode().catch(() => {})
+      : Promise.resolve(),
+    elements.stageIntroLogo && !elements.stageIntroLogo.hidden
+      ? elements.stageIntroLogo.decode().catch(() => {})
+      : Promise.resolve(),
   ]).catch(() => {});
   await syncPresenterToOfflineTimeline(poseEvent, time);
+  await syncIntroVideoToOfflineTimeline(time);
   applyStageBackground(topic);
   if (currentComparisonScene) {
     applyImageFrame(
@@ -1342,6 +1428,15 @@ async function renderOfflineFrame(time) {
   paintOfflinePresenterFrame();
 }
 
+async function prepareIntroOfflineMedia() {
+  const intro = customIntroConfig(topic);
+  const mediaPath = String(intro.media || "").trim();
+  if (!mediaPath || !isVideoAssetSource(mediaPath) || !elements.stageIntroVideo) return;
+  applyIntro(topic, 0);
+  await waitForMediaReady(elements.stageIntroVideo).catch(() => {});
+  elements.stageIntroVideo.pause();
+}
+
 function paintOfflinePresenterFrame() {
   const video = elements.teacher;
   if (!offlineRender || !(video instanceof HTMLVideoElement) || !mediaReady(video)) return;
@@ -1374,6 +1469,7 @@ async function prepareOfflineRender() {
     preloadOfflineImages(),
     document.fonts?.ready || Promise.resolve(),
   ]);
+  await prepareIntroOfflineMedia();
   if (elements.teacher instanceof HTMLVideoElement) elements.teacher.pause();
   await renderOfflineFrame(0);
 }
@@ -1507,6 +1603,11 @@ function showPreviewBlank() {
   lastSfxAt = -Infinity;
   elements.karaoke.classList.remove("visible");
   elements.karaoke.replaceChildren();
+  elements.stage.classList.remove("intro-active");
+  if (elements.stageIntro) {
+    elements.stageIntro.hidden = true;
+    elements.stageIntro.setAttribute("aria-hidden", "true");
+  }
   elements.stage.classList.add("preview-blank");
 }
 
@@ -1732,6 +1833,7 @@ async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false
   if (!isCustomCharacter) clearImportedPresenterLayout();
   currentComparisonKey = "";
   applyStageBackground(topic);
+  applyIntro(topic, 0);
   if (blank) {
     // While the editor is still on the empty preview state, keep the latest
     // topic and styling ready without rebuilding the comparison DOM/media.
@@ -1770,6 +1872,9 @@ async function init() {
     if (elements.stageBackgroundImage.parentElement) {
       new ResizeObserver(() => applyStageBackground(topic)).observe(elements.stageBackgroundImage.parentElement);
     }
+  }
+  if (elements.stageIntroImage) {
+    elements.stageIntroImage.addEventListener("load", () => applyIntro(topic, previewTime()));
   }
 
   Object.entries(topic.sfx || {}).forEach(([name, path]) => {

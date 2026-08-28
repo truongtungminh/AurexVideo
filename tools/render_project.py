@@ -670,6 +670,11 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
         topic_value.get("leftImage"),
         topic_value.get("rightImage"),
     ]
+    if isinstance(topic_value.get("intro"), dict):
+        candidate_values.extend([
+            topic_value["intro"].get("media"),
+            topic_value["intro"].get("logo"),
+        ])
     if isinstance(topic_value.get("sfx"), dict):
         candidate_values.extend(topic_value["sfx"].values())
     for value in candidate_values:
@@ -817,6 +822,30 @@ def requires_character_css_compatibility(
             f"trong style.css ({examples}). Dùng --render-backend auto để raster Browser "
             "giữ đúng preview, với Aurex Render Core vẫn mã hoá video.",
             reason="character_css_parity_required",
+        )
+    return backend == "auto"
+
+
+def requires_custom_intro_compatibility(backend: str, topic: dict[str, object]) -> bool:
+    """Keep enabled Custom intros on the browser parity path.
+
+    Scene IR currently compiles standard comparison layers, but does not know
+    about the Custom editor's slide/intro DOM contract.  Routing only topics
+    with an enabled intro preserves the existing backend choice for untouched
+    projects while ensuring the new first-three-seconds layer is present in
+    exported video.
+    """
+    if str(topic.get("projectType") or "").strip().lower() != "custom":
+        return False
+    intro = topic.get("intro")
+    intro_type = str(intro.get("type") or "none").strip().lower() if isinstance(intro, dict) else "none"
+    if intro_type in {"", "none"}:
+        return False
+    if backend == "native":
+        raise NativeRenderUnavailable(
+            "Custom Intro cần Browser raster để giữ đúng lớp mở đầu 0–3 giây; "
+            "hãy dùng --render-backend auto hoặc browser.",
+            reason="custom_intro_browser_required",
         )
     return backend == "auto"
 
@@ -1078,6 +1107,10 @@ def main() -> None:
     quality = get_render_profile(args.quality_profile)
 
     original = load_render_topic(topic_path)
+    custom_intro_compatibility = requires_custom_intro_compatibility(
+        args.render_backend,
+        original,
+    )
     character_css_compatibility = requires_character_css_compatibility(
         args.render_backend,
         original,
@@ -1154,13 +1187,31 @@ def main() -> None:
             "--model", args.whisper_model,
         ])
         render_fps = max(1, int(args.fps))
-        if character_css_compatibility:
+        if character_css_compatibility or custom_intro_compatibility:
             selectors = character_specific_css_selectors(original)
+            guard_reasons: list[str] = []
+            if character_css_compatibility:
+                guard_reasons.append(
+                    "character CSS " + ", ".join(selectors[:3])
+                )
+            if custom_intro_compatibility:
+                guard_reasons.append("Custom Intro 0–3 giây")
             print(
-                "Character CSS parity guard: routing auto to Browser raster compatibility "
-                f"for {', '.join(selectors[:3])}.",
+                "Browser parity guard: routing auto to Browser raster compatibility "
+                f"for {'; '.join(guard_reasons)}.",
                 flush=True,
             )
+            compatibility_reason = (
+                "custom_intro_browser_required"
+                if custom_intro_compatibility
+                else "character_css_parity_required"
+            )
+            compatibility_detail = " ".join([
+                "Custom Intro của Custom project cần Browser raster để đồng nhất preview và video."
+                if custom_intro_compatibility else "",
+                "Character-specific selectors in engine/style.css require Browser raster rendering for preview parity."
+                if character_css_compatibility else "",
+            ]).strip()
             try:
                 backend_outcome = render_core_compatibility_backend(
                     topic_path=aligned_topic,
@@ -1171,11 +1222,8 @@ def main() -> None:
                     height=height,
                     fps=render_fps,
                     quality=quality,
-                    compatibility_reason="character_css_parity_required",
-                    compatibility_detail=(
-                        "Character-specific selectors in engine/style.css require Browser raster "
-                        "rendering for preview parity."
-                    ),
+                    compatibility_reason=compatibility_reason,
+                    compatibility_detail=compatibility_detail,
                 )
             except Exception as exc:
                 detail = " ".join(str(exc).split())[:500]
