@@ -1374,6 +1374,13 @@ def normalize_tts_config(value: object, fallback: object = None) -> dict:
 
 
 CUSTOM_SLIDE_EFFECTS = {"none", "fade", "zoom", "rise", "swipe"}
+CUSTOM_INTRO_TYPES = {"none", "color", "media"}
+CUSTOM_INTRO_DURATION_SECONDS = 3.0
+CUSTOM_INTRO_MEDIA_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov", ".m4v", ".webm",
+}
+CUSTOM_INTRO_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
+CUSTOM_INTRO_VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 
 
 def normalize_project_type(value: object) -> str:
@@ -1411,6 +1418,67 @@ def default_custom_slide(start_sentence: int = 1, font_size: float = 1.2) -> dic
             },
         ],
     }
+
+
+def default_custom_intro() -> dict:
+    """Return the optional three-second opening overlay for Custom projects."""
+    return {
+        "type": "none",
+        "duration": CUSTOM_INTRO_DURATION_SECONDS,
+        "color": "#0b1020",
+        "media": "",
+        "mediaType": "image",
+        "mediaZoom": 1.0,
+        "mediaX": 0.0,
+        "mediaY": 0.0,
+        "logo": "",
+        "logoScale": 1.0,
+        "title": "",
+        "titleColor": "#ffffff",
+        "titleSize": 1.0,
+    }
+
+
+def normalize_custom_intro(value: object, fallback: object = None) -> dict:
+    """Keep the optional Custom intro bounded and portable across reloads."""
+    source = value if isinstance(value, dict) else fallback if isinstance(fallback, dict) else {}
+    defaults = default_custom_intro()
+    raw_type = str(source.get("type") or source.get("introType") or defaults["type"]).strip().lower()
+    raw_type = {"off": "none", "default": "none", "image": "media", "video": "media"}.get(raw_type, raw_type)
+    intro_type = raw_type if raw_type in CUSTOM_INTRO_TYPES else "none"
+
+    media = str(source.get("media") or source.get("backgroundImage") or source.get("image") or "").strip()
+    if media:
+        media = safe_relative_asset(media, "intro.media")
+        if Path(media).suffix.lower() not in CUSTOM_INTRO_MEDIA_EXTENSIONS:
+            raise ValueError("Định dạng intro.media chưa được hỗ trợ.")
+    media_type = "video" if Path(media).suffix.lower() in CUSTOM_INTRO_VIDEO_EXTENSIONS else "image"
+    requested_media_type = str(source.get("mediaType") or "").strip().lower()
+    if requested_media_type in {"image", "video"} and media:
+        media_type = "video" if media_type == "video" or requested_media_type == "video" else "image"
+
+    logo = str(source.get("logo") or source.get("logoImage") or "").strip()
+    if logo:
+        logo = safe_relative_asset(logo, "intro.logo")
+        if Path(logo).suffix.lower() not in CUSTOM_INTRO_LOGO_EXTENSIONS:
+            raise ValueError("Định dạng intro.logo chưa được hỗ trợ.")
+
+    normalized = {
+        "type": intro_type,
+        "duration": CUSTOM_INTRO_DURATION_SECONDS,
+        "color": normalize_hex_color(source.get("color"), defaults["color"]),
+        "media": media,
+        "mediaType": media_type,
+        "mediaZoom": _clamp_custom_number(source.get("mediaZoom"), 1.0, 1.0, 3.0),
+        "mediaX": _clamp_custom_number(source.get("mediaX"), 0.0, -50.0, 50.0),
+        "mediaY": _clamp_custom_number(source.get("mediaY"), 0.0, -50.0, 50.0),
+        "logo": logo,
+        "logoScale": _clamp_custom_number(source.get("logoScale"), 1.0, 0.5, 1.6),
+        "title": normalize_display_text(source.get("title"), "", 180),
+        "titleColor": normalize_hex_color(source.get("titleColor"), defaults["titleColor"]),
+        "titleSize": _clamp_custom_number(source.get("titleSize"), 1.0, 0.6, 1.5),
+    }
+    return normalized
 
 
 def normalize_custom_slides(raw: object, segment_count: int) -> list[dict]:
@@ -1564,11 +1632,13 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     topic["segments"] = cleaned_segments
     if topic["projectType"] == "custom":
         topic["slides"] = normalize_custom_slides(payload.get("slides", current.get("slides")), len(cleaned_segments))
+        topic["intro"] = normalize_custom_intro(payload.get("intro", current.get("intro")))
         topic["baseComparisonEnabled"] = False
     else:
         # Comparison projects retain their established scene contract and never
         # carry stale Custom layers into the renderer.
         topic["slides"] = []
+        topic["intro"] = default_custom_intro()
     raw_tts = payload.get("tts", current.get("tts"))
     if raw_tts is not None:
         topic["tts"] = normalize_tts_config(raw_tts, current.get("tts"))
@@ -2143,6 +2213,7 @@ def create_project(payload: dict) -> dict:
         "comparisons": [],
         "baseComparisonEnabled": project_type != "custom",
         "slides": [default_custom_slide(1, karaoke_size)] if project_type == "custom" else [],
+        "intro": default_custom_intro(),
         "karaokeColor": normalize_hex_color(karaoke_scoped.get(character_id) or defaults.get("karaokeColor"), "#271f11"),
         "karaokeActiveColor": normalize_hex_color(karaoke_active_scoped.get(character_id) or defaults.get("karaokeActiveColor"), "#de370d"),
         "karaokeSize": karaoke_size,
@@ -2184,6 +2255,8 @@ def decode_upload(slug: str, payload: dict) -> dict:
         "rightImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
         "comparisonImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
         "backgroundImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
+        "introMedia": ("assets", CUSTOM_INTRO_MEDIA_EXTENSIONS),
+        "introLogo": ("assets", CUSTOM_INTRO_LOGO_EXTENSIONS),
         "backgroundMusic": ("audio", {".wav", ".mp3", ".m4a", ".aac", ".ogg"}),
         "voiceover": ("audio", {".wav", ".mp3", ".m4a", ".aac", ".ogg"}),
         "customSfx": ("sfx", {".wav", ".mp3", ".m4a", ".aac", ".ogg"}),
@@ -2212,6 +2285,8 @@ def decode_upload(slug: str, payload: dict) -> dict:
     target.write_bytes(data)
     relative = target.relative_to(directory).as_posix()
     result = {"ok": True, "kind": kind, "path": relative, "url": file_url(target)}
+    if kind == "introMedia":
+        result["mediaType"] = "video" if suffix in CUSTOM_INTRO_VIDEO_EXTENSIONS else "image"
     if kind == "voiceover":
         result["duration"] = media_duration(target)
     if kind == "customSfx":

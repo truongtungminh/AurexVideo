@@ -3,6 +3,11 @@ const DEFAULT_TOPIC = "project/inox-304-vs-316/topic.json";
 const elements = {
   stage: document.querySelector("#stage"),
   stageBackgroundImage: document.querySelector("#stageBackgroundImage"),
+  stageIntro: document.querySelector("#stageIntro"),
+  stageIntroImage: document.querySelector("#stageIntroImage"),
+  stageIntroVideo: document.querySelector("#stageIntroVideo"),
+  stageIntroLogo: document.querySelector("#stageIntroLogo"),
+  stageIntroTitle: document.querySelector("#stageIntroTitle"),
   slideCanvas: document.querySelector("#slideCanvas"),
   leftLabel: document.querySelector("#leftLabel"),
   rightLabel: document.querySelector("#rightLabel"),
@@ -316,6 +321,104 @@ function applyCustomSlide(slide) {
     fragment.append(node);
   });
   canvas.replaceChildren(fragment);
+}
+
+const CUSTOM_INTRO_DURATION_SECONDS = 3;
+
+function customIntroConfig(nextTopic = topic) {
+  return nextTopic?.intro && typeof nextTopic.intro === "object" ? nextTopic.intro : {};
+}
+
+function customIntroIsActive(nextTopic = topic, time = 0) {
+  const intro = customIntroConfig(nextTopic);
+  return isCustomProject(nextTopic)
+    && String(intro.type || "none").toLowerCase() !== "none"
+    && Number(time) >= 0
+    && Number(time) < CUSTOM_INTRO_DURATION_SECONDS;
+}
+
+function applyIntro(nextTopic = topic, time = 0) {
+  const introRoot = elements.stageIntro;
+  if (!introRoot) return false;
+  const intro = customIntroConfig(nextTopic);
+  const active = customIntroIsActive(nextTopic, time);
+  introRoot.hidden = !active;
+  introRoot.setAttribute("aria-hidden", active ? "false" : "true");
+  elements.stage?.classList.toggle("intro-active", active);
+  const video = elements.stageIntroVideo;
+  if (!active) {
+    video?.pause();
+    return false;
+  }
+
+  const color = String(intro.color || "#0b1020");
+  introRoot.style.backgroundColor = color;
+  const mediaPath = String(intro.media || "").trim();
+  const mediaSource = mediaPath ? resolveTopicAsset(mediaPath) : "";
+  const videoMedia = String(intro.mediaType || "").toLowerCase() === "video" || isVideoAssetSource(mediaSource);
+  const image = elements.stageIntroImage;
+  if (videoMedia) {
+    if (image) {
+      image.hidden = true;
+      image.removeAttribute("src");
+    }
+    if (video) {
+      if (video.getAttribute("src") !== mediaSource) {
+        if (mediaSource) video.setAttribute("src", mediaSource);
+        else video.removeAttribute("src");
+        video.load();
+      }
+      video.hidden = !mediaSource;
+      if (mediaSource && !offlineRender) {
+        const duration = Number(video.duration);
+        const target = Number.isFinite(duration) && duration > 0
+          ? Math.min(Math.max(0, Number(time) || 0), Math.max(0, duration - 0.001))
+          : Math.max(0, Number(time) || 0);
+        if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
+          try { video.currentTime = target; } catch (_error) { /* media is still loading */ }
+        }
+        if (video.paused) video.play().catch(() => {});
+      }
+    }
+  } else {
+    video?.pause();
+    if (video) {
+      video.hidden = true;
+      video.removeAttribute("src");
+    }
+    if (image) {
+      if (image.getAttribute("src") !== mediaSource) {
+        if (mediaSource) image.setAttribute("src", mediaSource);
+        else image.removeAttribute("src");
+      }
+      image.hidden = !mediaSource;
+      if (mediaSource) {
+        applyImageFrame(image, intro.mediaZoom, intro.mediaX, intro.mediaY);
+      }
+    }
+  }
+
+  const logo = elements.stageIntroLogo;
+  const logoSource = intro.logo ? resolveTopicAsset(intro.logo) : "";
+  if (logo) {
+    if (logo.getAttribute("src") !== logoSource) {
+      if (logoSource) logo.setAttribute("src", logoSource);
+      else logo.removeAttribute("src");
+    }
+    logo.hidden = !logoSource;
+    if (logoSource) {
+      const scale = Math.min(1.6, Math.max(0.5, Number(intro.logoScale) || 1));
+      logo.style.width = \`\${Math.min(62, Math.max(22, 38 * scale))}%\`;
+    }
+  }
+  const title = elements.stageIntroTitle;
+  if (title) {
+    title.textContent = String(intro.title || "");
+    title.hidden = !title.textContent;
+    title.style.color = String(intro.titleColor || "#ffffff");
+    title.style.setProperty("--intro-title-size", String(Math.min(1.5, Math.max(0.6, Number(intro.titleSize) || 1))));
+  }
+  return true;
 }
 
 function applyComparisonToView(scene, force = false) {
