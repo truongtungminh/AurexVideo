@@ -9,6 +9,8 @@ const state = {
   previewSentence: 1,
   backgroundPreviewUrl: "",
 };
+let previewFrameRaf = 0;
+let pendingPreviewSlideId = "";
 
 const isEnglishUi = () => (window.__AUREX_LANGUAGE__ || document.documentElement.lang) === "en";
 const tr = (vi, en) => isEnglishUi() ? en : vi;
@@ -275,14 +277,24 @@ function activeSlideForSentence(sentence) {
   return slides.filter((slide) => Number(slide.startSentence) <= sentence).at(-1) || slides[0] || null;
 }
 
-function sendPreview(slideId = state.selected) {
+function flushPreview() {
+  previewFrameRaf = 0;
   if (!state.topic) return;
+  const slideId = pendingPreviewSlideId || state.selected;
+  pendingPreviewSlideId = "";
   const slide = (state.topic.slides || []).find((item) => item.id === slideId) || activeSlideForSentence(state.previewSentence);
   state.selected = slide?.id || "";
   highlightActiveSlide();
   $("#previewFrame")?.contentWindow?.postMessage({
     type: "tho-topic-update", topic: state.topic, slideId: state.selected, time: 0,
   }, location.origin);
+}
+
+function sendPreview(slideId = state.selected) {
+  if (!state.topic) return;
+  pendingPreviewSlideId = slideId || "";
+  if (previewFrameRaf) return;
+  previewFrameRaf = requestAnimationFrame(flushPreview);
 }
 
 function selectSlide(slide, sentence = Number(slide?.startSentence) || 1) {
