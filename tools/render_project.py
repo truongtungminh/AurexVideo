@@ -39,6 +39,7 @@ try:
         build_native_render_plan,
         find_native_binary,
     )
+    from native_scene import native_character_style_supported
 except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
     from tools.native_render import (
         NativeRenderUnavailable,
@@ -46,6 +47,7 @@ except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/too
         build_native_render_plan,
         find_native_binary,
     )
+    from tools.native_scene import native_character_style_supported
 
 configure_native_runtime()
 
@@ -795,7 +797,16 @@ def requires_character_css_compatibility(
     *,
     stylesheet: Path | None = None,
 ) -> bool:
-    """Guard native scene rendering when the preview has character-only CSS."""
+    """Guard native scene rendering when the preview has unsupported character CSS.
+
+    Built-in character profiles are compiled by ``native_scene`` and therefore
+    may contain matching CSS selectors without requiring a browser raster pass.
+    Unknown characters remain on the compatibility path so custom CSS keeps
+    preview parity.
+    """
+    character_id = str(topic.get("characterId") or topic.get("brand") or "").strip().lower()
+    if native_character_style_supported(character_id):
+        return False
     selectors = character_specific_css_selectors(topic, stylesheet=stylesheet)
     if not selectors:
         return False

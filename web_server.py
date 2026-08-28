@@ -3912,11 +3912,11 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             </span>
             <select id="renderBackend">
               <option value="auto" selected>Auto · Core-first, fallback có báo cáo</option>
-              <option value="native">Aurex Render Core · bắt buộc native-capable</option>
+              <option value="native">Aurex Render Core · nhanh nhất khi scene hỗ trợ</option>
               <option value="browser">Browser · chế độ tương thích</option>
             </select>
           </label>
-          <p class="engine-note render-backend-note">Auto dùng Core scene khi đủ capability; CSS riêng theo nhân vật, text, karaoke và pose dùng raster tương thích để giữ đúng preview (Core vẫn encode khi khả dụng). Native sẽ dừng nếu CSS nhân vật chưa được Core hỗ trợ.</p>
+          <p class="engine-note render-backend-note">Auto ưu tiên Core scene và style đã biên dịch cho nhân vật built-in; chỉ dùng Browser khi CSS hoặc tính năng tuỳ biến chưa được Core hỗ trợ. Browser vẫn giữ preview parity khi cần.</p>
         </div>
       </section>
 
