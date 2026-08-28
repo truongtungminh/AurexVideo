@@ -1373,10 +1373,104 @@ def normalize_tts_config(value: object, fallback: object = None) -> dict:
     return normalized
 
 
+CUSTOM_SLIDE_EFFECTS = {"none", "fade", "zoom", "rise", "swipe"}
+
+
+def normalize_project_type(value: object) -> str:
+    """Return the two supported editor contracts, never an arbitrary client value."""
+    return "custom" if str(value or "").strip().lower() == "custom" else "comparison"
+
+
+def _custom_token(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:10]}"
+
+
+def _clamp_custom_number(value: object, default: float, low: float, high: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return round(min(high, max(low, number)), 3)
+
+
+def default_custom_slide(start_sentence: int = 1, font_size: float = 1.2) -> dict:
+    """A portable starter slide. Asset paths are project-relative by design."""
+    return {
+        "id": _custom_token("slide"),
+        "startSentence": max(1, int(start_sentence)),
+        "enterEffect": "fade",
+        "layers": [
+            {
+                "id": _custom_token("text"), "type": "text", "text": "",
+                "font": "default", "color": "#090909", "fontSize": _clamp_custom_number(font_size, 1.2, 0.5, 2),
+                "x": 6, "y": 16, "w": 88, "h": 14,
+            },
+            {
+                "id": _custom_token("media"), "type": "image", "src": "assets/placeholder-left.svg",
+                "x": 6, "y": 34, "w": 88, "h": 38, "zoom": 1.0, "offsetX": 0.0, "offsetY": 0.0,
+            },
+        ],
+    }
+
+
+def normalize_custom_slides(raw: object, segment_count: int) -> list[dict]:
+    """Keep Custom slide documents bounded and safe to render after reload."""
+    slides: list[dict] = []
+    for index, candidate in enumerate(raw if isinstance(raw, list) else []):
+        if index >= 40 or not isinstance(candidate, dict):
+            continue
+        raw_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(candidate.get("id") or "")).strip("-")
+        try:
+            start_sentence = max(1, min(max(1, segment_count), int(candidate.get("startSentence") or 1)))
+        except (TypeError, ValueError):
+            start_sentence = 1
+        layers: list[dict] = []
+        for raw_layer in (candidate.get("layers") or [])[:12]:
+            if not isinstance(raw_layer, dict):
+                continue
+            layer_type = str(raw_layer.get("type") or "").strip().lower()
+            if layer_type not in {"text", "image"}:
+                continue
+            layer_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(raw_layer.get("id") or "")).strip("-")[:48]
+            layer = {
+                "id": layer_id or _custom_token(layer_type), "type": layer_type,
+                "x": _clamp_custom_number(raw_layer.get("x"), 0, 0, 92),
+                "y": _clamp_custom_number(raw_layer.get("y"), 0, 0, 92),
+                "w": _clamp_custom_number(raw_layer.get("w"), 100, 8, 100),
+                "h": _clamp_custom_number(raw_layer.get("h"), 16, 6, 100),
+            }
+            layer["w"] = round(min(layer["w"], 100 - layer["x"]), 3)
+            layer["h"] = round(min(layer["h"], 100 - layer["y"]), 3)
+            if layer_type == "text":
+                layer.update({
+                    "text": str(raw_layer.get("text") or "")[:240],
+                    "font": normalize_label_font_family(raw_layer.get("font"), DEFAULT_LABEL_FONT_FAMILY),
+                    "color": normalize_hex_color(raw_layer.get("color"), "#090909"),
+                    "fontSize": _clamp_custom_number(raw_layer.get("fontSize"), 1.2, 0.5, 2),
+                })
+            else:
+                layer.update({
+                    "src": safe_relative_asset(raw_layer.get("src"), "slide.image"),
+                    "zoom": _clamp_custom_number(raw_layer.get("zoom"), 1, 0.1, 3),
+                    "offsetX": _clamp_custom_number(raw_layer.get("offsetX"), 0, -50, 50),
+                    "offsetY": _clamp_custom_number(raw_layer.get("offsetY"), 0, -50, 50),
+                })
+            layers.append(layer)
+        if not layers:
+            layers = default_custom_slide(start_sentence)["layers"]
+        effect = str(candidate.get("enterEffect") or "fade").strip().lower()
+        slides.append({
+            "id": raw_id[:48] or _custom_token("slide"), "startSentence": start_sentence,
+            "enterEffect": effect if effect in CUSTOM_SLIDE_EFFECTS else "fade", "layers": layers,
+        })
+    return slides or [default_custom_slide(1)]
+
+
 def normalize_topic(slug: str, payload: dict) -> dict:
     current = read_topic(slug)
     topic = dict(current)
     topic["id"] = slug
+    topic["projectType"] = normalize_project_type(payload.get("projectType", current.get("projectType")))
     for field in ("brand", "leftLabel", "rightLabel"):
         text = normalize_display_text(payload.get(field, current.get(field, "")), "", 100)
         if not text:
@@ -1451,6 +1545,13 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     if not cleaned_segments:
         raise ValueError("Subtitle không có nội dung hợp lệ.")
     topic["segments"] = cleaned_segments
+    if topic["projectType"] == "custom":
+        topic["slides"] = normalize_custom_slides(payload.get("slides", current.get("slides")), len(cleaned_segments))
+        topic["baseComparisonEnabled"] = False
+    else:
+        # Comparison projects retain their established scene contract and never
+        # carry stale Custom layers into the renderer.
+        topic["slides"] = []
     raw_tts = payload.get("tts", current.get("tts"))
     if raw_tts is not None:
         topic["tts"] = normalize_tts_config(raw_tts, current.get("tts"))
@@ -1550,7 +1651,10 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         cleaned_comparisons.append(comparison)
     cleaned_comparisons.sort(key=lambda item: item["startSentence"])
     topic["comparisons"] = cleaned_comparisons
-    topic["baseComparisonEnabled"] = bool(payload.get("baseComparisonEnabled", current.get("baseComparisonEnabled", True)))
+    topic["baseComparisonEnabled"] = (
+        False if topic["projectType"] == "custom"
+        else bool(payload.get("baseComparisonEnabled", current.get("baseComparisonEnabled", True)))
+    )
 
     current_character_id = str(current.get("characterId") or "default-human")
     requested_character_id = str(payload.get("characterId", current_character_id) or "").strip()
@@ -1749,6 +1853,7 @@ def project_summary(path: Path) -> dict:
         "brand": topic.get("brand", "Aurex"),
         "leftLabel": topic.get("leftLabel", "Bên trái"),
         "rightLabel": topic.get("rightLabel", "Bên phải"),
+        "projectType": normalize_project_type(topic.get("projectType")),
         "duration": topic.get("duration", 0),
         "segmentCount": len(topic.get("segments", [])),
         "updatedAt": datetime.fromtimestamp(topic_path.stat().st_mtime).astimezone().isoformat(timespec="seconds"),
@@ -1803,6 +1908,7 @@ def create_project(payload: dict) -> dict:
         raise FileExistsError(f"Dự án '{slug}' đã tồn tại.")
     language = normalize_ui_language(payload.get("language") or payload.get("locale"))
     is_en = language == "en"
+    project_type = normalize_project_type(payload.get("projectType") or payload.get("type"))
     defaults = read_project_defaults()
     character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
     try:
@@ -1980,6 +2086,7 @@ def create_project(payload: dict) -> dict:
 
     topic = {
         "id": slug,
+        "projectType": project_type,
         "brand": character_id,
         "duration": 1.0,
         "leftLabel": normalize_display_text(payload.get("leftLabel"), default_left, 80),
@@ -2017,9 +2124,12 @@ def create_project(payload: dict) -> dict:
         "leftLabelColor": remembered_label_color(character_id),
         "rightLabelColor": remembered_label_color(character_id),
         "comparisons": [],
+        "baseComparisonEnabled": project_type != "custom",
+        "slides": [default_custom_slide(1, karaoke_size)] if project_type == "custom" else [],
         "karaokeColor": normalize_hex_color(karaoke_scoped.get(character_id) or defaults.get("karaokeColor"), "#271f11"),
         "karaokeActiveColor": normalize_hex_color(karaoke_active_scoped.get(character_id) or defaults.get("karaokeActiveColor"), "#de370d"),
         "karaokeSize": karaoke_size,
+        "karaokeY": 66.0 if project_type == "custom" else 46.2,
     }
     atomic_write_json(destination / "topic.json", topic)
     (destination / "script.txt").write_text(starter_text + "\n", encoding="utf-8")

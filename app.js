@@ -3,6 +3,7 @@ const DEFAULT_TOPIC = "project/inox-304-vs-316/topic.json";
 const elements = {
   stage: document.querySelector("#stage"),
   stageBackgroundImage: document.querySelector("#stageBackgroundImage"),
+  slideCanvas: document.querySelector("#slideCanvas"),
   leftLabel: document.querySelector("#leftLabel"),
   rightLabel: document.querySelector("#rightLabel"),
   leftSubLabel: document.querySelector("#leftSubLabel"),
@@ -72,6 +73,7 @@ function characterSubLabelColor(fallback) {
   return currentCharacterMeta?.subLabelColor || fallback;
 }
 let previewComparisonId = "";
+let previewSlideId = "";
 let previewTimeLock = null;
 let presenterLayoutRaf = 0;
 let presenterLayoutGeneration = 0;
@@ -232,6 +234,50 @@ function comparisonAt(time) {
       if (Number(item.startSentence) <= sentence) selected = item;
     });
   return selected;
+}
+
+function isCustomProject(nextTopic = topic) {
+  return String(nextTopic?.projectType || "") === "custom";
+}
+
+function customSlideAt(time) {
+  const slides = Array.isArray(topic?.slides) ? topic.slides : [];
+  if (previewSlideId) {
+    const locked = slides.find((slide) => String(slide.id || "") === previewSlideId);
+    if (locked) return locked;
+  }
+  let sentence = 1;
+  (topic?.segments || []).forEach((segment, index) => { if (Number(segment.start) <= Number(time) + 0.001) sentence = index + 1; });
+  return [...slides].sort((left, right) => Number(left.startSentence) - Number(right.startSentence)).filter((slide) => Number(slide.startSentence) <= sentence).at(-1) || slides[0] || null;
+}
+
+function applyCustomSlide(slide) {
+  const canvas = elements.slideCanvas;
+  if (!canvas) return;
+  canvas.hidden = !slide;
+  if (!slide) { canvas.replaceChildren(); return; }
+  canvas.className = `slide-canvas slide-effect-${String(slide.enterEffect || "fade")}`;
+  const key = JSON.stringify(slide);
+  if (canvas.dataset.slideKey === key) return;
+  canvas.dataset.slideKey = key;
+  const fragment = document.createDocumentFragment();
+  (Array.isArray(slide.layers) ? slide.layers : []).forEach((layer) => {
+    const node = document.createElement("div");
+    node.className = `slide-layer slide-layer-${layer.type === "text" ? "text" : "image"}`;
+    node.style.left = `${Number(layer.x) || 0}%`; node.style.top = `${Number(layer.y) || 0}%`;
+    node.style.width = `${Number(layer.w) || 100}%`; node.style.height = `${Number(layer.h) || 16}%`;
+    if (layer.type === "text") {
+      const text = document.createElement("p"); text.className = "slide-text"; text.textContent = String(layer.text || "");
+      text.style.color = String(layer.color || "#090909"); text.style.fontFamily = String(layer.font || topic.labelFontFamily || "inherit");
+      text.style.fontSize = `${Math.max(.5, Math.min(2, Number(layer.fontSize) || 1.2)) * 4.5}cqw`; node.append(text);
+    } else {
+      const image = document.createElement("img"); image.className = "slide-image"; image.alt = ""; image.src = resolveTopicAsset(layer.src);
+      const zoom = Math.max(.1, Math.min(3, Number(layer.zoom) || 1)); const x = Math.max(-50, Math.min(50, Number(layer.offsetX) || 0)); const y = Math.max(-50, Math.min(50, Number(layer.offsetY) || 0));
+      image.style.transform = `scale(${zoom}) translate(${x / zoom}%, ${y / zoom}%)`; node.append(image);
+    }
+    fragment.append(node);
+  });
+  canvas.replaceChildren(fragment);
 }
 
 function applyComparisonToView(scene, force = false) {
@@ -1050,7 +1096,8 @@ function renderKaraoke(time) {
 function renderAt(time, allowPoseSfx = false) {
   if (previewFrame && previewTimeLock !== null) time = previewTimeLock;
   elements.stage.classList.remove("preview-blank");
-  applyComparisonToView(comparisonAt(time));
+  if (isCustomProject()) applyCustomSlide(customSlideAt(time));
+  else applyComparisonToView(comparisonAt(time));
   renderKaraoke(time);
   setPose(poseAt(time), time, allowPoseSfx);
   const duration = previewDuration();
@@ -1069,6 +1116,7 @@ function offlineImagePaths() {
       paths.push(scene.rightImage);
     }
   });
+  (Array.isArray(topic.slides) ? topic.slides : []).forEach((slide) => (slide.layers || []).forEach((layer) => { if (layer?.type === "image" && layer.src) paths.push(layer.src); }));
   Object.values(topic.poseAssets || {}).forEach((pose) => {
     paths.push(pose?.closed, pose?.speaking);
   });
@@ -1485,6 +1533,8 @@ function applyStageBackground(nextTopic = topic) {
 
 async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   topic = nextTopic;
+  elements.stage.classList.toggle("custom-slide-project", isCustomProject(topic));
+  if (!isCustomProject(topic)) { previewSlideId = ""; if (elements.slideCanvas) elements.slideCanvas.hidden = true; }
   timedWords = buildTimedWords(topic.segments || []);
   wordGroups = buildGroups(timedWords);
   currentPose = topic.poseTimeline?.[0]?.pose || Object.keys(topic.poseAssets || {})[0] || "question";
@@ -1511,7 +1561,8 @@ async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   if (!isCustomCharacter) clearImportedPresenterLayout();
   currentComparisonKey = "";
   applyStageBackground(topic);
-  applyComparisonToView(baseComparison(topic), true);
+  if (isCustomProject(topic)) applyCustomSlide(customSlideAt(0));
+  else applyComparisonToView(baseComparison(topic), true);
   applyKaraokeStyle(topic);
   updateMediaFocus(currentPose);
   if (!preserveAudio) {
@@ -1599,6 +1650,7 @@ window.addEventListener("message", async (event) => {
     if (Object.prototype.hasOwnProperty.call(event.data, "comparisonId")) {
       previewComparisonId = String(event.data.comparisonId || "");
     }
+    if (Object.prototype.hasOwnProperty.call(event.data, "slideId")) previewSlideId = String(event.data.slideId || "");
     await applyTopicToView(event.data.topic, { preserveAudio: true });
     const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
     previewTimeLock = previewComparisonId ? time : null;
