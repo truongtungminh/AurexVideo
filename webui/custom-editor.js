@@ -63,7 +63,10 @@ const token = (prefix) => {
   return `${prefix}-${id.replaceAll("-", "").slice(0, 12)}`;
 };
 
-const clamp = (value, low, high) => Math.min(high, Math.max(low, Number(value) || low));
+const clamp = (value, low, high) => {
+  const numeric = Number(value);
+  return Math.min(high, Math.max(low, Number.isFinite(numeric) ? numeric : low));
+};
 
 function lines() {
   return String($("#script")?.value || "")
