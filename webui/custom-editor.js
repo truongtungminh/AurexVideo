@@ -79,17 +79,17 @@ function retime() {
   }));
 }
 
-function defaultTextLayer(y = 16) {
+function defaultTextLayer(y = 20) {
   return {
     id: token("text"), type: "text", text: "", font: DEFAULT_FONT, color: "#090909", fontSize: 1.2,
-    x: 6, y, w: 88, h: 14,
+    x: 0, y, w: 100, h: 12,
   };
 }
 
 function defaultMediaLayer() {
   return {
     id: token("media"), type: "image", src: "assets/placeholder-left.svg",
-    x: 6, y: 34, w: 88, h: 38, zoom: 1, offsetX: 0, offsetY: 0,
+    x: 0, y: 34, w: 100, h: 32, zoom: 1, offsetX: 0, offsetY: 0,
   };
 }
 
@@ -132,6 +132,27 @@ function ensureSlide(slide) {
     layer.fontSize = clamp(layer.fontSize, 0.5, 2);
   });
   return slide;
+}
+
+function isStockLayout(layer, layout) {
+  return layer && ["x", "y", "w", "h"].every((key) => Math.abs(Number(layer[key]) - layout[key]) < 0.01);
+}
+
+function migrateLegacyStockLayout() {
+  let changed = false;
+  for (const slide of state.topic?.slides || []) {
+    const text = (slide.layers || []).find((layer) => layer?.type === "text");
+    const media = (slide.layers || []).find((layer) => layer?.type === "image");
+    if (isStockLayout(text, { x: 6, y: 16, w: 88, h: 14 })) {
+      Object.assign(text, { x: 0, y: 20, w: 100, h: 12 });
+      changed = true;
+    }
+    if (isStockLayout(media, { x: 6, y: 34, w: 88, h: 38 })) {
+      Object.assign(media, { x: 0, y: 34, w: 100, h: 32 });
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function slideTextLayers(slide) {
@@ -629,6 +650,7 @@ async function load() {
     }
     state.topic = result.topic;
     state.topic.slides = Array.isArray(state.topic.slides) && state.topic.slides.length ? state.topic.slides : [defaultSlide(1)];
+    const migratedLegacyLayout = migrateLegacyStockLayout();
     $("#projectTitle").textContent = project;
     $("#script").value = (state.topic.segments || []).map((segment) => segment.text || "").join("\n");
     state.previewSentence = 1;
@@ -644,6 +666,7 @@ async function load() {
       setTimeout(sendPreview, 900);
     });
     setStatus("Tự động lưu đã bật");
+    if (migratedLegacyLayout) queueSave(50);
   } catch (error) {
     setStatus(error.message);
   }

@@ -293,7 +293,7 @@ function applyCustomSlide(slide) {
     if (layer.type === "text") {
       const text = document.createElement("p"); text.className = "slide-text"; text.textContent = String(layer.text || "");
       text.style.color = String(layer.color || "#090909"); text.style.fontFamily = String(layer.font || topic.labelFontFamily || "inherit");
-      text.style.fontSize = `${Math.max(.5, Math.min(2, Number(layer.fontSize) || 1.2)) * 4.5}cqw`; node.append(text);
+      text.style.fontSize = `${Math.max(.5, Math.min(2, Number(layer.fontSize) || 1.2)) * 4.62}cqw`; node.append(text);
     } else {
       const image = document.createElement("img"); image.className = "slide-image"; image.alt = ""; image.src = resolveCustomSlideAsset(layer.src);
       const zoom = Math.max(.1, Math.min(3, Number(layer.zoom) || 1)); const x = Math.max(-50, Math.min(50, Number(layer.offsetX) || 0)); const y = Math.max(-50, Math.min(50, Number(layer.offsetY) || 0));
@@ -1461,6 +1461,23 @@ function bindStageImageFrame(element, side) {
   if (element.parentElement) new ResizeObserver(refresh).observe(element.parentElement);
 }
 
+function karaokePosition(nextTopic = topic) {
+  const custom = isCustomProject(nextTopic);
+  const x = Number(nextTopic?.karaokeX);
+  const y = Number(nextTopic?.karaokeY);
+  return {
+    x: Number.isFinite(x) ? Math.min(12, Math.max(0, x)) : 5,
+    y: Number.isFinite(y) ? Math.min(88, Math.max(4, y)) : (custom ? 66 : 46.2),
+  };
+}
+
+function applyKaraokePosition(nextTopic = topic) {
+  if (!elements.karaoke) return;
+  const position = karaokePosition(nextTopic);
+  elements.karaoke.style.left = `${position.x}%`;
+  elements.karaoke.style.top = `${position.y}%`;
+}
+
 function applyKaraokeStyle(nextTopic = topic) {
   if (!elements.karaoke) return;
   const color = String(nextTopic?.karaokeColor || "#271f11");
@@ -1469,6 +1486,7 @@ function applyKaraokeStyle(nextTopic = topic) {
   elements.karaoke.style.setProperty("--karaoke-color", color);
   elements.karaoke.style.setProperty("--karaoke-active-color", active);
   elements.karaoke.style.setProperty("--karaoke-size", String(size));
+  applyKaraokePosition(nextTopic);
   elements.karaoke.classList.toggle("cjk", usesCompactCjkText(nextTopic));
   elements.karaoke.classList.toggle("vietnamese", usesVietnameseText(nextTopic));
   scheduleImportedPresenterLayout();

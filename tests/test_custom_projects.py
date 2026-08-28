@@ -15,6 +15,13 @@ import m3_backend as m3  # noqa: E402
 
 
 class CustomProjectSchemaTests(unittest.TestCase):
+    def test_default_custom_slide_uses_vertical_stage_layout(self) -> None:
+        slide = m3.default_custom_slide()
+        text = next(layer for layer in slide["layers"] if layer["type"] == "text")
+        media = next(layer for layer in slide["layers"] if layer["type"] == "image")
+        self.assertEqual((text["x"], text["y"], text["w"], text["h"]), (0, 20, 100, 12))
+        self.assertEqual((media["x"], media["y"], media["w"], media["h"]), (0, 34, 100, 32))
+
     def test_custom_slide_normalization_clamps_and_removes_unknown_layers(self) -> None:
         slides = m3.normalize_custom_slides([
             {
