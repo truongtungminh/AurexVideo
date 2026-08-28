@@ -394,9 +394,22 @@ async def render_frames(
         render_started = time.perf_counter()
         try:
             async with async_playwright() as playwright:
+                chromium_args = [
+                    "--autoplay-policy=no-user-gesture-required",
+                    "--disable-dev-shm-usage",
+                ]
+                # Headless Chromium otherwise falls back to SwiftShader on
+                # macOS, which makes every canvas/video frame pay for software
+                # rasterization even when the machine has a capable Metal GPU.
+                if sys.platform == "darwin":
+                    chromium_args.extend([
+                        "--enable-gpu",
+                        "--use-angle=metal",
+                        "--ignore-gpu-blocklist",
+                    ])
                 browser = await playwright.chromium.launch(
                     headless=True,
-                    args=["--autoplay-policy=no-user-gesture-required", "--disable-dev-shm-usage"],
+                    args=chromium_args,
                 )
                 page = await browser.new_page(
                     viewport={"width": width, "height": height},

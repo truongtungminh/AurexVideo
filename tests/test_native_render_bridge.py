@@ -23,6 +23,7 @@ from tools.native_scene import (  # noqa: E402
     _STYLE_PROFILES,
     _css_label_rects,
     compile_standard_topic,
+    native_character_style_supported,
 )
 from tools.render_project import (  # noqa: E402
     RenderBackendOutcome,
@@ -148,6 +149,14 @@ class NativeRenderBridgeTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.reason, "character_css_parity_required")
         self.assertIn("--render-backend auto", str(raised.exception))
+
+    def test_built_in_character_style_uses_native_core(self) -> None:
+        topic = {"characterId": "bietchichomet"}
+
+        self.assertTrue(native_character_style_supported("bietchichomet"))
+        self.assertFalse(native_character_style_supported("custom-character"))
+        self.assertFalse(requires_character_css_compatibility("auto", topic))
+        self.assertFalse(requires_character_css_compatibility("native", topic))
 
     def test_standard_pose_video_text_scene_reports_unsupported_features(self) -> None:
         topic = {
