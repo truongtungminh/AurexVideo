@@ -364,7 +364,8 @@ function applyIntro(nextTopic = topic, time = 0) {
   }
 
   const color = String(intro.color || "#0b1020");
-  introRoot.style.backgroundColor = color;
+  introRoot.style.setProperty("--intro-color", color);
+  introRoot.style.backgroundColor = "transparent";
   const mediaPath = intro.type === "media" ? String(intro.media || "").trim() : "";
   const mediaSource = mediaPath ? resolveTopicAsset(mediaPath) : "";
   const videoMedia = String(intro.mediaType || "").toLowerCase() === "video" || isVideoAssetSource(mediaSource);
