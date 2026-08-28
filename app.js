@@ -48,22 +48,35 @@ let poseSwapRaf = 0;
 let currentComparisonKey = "";
 let currentComparisonScene = null;
 let currentCharacterMeta = null;
+let lastHeadingFitKey = "";
+const characterMetaCache = new Map();
+const characterMetaRequests = new Map();
 
 async function loadCharacterMeta(characterId) {
-  if (!characterId) {
+  const key = String(characterId || "").trim();
+  if (!key) {
     currentCharacterMeta = null;
     return;
   }
-  try {
-    const res = await fetch(`/assets/characters/${encodeURIComponent(characterId)}/manifest.json`, { cache: "no-store" });
-    if (!res.ok) {
-      currentCharacterMeta = null;
-      return;
-    }
-    currentCharacterMeta = await res.json();
-  } catch {
-    currentCharacterMeta = null;
+  if (characterMetaCache.has(key)) {
+    currentCharacterMeta = characterMetaCache.get(key);
+    return;
   }
+
+  let request = characterMetaRequests.get(key);
+  if (!request) {
+    request = fetch(`/assets/characters/${encodeURIComponent(key)}/manifest.json`, { cache: "default" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const meta = await res.json();
+        characterMetaCache.set(key, meta);
+        return meta;
+      })
+      .catch(() => null)
+      .finally(() => characterMetaRequests.delete(key));
+    characterMetaRequests.set(key, request);
+  }
+  currentCharacterMeta = await request;
 }
 
 function characterLabelColor(fallback) {
@@ -405,6 +418,18 @@ function fitLabelPair() {
 }
 
 function fitHeadings() {
+  const headingKey = [
+    Math.round(elements.stage.clientWidth || 0),
+    Math.round(elements.stage.clientHeight || 0),
+    elements.stage.className,
+    elements.leftLabel.textContent,
+    elements.rightLabel.textContent,
+    elements.leftLabel.style.fontFamily,
+    elements.rightLabel.style.fontFamily,
+    document.fonts?.status || "",
+  ].join("\u001f");
+  if (headingKey === lastHeadingFitKey) return;
+  lastHeadingFitKey = headingKey;
   if (!elements.stage.classList.contains('character-bietchichomet')) fitLabelPair();
   else {
     elements.leftLabel.style.removeProperty('font-size');
@@ -1574,7 +1599,7 @@ function applyStageBackground(nextTopic = topic) {
   }
 }
 
-async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
+async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false } = {}) {
   topic = nextTopic;
   elements.stage.classList.toggle("custom-slide-project", isCustomProject(topic));
   if (!isCustomProject(topic)) { previewSlideId = ""; if (elements.slideCanvas) elements.slideCanvas.hidden = true; }
@@ -1604,6 +1629,14 @@ async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
   if (!isCustomCharacter) clearImportedPresenterLayout();
   currentComparisonKey = "";
   applyStageBackground(topic);
+  if (blank) {
+    // While the editor is still on the empty preview state, keep the latest
+    // topic and styling ready without rebuilding the comparison DOM/media.
+    applyKaraokeStyle(topic);
+    syncBackgroundMusic(previewTime(), { playing: false });
+    showPreviewBlank();
+    return;
+  }
   if (isCustomProject(topic)) applyCustomSlide(customSlideAt(0));
   else applyComparisonToView(baseComparison(topic), true);
   applyKaraokeStyle(topic);
@@ -1619,7 +1652,6 @@ async function applyTopicToView(nextTopic, { preserveAudio = true } = {}) {
     }
   }
   syncBackgroundMusic(previewTime(), { playing: previewIsPlaying() && !offlineRender });
-  requestAnimationFrame(fitHeadings);
 }
 
 async function init() {
@@ -1627,7 +1659,7 @@ async function init() {
   if (!response.ok) throw new Error(`Không tải được topic: ${response.status}`);
   topic = await response.json();
   await preloadOfflineImages();
-  applyTopicToView(topic, { preserveAudio: false });
+  await applyTopicToView(topic, { preserveAudio: false });
   bindStageImageFrame(elements.leftImage, "left");
   bindStageImageFrame(elements.rightImage, "right");
   if (elements.stageBackgroundImage) {
@@ -1686,52 +1718,112 @@ async function init() {
   if (autoplay) await startPlayback(true);
 }
 
-window.addEventListener("message", async (event) => {
+let previewWorkTail = Promise.resolve();
+let pendingTopicUpdate = null;
+let topicUpdateDrainQueued = false;
+
+async function applyPreviewTopicUpdate(data) {
+  stopPreviewMotion();
+  if (Object.prototype.hasOwnProperty.call(data, "comparisonId")) {
+    previewComparisonId = String(data.comparisonId || "");
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "slideId")) previewSlideId = String(data.slideId || "");
+  await applyTopicToView(data.topic, {
+    preserveAudio: data.preserveAudio !== false,
+    blank: data.blank === true,
+  });
+  if (data.blank === true) return;
+  const time = Math.max(0, Math.min(Number(data.time) || 0, topic.duration || 0));
+  previewTimeLock = previewComparisonId ? time : null;
+  seekPreview(time);
+  renderAt(time);
+}
+
+function enqueueTopicUpdate(data) {
+  // Keep only the newest draft while an older update is waiting on media or
+  // manifest work. This is the same back-pressure pattern used by FastScene.
+  pendingTopicUpdate = data;
+  if (topicUpdateDrainQueued) return;
+  topicUpdateDrainQueued = true;
+  previewWorkTail = previewWorkTail
+    .catch(() => {})
+    .then(async () => {
+      while (pendingTopicUpdate) {
+        const next = pendingTopicUpdate;
+        pendingTopicUpdate = null;
+        await applyPreviewTopicUpdate(next);
+      }
+    })
+    .catch(console.error)
+    .finally(() => {
+      topicUpdateDrainQueued = false;
+      if (pendingTopicUpdate) enqueueTopicUpdate(pendingTopicUpdate);
+    });
+}
+
+function enqueuePreviewWork(work) {
+  previewWorkTail = previewWorkTail
+    .catch(() => {})
+    .then(async () => {
+      if (pendingTopicUpdate) {
+        const next = pendingTopicUpdate;
+        pendingTopicUpdate = null;
+        await applyPreviewTopicUpdate(next);
+      }
+      return work();
+    })
+    .catch(console.error);
+}
+
+window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin || !event.data || !topic) return;
-  if (event.data.type === "tho-topic-update" && event.data.topic) {
-    stopPreviewMotion();
-    if (Object.prototype.hasOwnProperty.call(event.data, "comparisonId")) {
-      previewComparisonId = String(event.data.comparisonId || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(event.data, "slideId")) previewSlideId = String(event.data.slideId || "");
-    await applyTopicToView(event.data.topic, { preserveAudio: true });
-    const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
-    previewTimeLock = previewComparisonId ? time : null;
-    seekPreview(time);
-    renderAt(time);
+  const data = event.data;
+  if (data.type === "tho-topic-update" && data.topic) {
+    enqueueTopicUpdate(data);
+    return;
   }
-  if (event.data.type === "tho-preview-comparison-lock") {
-    stopPreviewMotion();
-    previewComparisonId = String(event.data.comparisonId || "");
-    const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
-    previewTimeLock = previewComparisonId ? time : null;
-    seekPreview(time);
-    lastPoseIndex = -1;
-    renderAt(time);
+  if (data.type === "tho-preview-comparison-lock") {
+    enqueuePreviewWork(() => {
+      stopPreviewMotion();
+      previewComparisonId = String(data.comparisonId || "");
+      const time = Math.max(0, Math.min(Number(data.time) || 0, topic.duration || 0));
+      previewTimeLock = previewComparisonId ? time : null;
+      seekPreview(time);
+      lastPoseIndex = -1;
+      renderAt(time);
+    });
+    return;
   }
-  if (event.data.type === "tho-seek") {
-    stopPreviewMotion();
-    const time = Math.max(0, Math.min(Number(event.data.time) || 0, topic.duration || 0));
-    seekPreview(time);
-    lastPoseIndex = -1;
-    renderAt(time);
+  if (data.type === "tho-seek") {
+    enqueuePreviewWork(() => {
+      stopPreviewMotion();
+      const time = Math.max(0, Math.min(Number(data.time) || 0, topic.duration || 0));
+      seekPreview(time);
+      lastPoseIndex = -1;
+      renderAt(time);
+    });
+    return;
   }
-  if (event.data.type === "tho-play-segment") {
-    previewComparisonId = "";
-    previewTimeLock = null;
-    if (event.data.topic) applyTopicToView(event.data.topic, { preserveAudio: true });
-    const start = Math.max(0, Math.min(Number(event.data.start) || 0, topic.duration || 0));
-    const end = Math.max(start + 0.08, Math.min(Number(event.data.end) || start + 0.08, topic.duration || 0));
-    if (event.data.silent) {
-      simulatePreviewRange(start, end, {
-        allowSfx: !event.data.parentPoseSfx,
-        allowBgm: !event.data.parentBgm,
-      });
-    } else {
-      playPreviewRange(start, end).catch(console.error);
-    }
+  if (data.type === "tho-play-segment") {
+    enqueuePreviewWork(async () => {
+      stopPreviewMotion();
+      previewComparisonId = "";
+      previewTimeLock = null;
+      if (data.topic) await applyTopicToView(data.topic, { preserveAudio: true });
+      const start = Math.max(0, Math.min(Number(data.start) || 0, topic.duration || 0));
+      const end = Math.max(start + 0.08, Math.min(Number(data.end) || start + 0.08, topic.duration || 0));
+      if (data.silent) {
+        simulatePreviewRange(start, end, {
+          allowSfx: !data.parentPoseSfx,
+          allowBgm: !data.parentBgm,
+        });
+      } else {
+        playPreviewRange(start, end).catch(console.error);
+      }
+    });
+    return;
   }
-  if (event.data.type === "tho-preview-blank") showPreviewBlank();
+  if (data.type === "tho-preview-blank") enqueuePreviewWork(() => showPreviewBlank());
 });
 
 new ResizeObserver(() => {

@@ -1358,7 +1358,13 @@ function draftTopic(forceRetime = false) {
   };
 }
 
-function sendDraftToPreview() {
+let draftPreviewFrame = 0;
+
+// FastScene keeps preview updates to one message per paint frame. Aurex used
+// to rebuild the iframe for every input event, which is especially expensive
+// inside the desktop WKWebView when a user types quickly.
+function flushDraftToPreview() {
+  draftPreviewFrame = 0;
   if (!state.topic || !elements.previewFrame.contentWindow) return;
   if (state.previewSegmentIndex >= 0) {
     const segments = segmentsFromEditor(false);
@@ -1375,10 +1381,20 @@ function sendDraftToPreview() {
     topic: draftTopic(false),
     time: state.previewTime,
     comparisonId: state.previewComparisonId,
+    blank: state.previewSegmentIndex < 0,
   }, window.location.origin);
-  if (state.previewSegmentIndex < 0) {
-    elements.previewFrame.contentWindow.postMessage({ type: "tho-preview-blank" }, window.location.origin);
-  }
+}
+
+function sendDraftToPreview() {
+  if (!state.topic || !elements.previewFrame.contentWindow) return;
+  if (draftPreviewFrame) return;
+  draftPreviewFrame = requestAnimationFrame(flushDraftToPreview);
+}
+
+function flushPendingDraftToPreview() {
+  if (!draftPreviewFrame) return;
+  cancelAnimationFrame(draftPreviewFrame);
+  flushDraftToPreview();
 }
 
 function reloadPreviewKeepingState(src) {
@@ -1471,6 +1487,7 @@ function stepPreview(direction) {
   if (state.previewSegmentIndex < 0) {
     state.previewTime = 0;
     updatePreviewCounter(-1);
+    flushPendingDraftToPreview();
     if (stepPreviewSfxPlayer) {
       stepPreviewSfxPlayer.pause();
       stepPreviewSfxPlayer = null;
@@ -1483,6 +1500,7 @@ function stepPreview(direction) {
   state.previewTime = Math.max(0, Number(selected.start));
   updatePreviewCounter(state.previewSegmentIndex);
   renderPoseList();
+  flushPendingDraftToPreview();
   elements.previewFrame.contentWindow?.postMessage({
     type: "tho-play-segment",
     topic: draftTopic(false),
