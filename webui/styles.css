@@ -518,7 +518,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .slide-text-row { display: grid; gap: 8px; }
 .slide-card .comparison-label-field > div > input:not([type="color"]) { text-align: center; }
 .slide-card .comparison-font-row { justify-content: center; }
-.slide-text-row .comparison-font-row { grid-template-columns: auto minmax(120px, 1fr) auto; }
+.slide-text-row .comparison-font-row { grid-template-columns: auto minmax(160px, 240px) auto; }
 .comparison-font-row {
   display: grid;
   grid-template-columns: auto minmax(180px, 280px);
@@ -538,7 +538,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   font-size: 12px;
   font-weight: 800;
 }
-.slide-card [data-add-text] { justify-self: center; min-width: 168px; }
+.slide-card [data-action="add-text"] { justify-self: center; min-width: 168px; }
 .slide-card .image-viewport {
   width: 100%;
   max-width: 100%;
@@ -549,6 +549,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform: none;
+}
+.editor-mode-custom .background-viewport img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   transform: none;
 }
 .slide-card .image-zoom,

@@ -117,6 +117,18 @@ function resolveTopicAsset(path) {
   return new URL(path, new URL(topicUrl, window.location.href)).href;
 }
 
+function customSlidePlaceholderUrl() {
+  const label = document.documentElement.lang === "en" ? "Image" : "Ảnh";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">${label}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function resolveCustomSlideAsset(path) {
+  const value = String(path || "");
+  if (!value || value.endsWith("/placeholder-left.svg") || value.endsWith("/placeholder-right.svg")) return customSlidePlaceholderUrl();
+  return resolveTopicAsset(path);
+}
+
 function formatTime(value) {
   const seconds = Math.max(0, Math.floor(Number(value) || 0));
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
@@ -271,7 +283,7 @@ function applyCustomSlide(slide) {
       text.style.color = String(layer.color || "#090909"); text.style.fontFamily = String(layer.font || topic.labelFontFamily || "inherit");
       text.style.fontSize = `${Math.max(.5, Math.min(2, Number(layer.fontSize) || 1.2)) * 4.5}cqw`; node.append(text);
     } else {
-      const image = document.createElement("img"); image.className = "slide-image"; image.alt = ""; image.src = resolveTopicAsset(layer.src);
+      const image = document.createElement("img"); image.className = "slide-image"; image.alt = ""; image.src = resolveCustomSlideAsset(layer.src);
       const zoom = Math.max(.1, Math.min(3, Number(layer.zoom) || 1)); const x = Math.max(-50, Math.min(50, Number(layer.offsetX) || 0)); const y = Math.max(-50, Math.min(50, Number(layer.offsetY) || 0));
       image.style.transform = `scale(${zoom}) translate(${x / zoom}%, ${y / zoom}%)`; node.append(image);
     }
