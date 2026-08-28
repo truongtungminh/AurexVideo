@@ -131,7 +131,7 @@ function activeUiLanguage() {
 
 function customSlidePlaceholderUrl() {
   const label = activeUiLanguage() === "en" ? "Image" : "Ảnh";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">${label}</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600"><rect width="900" height="1600" fill="#fffaf0"/><rect x="28" y="28" width="844" height="1544" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="450" cy="650" r="92" fill="#de370d" opacity=".16"/><path d="M400 650h100M450 600v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="450" y="850" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">${label}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -289,7 +289,8 @@ function applyCustomSlide(slide) {
     const node = document.createElement("div");
     node.className = `slide-layer slide-layer-${layer.type === "text" ? "text" : "image"}`;
     node.style.left = `${Number(layer.x) || 0}%`; node.style.top = `${Number(layer.y) || 0}%`;
-    node.style.width = `${Number(layer.w) || 100}%`; node.style.height = `${Number(layer.h) || 16}%`;
+    node.style.width = `${Number(layer.w) || 100}%`;
+    node.style.height = `${Number(layer.h) || (layer.type === "text" ? 12 : 100)}%`;
     if (layer.type === "text") {
       const text = document.createElement("p"); text.className = "slide-text"; text.textContent = String(layer.text || "");
       text.style.color = String(layer.color || "#090909"); text.style.fontFamily = String(layer.font || topic.labelFontFamily || "inherit");

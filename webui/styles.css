@@ -540,15 +540,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 }
 .slide-card [data-action="add-text"] { justify-self: center; min-width: 168px; }
 .slide-card .image-viewport {
-  width: 100%;
-  max-width: 100%;
+  width: min(100%, 280px);
+  max-width: 280px;
   height: auto;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 9 / 16;
 }
 .slide-card .image-viewport img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   transform: none;
 }
 .editor-mode-custom .background-viewport img {
