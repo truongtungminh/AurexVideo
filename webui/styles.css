@@ -304,6 +304,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .paste-hint { margin: -3px 0 2px; color: #635b50; font-size: 13px; font-weight: 650; line-height: 1.6; text-align: left; }
 .paste-hint kbd { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border: 1px solid #d4c6b2; border-bottom-width: 2px; border-radius: 8px; color: #3f3529; background: #fff; box-shadow: 0 3px 8px rgba(70,52,28,.055); font: 900 13px/1 Inter, sans-serif; }
 .paste-hint span { padding: 0 4px; color: #958979; }
+.paste-hint .paste-platform { display: inline-flex; align-items: center; padding: 0; }
 .paste-hint .platform-icon { display: inline-grid; place-items: center; width: 21px; height: 21px; padding: 0; color: #4e4438; vertical-align: middle; }
 .paste-hint .platform-macos { font: 900 17px/1 -apple-system, BlinkMacSystemFont, sans-serif; }
 .paste-hint .platform-windows svg { width: 16px; height: 16px; fill: currentColor; }
