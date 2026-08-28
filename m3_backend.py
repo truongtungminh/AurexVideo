@@ -1403,11 +1403,11 @@ def default_custom_slide(start_sentence: int = 1, font_size: float = 1.2) -> dic
             {
                 "id": _custom_token("text"), "type": "text", "text": "",
                 "font": "default", "color": "#090909", "fontSize": _clamp_custom_number(font_size, 1.2, 0.5, 2),
-                "x": 6, "y": 16, "w": 88, "h": 14,
+                "x": 0, "y": 20, "w": 100, "h": 12,
             },
             {
                 "id": _custom_token("media"), "type": "image", "src": "assets/placeholder-left.svg",
-                "x": 6, "y": 34, "w": 88, "h": 38, "zoom": 1.0, "offsetX": 0.0, "offsetY": 0.0,
+                "x": 0, "y": 34, "w": 100, "h": 32, "zoom": 1.0, "offsetX": 0.0, "offsetY": 0.0,
             },
         ],
     }
@@ -1432,12 +1432,14 @@ def normalize_custom_slides(raw: object, segment_count: int) -> list[dict]:
             if layer_type not in {"text", "image"}:
                 continue
             layer_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(raw_layer.get("id") or "")).strip("-")[:48]
+            default_y = 20 if layer_type == "text" else 34
+            default_h = 12 if layer_type == "text" else 32
             layer = {
                 "id": layer_id or _custom_token(layer_type), "type": layer_type,
                 "x": _clamp_custom_number(raw_layer.get("x"), 0, 0, 92),
-                "y": _clamp_custom_number(raw_layer.get("y"), 0, 0, 92),
+                "y": _clamp_custom_number(raw_layer.get("y"), default_y, 0, 92),
                 "w": _clamp_custom_number(raw_layer.get("w"), 100, 8, 100),
-                "h": _clamp_custom_number(raw_layer.get("h"), 16, 6, 100),
+                "h": _clamp_custom_number(raw_layer.get("h"), default_h, 6, 100),
             }
             layer["w"] = round(min(layer["w"], 100 - layer["x"]), 3)
             layer["h"] = round(min(layer["h"], 100 - layer["y"]), 3)
