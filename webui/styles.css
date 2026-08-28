@@ -480,15 +480,14 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   display: block;
   margin: 0;
   color: #14532d;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 850;
   line-height: 1.45;
   text-align: center;
 }
-.editor-mode-custom .paste-drag-hint { font-size: 12px; font-weight: 650; }
 .editor-mode-custom .paste-hint span,
 .editor-mode-custom .paste-hint .platform-icon { color: #14532d; }
-.editor-mode-custom .paste-hint kbd { color: #163a8a; border-color: #163a8a; font-size: 13px; }
+.editor-mode-custom .paste-hint kbd { color: #163a8a; border-color: #163a8a; font-size: 14px; }
 .slide-list { display: grid; gap: 18px; }
 .slide-card { display: grid; gap: 14px; padding: 4px 0 10px; }
 .slide-card .comparison-block-heading {
