@@ -41,7 +41,9 @@ def normalize_iso_datetime(raw: Any) -> str:
     except ValueError:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            # Naive input: interpret as the machine's local clock (e.g., +07:00
+            # for ICT), NOT UTC.  Users schedule in local wall-clock time.
+            dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
         dt = dt.astimezone(timezone.utc)
     return dt.isoformat(timespec="seconds").replace("+00:00", "Z")
 
