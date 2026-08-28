@@ -15,6 +15,30 @@ import m3_backend as m3  # noqa: E402
 
 
 class CustomProjectSchemaTests(unittest.TestCase):
+    def test_custom_intro_is_fixed_to_three_seconds_and_normalized(self) -> None:
+        intro = m3.normalize_custom_intro({
+            "type": "image",
+            "backgroundImage": "assets/intro.png",
+            "logo": "assets/logo.webp",
+            "title": "  Bitcoin\tđối mặt 80.000 USD  ",
+            "color": "#ABC",
+            "logoScale": 9,
+            "titleSize": 0,
+        })
+        self.assertEqual(intro["type"], "media")
+        self.assertEqual(intro["duration"], 3.0)
+        self.assertEqual(intro["media"], "assets/intro.png")
+        self.assertEqual(intro["mediaType"], "image")
+        self.assertEqual(intro["logo"], "assets/logo.webp")
+        self.assertEqual(intro["title"], "Bitcoin đối mặt 80.000 USD")
+        self.assertEqual(intro["color"], "#aabbcc")
+        self.assertEqual(intro["logoScale"], 1.6)
+        self.assertEqual(intro["titleSize"], 0.6)
+
+    def test_custom_intro_rejects_unsupported_media_extension(self) -> None:
+        with self.assertRaises(ValueError):
+            m3.normalize_custom_intro({"type": "media", "media": "assets/intro.exe"})
+
     def test_default_custom_slide_uses_vertical_stage_layout(self) -> None:
         slide = m3.default_custom_slide()
         text = next(layer for layer in slide["layers"] if layer["type"] == "text")
@@ -67,12 +91,19 @@ class CustomProjectSchemaTests(unittest.TestCase):
             }
             (project / "topic.json").write_text(json.dumps(initial), encoding="utf-8")
             with patch.object(m3, "PROJECTS_ROOT", root), patch.object(m3, "remember_project_defaults"), patch.object(m3, "character_pose_config", return_value=(m3.DEFAULT_POSE_ASSETS, m3.DEFAULT_POSE_LABELS)):
-                result = m3.save_topic("demo", {**initial, "projectType": "custom", "slides": [{"layers": [{"type": "text", "text": "Overlay"}]}]})
+                result = m3.save_topic("demo", {
+                    **initial,
+                    "projectType": "custom",
+                    "slides": [{"layers": [{"type": "text", "text": "Overlay"}]}],
+                    "intro": {"type": "color", "color": "#123456", "title": "Opening"},
+                })
             persisted = json.loads((project / "topic.json").read_text(encoding="utf-8"))
             self.assertEqual(result["projectType"], "custom")
             self.assertEqual(persisted["projectType"], "custom")
             self.assertFalse(persisted["baseComparisonEnabled"])
             self.assertEqual(persisted["slides"][0]["layers"][0]["text"], "Overlay")
+            self.assertEqual(persisted["intro"]["duration"], 3.0)
+            self.assertEqual(persisted["intro"]["title"], "Opening")
 
 
 if __name__ == "__main__":

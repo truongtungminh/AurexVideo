@@ -8,6 +8,8 @@ const state = {
   selected: "",
   previewSentence: 1,
   backgroundPreviewUrl: "",
+  introMediaPreviewUrl: "",
+  introLogoPreviewUrl: "",
 };
 let previewFrameRaf = 0;
 let pendingPreviewSlideId = "";
@@ -17,7 +19,9 @@ const tr = (vi, en) => isEnglishUi() ? en : vi;
 
 const DEFAULT_FONT = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const DEFAULT_BACKGROUND_COLOR = "#f5eee3";
+const DEFAULT_INTRO_COLOR = "#0b1020";
 const DEFAULT_MUSIC_VOLUME = 0.18;
+const CUSTOM_INTRO_DURATION_SECONDS = 3;
 const MAX_TEXT_LAYERS = 8;
 const FONT_OPTIONS = [
   [DEFAULT_FONT, "Inter · Mặc định", "Inter · Default"],
@@ -93,6 +97,43 @@ function defaultMediaLayer() {
     id: token("media"), type: "image", src: "assets/placeholder-left.svg",
     x: 0, y: 0, w: 100, h: 100, zoom: 1, offsetX: 0, offsetY: 0,
   };
+}
+
+function defaultIntro() {
+  return {
+    type: "none",
+    duration: CUSTOM_INTRO_DURATION_SECONDS,
+    color: DEFAULT_INTRO_COLOR,
+    media: "",
+    mediaType: "image",
+    mediaZoom: 1,
+    mediaX: 0,
+    mediaY: 0,
+    logo: "",
+    logoScale: 1,
+    title: "",
+    titleColor: "#ffffff",
+    titleSize: 1,
+  };
+}
+
+function ensureIntro() {
+  if (!state.topic) return defaultIntro();
+  const current = state.topic.intro && typeof state.topic.intro === "object" ? state.topic.intro : {};
+  state.topic.intro = { ...defaultIntro(), ...current, duration: CUSTOM_INTRO_DURATION_SECONDS };
+  state.topic.intro.type = ["none", "color", "media"].includes(String(state.topic.intro.type || ""))
+    ? state.topic.intro.type
+    : "none";
+  state.topic.intro.mediaZoom = clamp(state.topic.intro.mediaZoom, 1, 3);
+  state.topic.intro.mediaX = clamp(state.topic.intro.mediaX, -50, 50);
+  state.topic.intro.mediaY = clamp(state.topic.intro.mediaY, -50, 50);
+  state.topic.intro.logoScale = clamp(state.topic.intro.logoScale, 0.5, 1.6);
+  state.topic.intro.titleSize = clamp(state.topic.intro.titleSize, 0.6, 1.5);
+  return state.topic.intro;
+}
+
+function isVideoAssetPath(value) {
+  return /\.(mp4|webm|m4v|mov)(?:[?#]|$)/i.test(String(value || ""));
 }
 
 function defaultSlide(startSentence = 1, sourceSlide = null) {
@@ -402,8 +443,75 @@ async function uploadSlideImage(slide, file) {
   }
 }
 
+function syncIntroSettings() {
+  if (!state.topic) return;
+  const intro = ensureIntro();
+  const type = $("#introType");
+  if (type) type.value = intro.type;
+  const color = $("#introColor");
+  if (color) color.value = intro.color || DEFAULT_INTRO_COLOR;
+  const colorField = $("#introColorField");
+  if (colorField) colorField.hidden = intro.type === "none";
+  const mediaPanel = $("#introMediaPanel");
+  if (mediaPanel) mediaPanel.hidden = intro.type !== "media";
+
+  const mediaPath = String(intro.media || "").trim();
+  const mediaSrc = state.introMediaPreviewUrl || (mediaPath ? assetUrl(mediaPath) : "");
+  const video = $("#introThumbVideo");
+  const image = $("#introThumb");
+  const videoMedia = intro.mediaType === "video" || isVideoAssetPath(mediaPath);
+  if (videoMedia) {
+    if (image) {
+      image.hidden = true;
+      image.removeAttribute("src");
+    }
+    if (video) {
+      if ((video.getAttribute("src") || "") !== mediaSrc) {
+        if (mediaSrc) video.setAttribute("src", mediaSrc);
+        else video.removeAttribute("src");
+        video.load();
+      }
+      video.hidden = !mediaSrc;
+    }
+  } else {
+    if (video) {
+      video.pause();
+      video.hidden = true;
+      video.removeAttribute("src");
+    }
+    if (image) {
+      image.hidden = !mediaSrc;
+      if (mediaSrc) image.src = mediaSrc;
+      else image.removeAttribute("src");
+    }
+  }
+  const mediaZoom = clamp(intro.mediaZoom, 1, 3);
+  if ($("#introMediaZoom")) $("#introMediaZoom").value = String(mediaZoom);
+  if ($("#introMediaZoomText")) $("#introMediaZoomText").textContent = `${Math.round(mediaZoom * 100)}%`;
+  if ($("#deleteIntroMedia")) $("#deleteIntroMedia").disabled = !mediaPath && !state.introMediaPreviewUrl;
+
+  const logoPath = String(intro.logo || "").trim();
+  const logoSrc = state.introLogoPreviewUrl || (logoPath ? assetUrl(logoPath) : "");
+  const logoThumb = $("#introLogoThumb");
+  const logoPlaceholder = $("#introLogoPlaceholder");
+  if (logoThumb) {
+    logoThumb.hidden = !logoSrc;
+    if (logoSrc) logoThumb.src = logoSrc;
+    else logoThumb.removeAttribute("src");
+  }
+  if (logoPlaceholder) logoPlaceholder.hidden = Boolean(logoSrc);
+  if ($("#deleteIntroLogo")) $("#deleteIntroLogo").disabled = !logoPath && !state.introLogoPreviewUrl;
+
+  if ($("#introTitle")) $("#introTitle").value = intro.title || "";
+  if ($("#introTitleColor")) $("#introTitleColor").value = intro.titleColor || "#ffffff";
+  const titleSize = clamp(intro.titleSize, 0.6, 1.5);
+  if ($("#introTitleSize")) $("#introTitleSize").value = String(titleSize);
+  if ($("#introTitleSizeText")) $("#introTitleSizeText").textContent = `${Math.round(titleSize * 100)}%`;
+}
+
 function syncSettings() {
   if (!state.topic) return;
+  syncIntroSettings();
   const backgroundType = $("#backgroundType");
   if (backgroundType) backgroundType.value = ["default", "color", "image"].includes(state.topic.backgroundType) ? state.topic.backgroundType : "default";
   const backgroundColor = $("#backgroundColor");
@@ -449,6 +557,51 @@ async function uploadBackgroundImage(file) {
     state.topic.backgroundImage = uploaded.path;
     state.backgroundPreviewUrl = "";
     syncSettings();
+    sendPreview();
+    queueSave(20);
+  } catch (error) {
+    setStatus(error.message);
+  }
+}
+
+async function uploadIntroMedia(file) {
+  if (!file || !state.topic) return;
+  const intro = ensureIntro();
+  intro.type = "media";
+  intro.mediaType = isVideoAssetPath(file.name) ? "video" : "image";
+  if (state.introMediaPreviewUrl) URL.revokeObjectURL(state.introMediaPreviewUrl);
+  state.introMediaPreviewUrl = URL.createObjectURL(file);
+  syncIntroSettings();
+  sendPreview();
+  try {
+    setStatus("Đang tải intro…");
+    const uploaded = await uploadProjectAsset("introMedia", file);
+    intro.media = uploaded.path;
+    intro.mediaType = uploaded.mediaType || intro.mediaType;
+    URL.revokeObjectURL(state.introMediaPreviewUrl);
+    state.introMediaPreviewUrl = "";
+    syncIntroSettings();
+    sendPreview();
+    queueSave(20);
+  } catch (error) {
+    setStatus(error.message);
+  }
+}
+
+async function uploadIntroLogo(file) {
+  if (!file || !state.topic) return;
+  const intro = ensureIntro();
+  if (state.introLogoPreviewUrl) URL.revokeObjectURL(state.introLogoPreviewUrl);
+  state.introLogoPreviewUrl = URL.createObjectURL(file);
+  syncIntroSettings();
+  sendPreview();
+  try {
+    setStatus("Đang tải logo intro…");
+    const uploaded = await uploadProjectAsset("introLogo", file);
+    intro.logo = uploaded.path;
+    URL.revokeObjectURL(state.introLogoPreviewUrl);
+    state.introLogoPreviewUrl = "";
+    syncIntroSettings();
     sendPreview();
     queueSave(20);
   } catch (error) {
@@ -592,13 +745,22 @@ $("#nextSentence")?.addEventListener("click", () => navigateSentence(1));
 
 $("#editorForm")?.addEventListener("input", (event) => {
   const target = event.target;
-  if (!state.topic || !["backgroundColor", "backgroundImageZoom", "karaokeActiveColor", "karaokeColor", "karaokeSize", "backgroundMusicVolume"].includes(target.id)) return;
+  if (!state.topic || ![
+    "backgroundColor", "backgroundImageZoom", "karaokeActiveColor", "karaokeColor", "karaokeSize", "backgroundMusicVolume",
+    "introColor", "introMediaZoom", "introTitle", "introTitleColor", "introTitleSize",
+  ].includes(target.id)) return;
   if (target.id === "backgroundColor") state.topic.backgroundColor = target.value;
   if (target.id === "backgroundImageZoom") state.topic.backgroundImageZoom = clamp(target.value, 1, 3);
   if (target.id === "karaokeActiveColor") state.topic.karaokeActiveColor = target.value;
   if (target.id === "karaokeColor") state.topic.karaokeColor = target.value;
   if (target.id === "karaokeSize") state.topic.karaokeSize = clamp(target.value, 0.6, 1.5);
   if (target.id === "backgroundMusicVolume") state.topic.backgroundMusicVolume = clamp(target.value, 0.05, 0.5);
+  const intro = ensureIntro();
+  if (target.id === "introColor") intro.color = target.value;
+  if (target.id === "introMediaZoom") intro.mediaZoom = clamp(target.value, 1, 3);
+  if (target.id === "introTitle") intro.title = target.value;
+  if (target.id === "introTitleColor") intro.titleColor = target.value;
+  if (target.id === "introTitleSize") intro.titleSize = clamp(target.value, 0.6, 1.5);
   syncSettings();
   sendPreview();
   queueSave();
@@ -614,10 +776,28 @@ $("#editorForm")?.addEventListener("change", (event) => {
     sendPreview();
     queueSave();
   }
+  if (target.id === "introType") {
+    const intro = ensureIntro();
+    intro.type = ["none", "color", "media"].includes(target.value) ? target.value : "none";
+    syncSettings();
+    if (intro.type === "media" && !intro.media) $("#introMediaFile")?.click();
+    sendPreview();
+    queueSave();
+  }
 });
 
 $("#backgroundImageFile")?.addEventListener("change", async (event) => {
   await uploadBackgroundImage(event.target.files?.[0]);
+  event.target.value = "";
+});
+
+$("#introMediaFile")?.addEventListener("change", async (event) => {
+  await uploadIntroMedia(event.target.files?.[0]);
+  event.target.value = "";
+});
+
+$("#introLogoFile")?.addEventListener("change", async (event) => {
+  await uploadIntroLogo(event.target.files?.[0]);
   event.target.value = "";
 });
 
@@ -627,6 +807,30 @@ $("#deleteBackgroundImage")?.addEventListener("click", () => {
   state.topic.backgroundType = "default";
   state.backgroundPreviewUrl = "";
   syncSettings();
+  sendPreview();
+  queueSave(50);
+});
+
+$("#deleteIntroMedia")?.addEventListener("click", () => {
+  if (!state.topic) return;
+  const intro = ensureIntro();
+  intro.media = "";
+  intro.mediaType = "image";
+  intro.type = "color";
+  if (state.introMediaPreviewUrl) URL.revokeObjectURL(state.introMediaPreviewUrl);
+  state.introMediaPreviewUrl = "";
+  syncIntroSettings();
+  sendPreview();
+  queueSave(50);
+});
+
+$("#deleteIntroLogo")?.addEventListener("click", () => {
+  if (!state.topic) return;
+  const intro = ensureIntro();
+  intro.logo = "";
+  if (state.introLogoPreviewUrl) URL.revokeObjectURL(state.introLogoPreviewUrl);
+  state.introLogoPreviewUrl = "";
+  syncIntroSettings();
   sendPreview();
   queueSave(50);
 });
@@ -662,6 +866,7 @@ async function load() {
       return;
     }
     state.topic = result.topic;
+    ensureIntro();
     state.topic.slides = Array.isArray(state.topic.slides) && state.topic.slides.length ? state.topic.slides : [defaultSlide(1)];
     const migratedLegacyLayout = migrateLegacyStockLayout();
     $("#projectTitle").textContent = project;
