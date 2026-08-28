@@ -326,13 +326,16 @@ function applyCustomSlide(slide) {
 const CUSTOM_INTRO_DURATION_SECONDS = 3;
 
 function customIntroConfig(nextTopic = topic) {
-  return nextTopic?.intro && typeof nextTopic.intro === "object" ? nextTopic.intro : {};
+  const raw = nextTopic?.intro && typeof nextTopic.intro === "object" ? nextTopic.intro : {};
+  const rawType = String(raw.type || raw.introType || "none").toLowerCase();
+  const type = ["image", "video"].includes(rawType) ? "media" : rawType;
+  return { ...raw, type, mediaType: rawType === "video" ? "video" : raw.mediaType };
 }
 
 function customIntroIsActive(nextTopic = topic, time = 0) {
   const intro = customIntroConfig(nextTopic);
   return isCustomProject(nextTopic)
-    && String(intro.type || "none").toLowerCase() !== "none"
+    && ["color", "media"].includes(intro.type)
     && Number(time) >= 0
     && Number(time) < CUSTOM_INTRO_DURATION_SECONDS;
 }
@@ -353,7 +356,7 @@ function applyIntro(nextTopic = topic, time = 0) {
 
   const color = String(intro.color || "#0b1020");
   introRoot.style.backgroundColor = color;
-  const mediaPath = String(intro.media || "").trim();
+  const mediaPath = intro.type === "media" ? String(intro.media || "").trim() : "";
   const mediaSource = mediaPath ? resolveTopicAsset(mediaPath) : "";
   const videoMedia = String(intro.mediaType || "").toLowerCase() === "video" || isVideoAssetSource(mediaSource);
   const image = elements.stageIntroImage;
@@ -1347,8 +1350,8 @@ function offlineImagePaths() {
   });
   (Array.isArray(topic.slides) ? topic.slides : []).forEach((slide) => (slide.layers || []).forEach((layer) => { if (layer?.type === "image" && layer.src) paths.push(layer.src); }));
   const intro = customIntroConfig(topic);
-  if (intro.logo) paths.push(intro.logo);
-  if (intro.media && !isVideoAssetSource(intro.media)) paths.push(intro.media);
+  if (intro.type !== "none" && intro.logo) paths.push(intro.logo);
+  if (intro.type === "media" && intro.media && !isVideoAssetSource(intro.media)) paths.push(intro.media);
   Object.values(topic.poseAssets || {}).forEach((pose) => {
     paths.push(pose?.closed, pose?.speaking);
   });
@@ -1430,6 +1433,7 @@ async function renderOfflineFrame(time) {
 
 async function prepareIntroOfflineMedia() {
   const intro = customIntroConfig(topic);
+  if (String(intro.type || "none").toLowerCase() !== "media") return;
   const mediaPath = String(intro.media || "").trim();
   if (!mediaPath || !isVideoAssetSource(mediaPath) || !elements.stageIntroVideo) return;
   applyIntro(topic, 0);
