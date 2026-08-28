@@ -2107,6 +2107,10 @@ async function loadProject() {
   try {
     await Promise.all([loadSfxLibrary(), loadCharacters()]);
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`);
+    if (String(result.topic?.projectType || "") === "custom") {
+      window.location.replace(`/custom-editor?project=${encodeURIComponent(project)}`);
+      return;
+    }
     state.topic = result.topic;
     await loadRenderedTiming();
     state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);

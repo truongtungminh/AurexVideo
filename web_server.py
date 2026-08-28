@@ -9361,6 +9361,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_html(200, (REPO_ROOT / "webui" / "editor.html").read_bytes())
             return
 
+        if path in {"/custom-editor", "/custom-editor/"}:
+            self.send_html(200, (REPO_ROOT / "webui" / "custom-editor.html").read_bytes())
+            return
+
         watch_match = re.fullmatch(r"/watch/([^/]+)/?", path)
         if watch_match:
             try:
