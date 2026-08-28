@@ -671,10 +671,11 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
         topic_value.get("rightImage"),
     ]
     if isinstance(topic_value.get("intro"), dict):
-        candidate_values.extend([
-            topic_value["intro"].get("media"),
-            topic_value["intro"].get("logo"),
-        ])
+        intro = topic_value["intro"]
+        if str(intro.get("type") or "none").strip().lower() == "media":
+            candidate_values.append(intro.get("media"))
+        if str(intro.get("type") or "none").strip().lower() != "none":
+            candidate_values.append(intro.get("logo"))
     if isinstance(topic_value.get("sfx"), dict):
         candidate_values.extend(topic_value["sfx"].values())
     for value in candidate_values:

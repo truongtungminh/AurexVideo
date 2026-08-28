@@ -121,9 +121,11 @@ function ensureIntro() {
   if (!state.topic) return defaultIntro();
   const current = state.topic.intro && typeof state.topic.intro === "object" ? state.topic.intro : {};
   state.topic.intro = { ...defaultIntro(), ...current, duration: CUSTOM_INTRO_DURATION_SECONDS };
-  state.topic.intro.type = ["none", "color", "media"].includes(String(state.topic.intro.type || ""))
-    ? state.topic.intro.type
-    : "none";
+  const rawType = String(state.topic.intro.type || "").toLowerCase();
+  state.topic.intro.type = ["none", "color", "media"].includes(rawType)
+    ? rawType
+    : ["image", "video"].includes(rawType) ? "media" : "none";
+  if (rawType === "video") state.topic.intro.mediaType = "video";
   state.topic.intro.mediaZoom = clamp(state.topic.intro.mediaZoom, 1, 3);
   state.topic.intro.mediaX = clamp(state.topic.intro.mediaX, -50, 50);
   state.topic.intro.mediaY = clamp(state.topic.intro.mediaY, -50, 50);

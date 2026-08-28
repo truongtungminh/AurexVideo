@@ -32,6 +32,7 @@ from tools.render_project import (  # noqa: E402
     render_backend_report,
     render_native_backend,
     resolve_render_backend,
+    requires_custom_intro_compatibility,
     requires_character_css_compatibility,
 )
 from tools.render_quality import get_render_profile  # noqa: E402
@@ -157,6 +158,16 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertFalse(native_character_style_supported("custom-character"))
         self.assertFalse(requires_character_css_compatibility("auto", topic))
         self.assertFalse(requires_character_css_compatibility("native", topic))
+
+    def test_custom_intro_routes_auto_to_browser_and_rejects_native(self) -> None:
+        topic = {"projectType": "custom", "intro": {"type": "color"}}
+
+        self.assertTrue(requires_custom_intro_compatibility("auto", topic))
+        self.assertFalse(requires_custom_intro_compatibility("browser", topic))
+        with self.assertRaises(NativeRenderUnavailable) as raised:
+            requires_custom_intro_compatibility("native", topic)
+
+        self.assertEqual(raised.exception.reason, "custom_intro_browser_required")
 
     def test_standard_pose_video_text_scene_reports_unsupported_features(self) -> None:
         topic = {
