@@ -77,7 +77,6 @@ from tts.elevenlabs import (
     update_elevenlabs_voice_id,
 )
 from tts.maziao import _submit_and_poll_single, _resolve_api_config, _resolve_voice, DEFAULT_API_KEY, DEFAULT_API_BASE, normalize_tts_mode
-from autoproject_store import AutoProjectStore
 from media_probe import validate_rendered_video
 from tools.render_quality import get_render_profile
 
@@ -140,14 +139,6 @@ JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 RENDER_QUEUE: deque[str] = deque()
 RENDER_QUEUE_WORKER_ACTIVE = False
-AUTOPROJECT_STORE: AutoProjectStore | None = None
-AUTOPROJECT_TEMPLATES = [
-    {
-        "id": "native-default",
-        "name": "Aurex Native Default",
-        "description": "Template project native của AurexVideo",
-    },
-]
 ACTIVE_JOB_STATUSES = {"authorizing", "queued", "running", "cancelling"}
 PRIVATE_JOB_FIELDS = {
     "process",
@@ -3654,7 +3645,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
     </div>
     <div class="header-tools">
-      <a class="refresh-btn icon-btn header-nav-action" href="/new-autoproject"><span class="btn-icon" aria-hidden="true">⚙</span><span>AutoProject</span></a>
       <a class="refresh-btn icon-btn header-nav-action" href="/new-project">{ui_icon("plus")}<span>Dự án mới</span></a>
       <a class="refresh-btn icon-btn header-nav-action" href="/upload">{ui_icon("upload")}<span>Đăng tải</span></a>
       <button class="refresh-btn icon-btn header-nav-action" id="refreshProjects" type="button">{ui_icon("refresh")}<span>Làm mới</span></button>
@@ -9166,71 +9156,6 @@ def project_url_to_path(request_path: str) -> Path:
         raise ValueError("Invalid project asset path.") from exc
     return target
 
-
-
-def _autoproject_store() -> AutoProjectStore:
-    global AUTOPROJECT_STORE
-    if AUTOPROJECT_STORE is None:
-        AUTOPROJECT_STORE = AutoProjectStore(USER_DATA_ROOT / "config" / "autoproject.sqlite3")
-    return AUTOPROJECT_STORE
-
-
-def _autoproject_payload(payload: dict) -> dict:
-    return {
-        "id": payload.get("id") or payload.get("slug") or payload.get("name"),
-        "name": payload.get("name"),
-        "character_id": payload.get("character_id") or payload.get("characterId"),
-        "voice_id": payload.get("voice_id") or payload.get("voiceId"),
-        "template_id": payload.get("template_id") or payload.get("templateId"),
-        "prompt_template": payload.get("prompt_template") or payload.get("promptTemplate"),
-        "youtube_title_prompt_template": (
-            payload.get("youtube_title_prompt_template")
-            if "youtube_title_prompt_template" in payload
-            else payload.get("youtubeTitlePromptTemplate")
-        ),
-        "social_caption_prompt_template": (
-            payload.get("social_caption_prompt_template")
-            if "social_caption_prompt_template" in payload
-            else payload.get("socialCaptionPromptTemplate")
-        ),
-        "title_caption_prompt_template": payload.get("title_caption_prompt_template") or payload.get("titleCaptionPromptTemplate"),
-        "status": payload.get("status"),
-    }
-
-
-def _keyword_values(payload: dict) -> list[str]:
-    values = payload.get("keywords")
-    if isinstance(values, list):
-        return [str(value) for value in values]
-    text = payload.get("text") or payload.get("content") or ""
-    return str(text).splitlines()
-
-
-def _import_keyword_values(payload: dict) -> tuple[list[str], list[str]]:
-    import csv
-    import io
-
-    filename = Path(str(payload.get("filename") or "")).name
-    extension = Path(filename).suffix.lower()
-    if extension not in {".txt", ".csv"}:
-        raise ValueError("Chỉ hỗ trợ import file .txt hoặc .csv.")
-    content = payload.get("content")
-    if not isinstance(content, str):
-        raise ValueError("Nội dung file import phải là text UTF-8.")
-    if extension == ".txt":
-        return content.splitlines(), []
-    reader = csv.DictReader(io.StringIO(content))
-    if reader.fieldnames:
-        field_map = {str(name).strip().lower(): name for name in reader.fieldnames if name}
-        column = field_map.get("keyword") or field_map.get("keywords")
-        if column:
-            return [str(row.get(column) or "") for row in reader], []
-    rows = list(csv.reader(io.StringIO(content)))
-    if not rows:
-        return [], []
-    return [row[0] for row in rows if row and row[0].strip()], ["CSV không có cột keyword; đã dùng cột đầu tiên."]
-
-
 class WebHandler(SimpleHTTPRequestHandler):
     server_version = "VideoTemplateWeb/1.0"
 
@@ -9476,35 +9401,6 @@ class WebHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/source-root":
             self.send_json(200, source_root_response())
-            return
-
-        if path in {"/new-autoproject", "/new-autoproject/"}:
-            self.send_html(200, (REPO_ROOT / "webui" / "autoproject-new.html").read_bytes())
-            return
-
-        if path == "/api/autoproject-templates":
-            self.send_json(200, {"templates": AUTOPROJECT_TEMPLATES})
-            return
-
-        if path == "/api/autoprojects":
-            self.send_json(200, {"autoprojects": _autoproject_store().list_autoprojects()})
-            return
-
-        autoproject_match = re.fullmatch(r"/api/autoprojects/([^/]+)", path)
-        if autoproject_match:
-            try:
-                self.send_json(200, {"autoproject": _autoproject_store().get_autoproject(unquote(autoproject_match.group(1)))})
-            except KeyError as exc:
-                self.send_json(404, {"error": str(exc)})
-            return
-
-        keywords_match = re.fullmatch(r"/api/autoprojects/([^/]+)/keywords", path)
-        if keywords_match:
-            try:
-                project_id = unquote(keywords_match.group(1))
-                self.send_json(200, {"keywords": _autoproject_store().list_keywords(project_id)})
-            except KeyError as exc:
-                self.send_json(404, {"error": str(exc)})
             return
 
         if path == "/api/projects":
@@ -10044,44 +9940,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                 )
                 self.send_json(200, {"ok": True, "language": lang})
             except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/autoprojects":
-            try:
-                project = _autoproject_store().create_autoproject(_autoproject_payload(self.read_json_body()))
-                self.send_json(201, {"autoproject": project})
-            except FileExistsError as exc:
-                self.send_json(409, {"error": str(exc)})
-            except (KeyError, ValueError) as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        keyword_action = re.fullmatch(r"/api/autoprojects/([^/]+)/keywords/(preview|bulk|import|delete-bulk)", parsed.path)
-        if keyword_action:
-            try:
-                project_id = unquote(keyword_action.group(1))
-                action = keyword_action.group(2)
-                payload = self.read_json_body()
-                warnings: list[str] = []
-                store = _autoproject_store()
-                if action == "delete-bulk":
-                    deleted = store.delete_keywords(project_id, payload.get("keyword_ids") or payload.get("keywordIds") or [])
-                    self.send_json(200, {"deleted": deleted})
-                    return
-                if action == "import":
-                    values, warnings = _import_keyword_values(payload)
-                else:
-                    values = _keyword_values(payload)
-                store = _autoproject_store()
-                result = store.preview_keywords(project_id, values)
-                result["warnings"] = warnings
-                if action != "preview":
-                    result = {**result, **store.add_keywords(project_id, result["added"])}
-                self.send_json(200, result)
-            except KeyError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except ValueError as exc:
                 self.send_json(400, {"error": str(exc)})
             return
 
@@ -10727,20 +10585,6 @@ class WebHandler(SimpleHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         path = urlparse(self.path).path
-        autoproject_match = re.fullmatch(r"/api/autoprojects/([^/]+)", path)
-        if autoproject_match:
-            try:
-                project = _autoproject_store().update_autoproject(
-                    unquote(autoproject_match.group(1)),
-                    _autoproject_payload(self.read_json_body()),
-                )
-                self.send_json(200, {"autoproject": project})
-            except KeyError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except ValueError as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
         character_match = re.fullmatch(r"/api/characters/([^/]+)", path)
         if character_match:
             if trial_branding_required():
@@ -10773,29 +10617,6 @@ class WebHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         path = urlparse(self.path).path
-        autoproject_match = re.fullmatch(r"/api/autoprojects/([^/]+)", path)
-        if autoproject_match:
-            try:
-                project_id = unquote(autoproject_match.group(1))
-                _autoproject_store().delete_autoproject(project_id)
-                self.send_json(200, {"deleted": project_id, "generatedProjectsPreserved": True})
-            except KeyError as exc:
-                self.send_json(404, {"error": str(exc)})
-            return
-
-        keyword_match = re.fullmatch(r"/api/autoprojects/([^/]+)/keywords/([^/]+)", path)
-        if keyword_match:
-            try:
-                project_id = unquote(keyword_match.group(1))
-                deleted = _autoproject_store().delete_keywords(project_id, [unquote(keyword_match.group(2))])
-                if not deleted:
-                    self.send_json(404, {"error": "Không tìm thấy keyword."})
-                else:
-                    self.send_json(200, {"deleted": deleted})
-            except KeyError as exc:
-                self.send_json(404, {"error": str(exc)})
-            return
-
         character_match = re.fullmatch(r"/api/characters/([^/]+)", path)
         if not character_match:
             self.send_json(404, {"error": "Unknown endpoint."})
