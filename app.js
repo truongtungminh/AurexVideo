@@ -117,8 +117,20 @@ function resolveTopicAsset(path) {
   return new URL(path, new URL(topicUrl, window.location.href)).href;
 }
 
+function activeUiLanguage() {
+  let language = "";
+  try {
+    if (window.parent !== window) language = window.parent.__AUREX_LANGUAGE__;
+  } catch (_error) {
+    // A standalone preview can be cross-origin; use its own language below.
+  }
+  if (language !== "en" && language !== "vi") language = window.__AUREX_LANGUAGE__;
+  if (language !== "en" && language !== "vi") language = document.documentElement.lang;
+  return language === "en" ? "en" : "vi";
+}
+
 function customSlidePlaceholderUrl() {
-  const label = document.documentElement.lang === "en" ? "Image" : "Ảnh";
+  const label = activeUiLanguage() === "en" ? "Image" : "Ảnh";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">${label}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
