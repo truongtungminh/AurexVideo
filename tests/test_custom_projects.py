@@ -20,7 +20,14 @@ class CustomProjectSchemaTests(unittest.TestCase):
         text = next(layer for layer in slide["layers"] if layer["type"] == "text")
         media = next(layer for layer in slide["layers"] if layer["type"] == "image")
         self.assertEqual((text["x"], text["y"], text["w"], text["h"]), (0, 20, 100, 12))
-        self.assertEqual((media["x"], media["y"], media["w"], media["h"]), (0, 34, 100, 32))
+        self.assertEqual((media["x"], media["y"], media["w"], media["h"]), (0, 0, 100, 100))
+
+    def test_legacy_custom_media_layout_migrates_to_full_vertical_frame(self) -> None:
+        slides = m3.normalize_custom_slides([
+            {"layers": [{"type": "image", "src": "assets/example.png", "x": 0, "y": 34, "w": 100, "h": 32}]},
+        ], 1)
+        media = next(layer for layer in slides[0]["layers"] if layer["type"] == "image")
+        self.assertEqual((media["x"], media["y"], media["w"], media["h"]), (0, 0, 100, 100))
 
     def test_custom_slide_normalization_clamps_and_removes_unknown_layers(self) -> None:
         slides = m3.normalize_custom_slides([

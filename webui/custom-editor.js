@@ -89,7 +89,7 @@ function defaultTextLayer(y = 20) {
 function defaultMediaLayer() {
   return {
     id: token("media"), type: "image", src: "assets/placeholder-left.svg",
-    x: 0, y: 34, w: 100, h: 32, zoom: 1, offsetX: 0, offsetY: 0,
+    x: 0, y: 0, w: 100, h: 100, zoom: 1, offsetX: 0, offsetY: 0,
   };
 }
 
@@ -147,8 +147,9 @@ function migrateLegacyStockLayout() {
       Object.assign(text, { x: 0, y: 20, w: 100, h: 12 });
       changed = true;
     }
-    if (isStockLayout(media, { x: 6, y: 34, w: 88, h: 38 })) {
-      Object.assign(media, { x: 0, y: 34, w: 100, h: 32 });
+    if (isStockLayout(media, { x: 6, y: 34, w: 88, h: 38 })
+      || isStockLayout(media, { x: 0, y: 34, w: 100, h: 32 })) {
+      Object.assign(media, { x: 0, y: 0, w: 100, h: 100 });
       changed = true;
     }
   }
@@ -199,7 +200,7 @@ function isPlaceholder(src) {
 }
 
 function placeholderUrl() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#fffaf0"/><rect x="28" y="28" width="1544" height="844" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="800" cy="350" r="92" fill="#de370d" opacity=".16"/><path d="M750 350h100M800 300v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="800" y="560" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">Ảnh</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600"><rect width="900" height="1600" fill="#fffaf0"/><rect x="28" y="28" width="844" height="1544" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="450" cy="650" r="92" fill="#de370d" opacity=".16"/><path d="M400 650h100M450 600v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="450" y="850" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">Ảnh</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
