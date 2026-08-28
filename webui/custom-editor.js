@@ -454,6 +454,8 @@ function syncIntroSettings() {
   if (color) color.value = intro.color || DEFAULT_INTRO_COLOR;
   const colorField = $("#introColorField");
   if (colorField) colorField.hidden = intro.type === "none";
+  const controlsRow = type?.closest(".intro-controls-row");
+  if (controlsRow) controlsRow.classList.toggle("intro-color-disabled", intro.type === "none");
   const mediaPanel = $("#introMediaPanel");
   if (mediaPanel) mediaPanel.hidden = intro.type !== "media";
 

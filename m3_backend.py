@@ -1454,8 +1454,8 @@ def normalize_custom_intro(value: object, fallback: object = None) -> dict:
             raise ValueError("Định dạng intro.media chưa được hỗ trợ.")
     media_type = "video" if Path(media).suffix.lower() in CUSTOM_INTRO_VIDEO_EXTENSIONS else "image"
     requested_media_type = str(source.get("mediaType") or "").strip().lower()
-    if requested_media_type in {"image", "video"} and media:
-        media_type = "video" if media_type == "video" or requested_media_type == "video" else "image"
+    if not media and requested_media_type in {"image", "video"}:
+        media_type = requested_media_type
 
     logo = str(source.get("logo") or source.get("logoImage") or "").strip()
     if logo:
