@@ -668,6 +668,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   cursor: pointer;
 }
 .background-image-panel { display: grid; gap: 8px; }
+.background-image-panel[hidden] { display: none !important; }
 .background-upload-card { padding: 8px; }
 .background-viewport {
   width: min(100%, 118px);
