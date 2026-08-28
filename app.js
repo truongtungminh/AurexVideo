@@ -340,6 +340,15 @@ function customIntroIsActive(nextTopic = topic, time = 0) {
     && Number(time) < CUSTOM_INTRO_DURATION_SECONDS;
 }
 
+function introVideoTargetTime(time, duration) {
+  const safeDuration = Number(duration);
+  if (!Number.isFinite(safeDuration) || safeDuration <= 0) return Math.max(0, Number(time) || 0);
+  const value = Math.max(0, Number(time) || 0);
+  // Short intro clips loop across the fixed three-second opening window.
+  if (safeDuration <= CUSTOM_INTRO_DURATION_SECONDS) return value % safeDuration;
+  return Math.min(value, Math.max(0, safeDuration - 0.001));
+}
+
 function applyIntro(nextTopic = topic, time = 0) {
   const introRoot = elements.stageIntro;
   if (!introRoot) return false;
@@ -372,11 +381,12 @@ function applyIntro(nextTopic = topic, time = 0) {
         video.load();
       }
       video.hidden = !mediaSource;
+      if (mediaSource && mediaReady(video)) {
+        applyImageFrame(video, intro.mediaZoom, intro.mediaX, intro.mediaY);
+      }
       if (mediaSource && !offlineRender) {
         const duration = Number(video.duration);
-        const target = Number.isFinite(duration) && duration > 0
-          ? Math.min(Math.max(0, Number(time) || 0), Math.max(0, duration - 0.001))
-          : Math.max(0, Number(time) || 0);
+        const target = introVideoTargetTime(time, duration);
         if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
           try { video.currentTime = target; } catch (_error) { /* media is still loading */ }
         }
@@ -1135,7 +1145,7 @@ async function syncIntroVideoToOfflineTimeline(time) {
   if (!mediaReady(video)) return;
   const duration = Number(video.duration);
   if (!Number.isFinite(duration) || duration <= 0) return;
-  const targetTime = Math.min(Math.max(0, Number(time) || 0), Math.max(0, duration - 0.001));
+  const targetTime = introVideoTargetTime(time, duration);
   const drift = Math.abs((Number(video.currentTime) || 0) - targetTime);
   offlineMediaSyncStats.maxRequestedDriftMs = Math.max(
     offlineMediaSyncStats.maxRequestedDriftMs,
@@ -1879,6 +1889,11 @@ async function init() {
   }
   if (elements.stageIntroImage) {
     elements.stageIntroImage.addEventListener("load", () => applyIntro(topic, previewTime()));
+  }
+  if (elements.stageIntroVideo) {
+    const refreshIntroVideo = () => applyIntro(topic, previewTime());
+    elements.stageIntroVideo.addEventListener("loadedmetadata", refreshIntroVideo);
+    elements.stageIntroVideo.addEventListener("loadeddata", refreshIntroVideo);
   }
 
   Object.entries(topic.sfx || {}).forEach(([name, path]) => {

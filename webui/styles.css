@@ -645,6 +645,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .subtitle-style label,
 .music-style label,
 .intro-style label { display: grid; gap: 6px; }
+.intro-style label[hidden] { display: none !important; }
 .music-file-name {
   margin: 0;
   color: var(--muted);
@@ -659,6 +660,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   align-items: end;
   gap: 10px;
 }
+.intro-controls-row.intro-color-disabled { grid-template-columns: 1fr; }
 .background-style input[type="color"],
 .subtitle-style input[type="color"],
 .intro-style input[type="color"] {

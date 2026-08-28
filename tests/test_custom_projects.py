@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import sys
 import tempfile
@@ -19,6 +20,7 @@ class CustomProjectSchemaTests(unittest.TestCase):
         intro = m3.normalize_custom_intro({
             "type": "image",
             "backgroundImage": "assets/intro.png",
+            "mediaType": "video",
             "logo": "assets/logo.webp",
             "title": "  Bitcoin\tđối mặt 80.000 USD  ",
             "color": "#ABC",
@@ -38,6 +40,20 @@ class CustomProjectSchemaTests(unittest.TestCase):
     def test_custom_intro_rejects_unsupported_media_extension(self) -> None:
         with self.assertRaises(ValueError):
             m3.normalize_custom_intro({"type": "media", "media": "assets/intro.exe"})
+
+    def test_intro_upload_accepts_video_media_and_logo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "demo").mkdir()
+            encoded = base64.b64encode(b"test-media").decode("ascii")
+            with patch.object(m3, "PROJECTS_ROOT", root):
+                media = m3.decode_upload("demo", {"kind": "introMedia", "name": "opening.mp4", "data": encoded})
+                logo = m3.decode_upload("demo", {"kind": "introLogo", "name": "logo.png", "data": encoded})
+
+            self.assertEqual(media["mediaType"], "video")
+            self.assertTrue((root / "demo" / media["path"]).is_file())
+            self.assertEqual(logo["kind"], "introLogo")
+            self.assertTrue((root / "demo" / logo["path"]).is_file())
 
     def test_default_custom_slide_uses_vertical_stage_layout(self) -> None:
         slide = m3.default_custom_slide()
