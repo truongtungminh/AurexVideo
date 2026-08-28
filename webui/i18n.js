@@ -137,6 +137,8 @@
     'Pose & âm thanh': 'Poses & sound',
     'Thông tin hiển thị': 'Display content',
     'dán vào ô ảnh trống đầu tiên': 'paste into the first empty image slot',
+    'kéo thả trên preview để di chuyển chữ, ảnh và phụ đề tới vị trí mong muốn': 'drag on the preview to move text, images, and subtitles',
+    '＋ Thêm slide': '＋ Add slide',
     'So sánh 1': 'Comparison 1',
     'Nhãn bên trái': 'Left label',
     'Nhãn bên phải': 'Right label',
