@@ -42,9 +42,19 @@ Manifest dùng `schemaVersion: 2`. Canvas phải có kích thước chẵn để
 
 Manifest custom vẫn phải là full-scene contract. Đường dẫn asset trong manifest phải tương đối, không chứa `..` và không dùng đường dẫn tuyệt đối. Schema v1 vẫn được đọc để giữ tương thích với fixture cũ.
 
-## Core-first routing
+## Hybrid routing hiện tại
 
-`Auto` chạy Core trước. Bridge sẽ compile topic chuẩn, đọc capability của binary, validate manifest bằng chính Core rồi mới render. `Native` là strict mode: thiếu capability hoặc scene không compile được thì job dừng, không âm thầm chuyển Browser. `Browser` chỉ dùng khi người dùng chọn compatibility backend.
+`Auto` là mặc định. Với scene nằm trong Scene IR contract, bridge compile topic,
+đọc capability của binary và render bằng Aurex Render Core (Metal + VideoToolbox).
+Scene có CSS riêng theo character hoặc Custom Intro chưa có contract sẽ đi qua
+Browser raster compatibility để giữ đúng preview editor; Core vẫn đảm nhiệm bước
+encode cuối nếu universal adapter khả dụng. Nếu Core/native runtime lỗi ở scene
+chuẩn, `Auto` cũng fallback Browser và ghi rõ lý do trong report.
+
+`Native` là strict mode: thiếu capability, CSS parity hoặc scene không compile
+được thì job dừng, không âm thầm chuyển Browser. `Browser` là lựa chọn ép dùng
+compatibility path. Vì vậy `bietchichomet` hiện mặc định được guard sang Browser
+compatibility cho tới khi style contract/golden-frame đạt parity.
 
 Mọi output ghi rõ provenance trong `final_video.render-report.json`:
 
@@ -73,4 +83,6 @@ Fixture `bietchichomet-lo-den-vs-lo-sau-40fc371f` đã chạy strict native ở 
 - H.264 hardware `Apple H.264 (HW)` trên Apple M3 Max, audio AAC.
 - Core render khoảng 30 giây cho video 36,8 giây; trước đó Browser path của fixture mất khoảng 208 giây.
 
-Đây là vertical slice đầu tiên của V2. Các brand có style/layout riêng cần bổ sung profile vào compiler trước khi chốt parity hình ảnh toàn bộ workspace.
+Đây là vertical slice đầu tiên của V2. Bước tiếp theo là chuẩn hoá style contract,
+rounded clipping/shadow và golden-frame cho các brand có style/layout riêng trước
+khi bật Native mặc định cho các project đó.
