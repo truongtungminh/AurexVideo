@@ -47,7 +47,7 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         # transform: translateY(-100%); }. The compiler expands the line box
         # from the actual label text so multi-line labels keep the same anchor.
         "label_anchor_y": 0.230,
-        "label_line_height": 0.98,
+        "label_line_height": 1,
         "label_gap_cqw": 0.35,
         "karaoke_rect": {"x": 0.050, "y": 0.462, "width": 0.900, "height": 0.090},
         "label_font_size": 54.0,
