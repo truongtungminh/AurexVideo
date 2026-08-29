@@ -353,33 +353,44 @@ def ensure_positive_word_timings(
         return []
     window_start = float(line_start)
     count = len(line_words)
-    min_span = max(0.12, count * 0.04)
-    window_end = max(window_start + min_span, float(line_end))
-    step = (window_end - window_start) / count
-    needs_spread = False
+    window_end = max(window_start, float(line_end))
+    available_span = window_end - window_start
+    # There is no representable positive karaoke span when a malformed segment
+    # starts exactly at its end. Keep the segment valid and let the static
+    # subtitle renderer handle that zero-length edge case.
+    if available_span <= 0:
+        return []
+    min_span = min(0.03, available_span / count)
     provisional = []
     for word in line_words:
         word_start = max(window_start, min(window_end, float(word.get("start", window_start))))
         word_end = min(window_end, max(word_start, float(word.get("end", word_start))))
-        if word_end - word_start < 0.03:
-            needs_spread = True
         provisional.append((str(word.get("word") or ""), word_start, word_end))
+
+    needs_spread = any(
+        end - start < min_span - 1e-6
+        or (index > 0 and start < provisional[index - 1][2] - 1e-6)
+        for index, (_text, start, end) in enumerate(provisional)
+    )
+    step = available_span / count
     if needs_spread:
         provisional = [
             (text, window_start + step * index, window_start + step * (index + 1))
             for index, (text, _, _) in enumerate(provisional)
         ]
-    repaired = []
-    previous_end = window_start
-    for text, word_start, word_end in provisional:
-        start = max(window_start, min(window_end, max(previous_end, word_start)))
-        end = max(start + 0.03, min(window_end, word_end))
-        if end > window_end:
-            end = window_end
-            start = min(start, max(window_start, end - 0.03))
-        repaired.append({"word": text, "start": round(start, 3), "end": round(end, 3)})
-        previous_end = repaired[-1]["end"]
-    return repaired
+
+    # Millisecond precision is enough for normal voiceover timing. Retain
+    # extra precision only for an unusually tiny final window so rounding does
+    # not collapse two adjacent words into a zero-duration span.
+    precision = 6 if step < 0.001 else 3
+    return [
+        {
+            "word": text,
+            "start": round(word_start, precision),
+            "end": round(word_end, precision),
+        }
+        for text, word_start, word_end in provisional
+    ]
 
 
 def pose_at(topic: dict, time: float) -> dict:
@@ -410,12 +421,12 @@ def align_line_words(
     tokens = alignment_tokens(text, cjk=cjk)
     if not tokens:
         return []
-    window_end = max(line_start + 0.12, line_end)
+    window_end = max(float(line_start), float(line_end))
     timed = _align_script_tokens(tokens, timing_words, window_end)
     unique_starts = {round(float(token["start"]), 3) for token in timed}
     # If matching still collapses (empty/noisy Whisper slice), spread evenly.
     if len(tokens) > 1 and len(unique_starts) <= 1:
-        span = max(0.12, window_end - line_start)
+        span = max(0.0, window_end - line_start)
         step = span / len(tokens)
         timed = [
             {
@@ -725,8 +736,8 @@ def align_topic_without_whisper(
         tokens = alignment_tokens(text, cjk=uses_cjk_alignment(detect_script_language([text]), [text]))
         line_start = min(duration, starts[index])
         line_end = min(duration, max(line_start + 0.12, ends[index]))
-        step = max(0.03, (line_end - line_start) / max(1, len(tokens)))
-        words = [
+        step = max(0.0, line_end - line_start) / max(1, len(tokens))
+        raw_words = [
             {
                 "word": token,
                 "start": round(min(line_end, line_start + step * token_index), 3),
@@ -734,6 +745,7 @@ def align_topic_without_whisper(
             }
             for token_index, token in enumerate(tokens)
         ]
+        words = ensure_positive_word_timings(raw_words, line_start, line_end)
         aligned.append({
             "sentenceIndex": index,
             "start": round(line_start, 3),

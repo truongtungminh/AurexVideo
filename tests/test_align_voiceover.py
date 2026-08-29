@@ -93,6 +93,24 @@ class AlignVoiceoverTests(unittest.TestCase):
             for index in range(1, len(repaired))
         ))
 
+    def test_word_timing_repair_never_extends_past_a_short_line_window(self) -> None:
+        repaired = align.ensure_positive_word_timings(
+            [
+                {"word": "một", "start": 1.0, "end": 1.0},
+                {"word": "hai", "start": 1.0, "end": 1.0},
+                {"word": "ba", "start": 1.0, "end": 1.0},
+            ],
+            line_start=1.0,
+            line_end=1.05,
+        )
+
+        self.assertLessEqual(repaired[-1]["end"], 1.05)
+        self.assertTrue(all(word["end"] > word["start"] for word in repaired))
+        self.assertTrue(all(
+            repaired[index]["start"] >= repaired[index - 1]["end"]
+            for index in range(1, len(repaired))
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
