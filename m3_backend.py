@@ -988,7 +988,13 @@ RENDER_PREFERENCE_KEYS = (
 def read_render_preferences() -> dict:
     defaults = read_project_defaults()
     value = defaults.get("renderPreferences")
-    return value if isinstance(value, dict) else {}
+    if not isinstance(value, dict):
+        return {}
+    preferences = dict(value)
+    # Keep older Core-first/native preferences from reactivating a backend that
+    # is intentionally disabled until Native Core reaches CSS parity.
+    preferences["renderBackend"] = "browser"
+    return preferences
 
 
 def write_render_preferences(payload: dict) -> dict:
@@ -1007,6 +1013,8 @@ def write_render_preferences(payload: dict) -> dict:
                 continue
         elif key in {"branding", "force", "rebuildAudioCache"}:
             cleaned[key] = bool(value)
+        elif key == "renderBackend":
+            cleaned[key] = "browser"
         else:
             cleaned[key] = str(value or "").strip()[:80]
     with PROJECT_DEFAULTS_LOCK:

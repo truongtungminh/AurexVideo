@@ -76,13 +76,6 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
     },
 }
 
-
-def native_character_style_supported(character_id: object) -> bool:
-    """Return whether the native compiler owns the character's built-in layout."""
-    normalized = str(character_id or "").strip().lower()
-    return normalized in _STYLE_PROFILES and normalized != "default"
-
-
 def _number(value: object, default: float = 0.0) -> float:
     try:
         number = float(value)
