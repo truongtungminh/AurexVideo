@@ -45,6 +45,7 @@ class CustomProjectSchemaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "demo").mkdir()
+            (root / "demo" / "topic.json").write_text("{}", encoding="utf-8")
             encoded = base64.b64encode(b"test-media").decode("ascii")
             with patch.object(m3, "PROJECTS_ROOT", root):
                 media = m3.decode_upload("demo", {"kind": "introMedia", "name": "opening.mp4", "data": encoded})
@@ -120,6 +121,88 @@ class CustomProjectSchemaTests(unittest.TestCase):
             self.assertEqual(persisted["slides"][0]["layers"][0]["text"], "Overlay")
             self.assertEqual(persisted["intro"]["duration"], 3.0)
             self.assertEqual(persisted["intro"]["title"], "Opening")
+
+    def test_custom_editor_defaults_are_portable_and_applied_to_new_custom_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            projects_root = root / "projects"
+            config_root = root / "config"
+            defaults_path = config_root / "project-defaults.json"
+            with (
+                patch.object(m3, "PROJECTS_ROOT", projects_root),
+                patch.object(m3, "CONFIG_ROOT", config_root),
+                patch.object(m3, "PROJECT_DEFAULTS_PATH", defaults_path),
+                patch.object(m3, "character_manifest", side_effect=FileNotFoundError),
+            ):
+                m3.create_project({"id": "source-project", "projectType": "custom"})
+                source_dir = projects_root / "source-project"
+                logo = source_dir / "assets" / "intro-logo.png"
+                media = source_dir / "assets" / "intro-media.webp"
+                logo.write_bytes(b"logo-bytes")
+                media.write_bytes(b"media-bytes")
+                source = m3.read_topic("source-project")
+                source["intro"] = {
+                    "type": "media", "color": "#123456", "media": "assets/intro-media.webp",
+                    "mediaZoom": 1.6, "mediaX": 8, "mediaY": -4, "logo": "assets/intro-logo.png",
+                    "logoScale": 1.3, "title": "Reusable opening", "titleColor": "#fedcba", "titleSize": 1.2,
+                }
+                source["karaokeColor"] = "#112233"
+                source["karaokeActiveColor"] = "#445566"
+                source["karaokeSize"] = 1.35
+                slide = source["slides"][0]
+                slide["enterEffect"] = "rise"
+                text = next(layer for layer in slide["layers"] if layer["type"] == "text")
+                text.update({"font": '"Playfair Display", Georgia, serif', "color": "#654321", "fontSize": 1.45})
+                m3.save_topic("source-project", source)
+
+                defaults = json.loads(defaults_path.read_text(encoding="utf-8"))
+                preset = defaults["customEditorDefaults"]
+                self.assertEqual(preset["intro"]["color"], "#123456")
+                self.assertEqual(preset["intro"]["titleColor"], "#fedcba")
+                self.assertEqual(preset["slide"]["enterEffect"], "rise")
+                self.assertEqual(preset["slide"]["text"]["font"], '"Playfair Display", Georgia, serif')
+                self.assertEqual(preset["subtitle"]["color"], "#112233")
+                defaults_assets = config_root / "project-defaults-assets"
+                self.assertTrue((defaults_assets / preset["intro"]["logo"]).is_file())
+                self.assertTrue((defaults_assets / preset["intro"]["media"]).is_file())
+
+                m3.create_project({"id": "target-project", "projectType": "custom"})
+                target_dir = projects_root / "target-project"
+                target = json.loads((target_dir / "topic.json").read_text(encoding="utf-8"))
+                target_text = next(layer for layer in target["slides"][0]["layers"] if layer["type"] == "text")
+                self.assertEqual(target["intro"]["color"], "#123456")
+                self.assertEqual(target["intro"]["titleColor"], "#fedcba")
+                self.assertEqual(target["intro"]["title"], "Reusable opening")
+                self.assertEqual(target["slides"][0]["enterEffect"], "rise")
+                self.assertEqual(target_text["font"], '"Playfair Display", Georgia, serif')
+                self.assertEqual(target_text["color"], "#654321")
+                self.assertEqual(target["karaokeColor"], "#112233")
+                self.assertEqual(target["karaokeActiveColor"], "#445566")
+                self.assertEqual(target["karaokeSize"], 1.35)
+                self.assertEqual((target_dir / target["intro"]["logo"]).read_bytes(), b"logo-bytes")
+                self.assertEqual((target_dir / target["intro"]["media"]).read_bytes(), b"media-bytes")
+
+                m3.create_project({"id": "comparison-project", "projectType": "comparison"})
+                comparison = json.loads((projects_root / "comparison-project" / "topic.json").read_text(encoding="utf-8"))
+                self.assertEqual(comparison["slides"], [])
+                self.assertEqual(comparison["intro"], m3.default_custom_intro())
+                m3.remember_project_defaults("comparison-project", comparison)
+                self.assertEqual(
+                    json.loads(defaults_path.read_text(encoding="utf-8"))["customEditorDefaults"],
+                    preset,
+                )
+
+                remembered_logo = preset["intro"]["logo"]
+                remembered_media = preset["intro"]["media"]
+                source["intro"].update({"type": "color", "logo": "", "media": ""})
+                m3.save_topic("source-project", source)
+                cleared = json.loads(defaults_path.read_text(encoding="utf-8"))["customEditorDefaults"]
+                self.assertEqual(cleared["intro"]["logo"], "")
+                self.assertEqual(cleared["intro"]["media"], "")
+                self.assertFalse((defaults_assets / remembered_logo).exists())
+                self.assertFalse((defaults_assets / remembered_media).exists())
+                self.assertTrue(logo.is_file())
+                self.assertTrue(media.is_file())
 
 
 if __name__ == "__main__":

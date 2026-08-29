@@ -1,7 +1,7 @@
 {
-  "characterId": "factverse",
+  "characterId": "bietchichomet",
   "karaokeColor": "#ffffff",
-  "karaokeActiveColor": "#00f900",
+  "karaokeActiveColor": "#ff2600",
   "karaokeSize": 1.2,
   "backgroundType": "image",
   "backgroundColor": "#0d0d0c",
@@ -35,20 +35,59 @@
       "pose-4": "pose-hard-pop-click",
       "pose-5": "pose-hard-pop-click",
       "pose-6": "wow"
+    },
+    "bietchichomet": {
+      "pose-1": "pose-hard-pop-click",
+      "pose-2": "pose-hard-pop-click",
+      "pose-3": "pose-bubble-pop",
+      "pose-4": "pose-explainer-pop-whoosh",
+      "pose-5": "pose-explainer-pop-whoosh"
     }
   },
   "customSfx": {},
   "ttsVoiceByCharacter": {
     "july": "Huyền V2"
   },
-  "labelFontFamily": "\"Manrope\", \"Inter\", sans-serif",
+  "labelFontFamily": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
   "labelColor": "#090909",
   "labelFontByCharacter": {
     "engzy": "\"Be Vietnam Pro\", \"Inter\", sans-serif",
-    "factverse": "\"Manrope\", \"Inter\", sans-serif"
+    "factverse": "\"Manrope\", \"Inter\", sans-serif",
+    "bietchichomet": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
   },
   "labelColorByCharacter": {
     "engzy": "#00f900",
-    "factverse": "#090909"
+    "factverse": "#090909",
+    "bietchichomet": "#090909"
+  },
+  "customEditorDefaults": {
+    "intro": {
+      "type": "color",
+      "duration": 3.0,
+      "color": "#ff9300",
+      "media": "",
+      "mediaType": "image",
+      "mediaZoom": 1.0,
+      "mediaX": -50.0,
+      "mediaY": -50.0,
+      "logo": "custom-editor/intro-logo.png",
+      "logoScale": 1.0,
+      "title": "JHGJHDFGDSHJAGD",
+      "titleColor": "#ffffff",
+      "titleSize": 1.5
+    },
+    "slide": {
+      "enterEffect": "swipe",
+      "text": {
+        "font": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "color": "#090909",
+        "fontSize": 1.2
+      }
+    },
+    "subtitle": {
+      "color": "#ffffff",
+      "activeColor": "#ff2600",
+      "size": 1.2
+    }
   }
 }
