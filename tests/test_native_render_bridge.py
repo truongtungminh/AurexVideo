@@ -114,11 +114,12 @@ class NativeRenderBridgeTests(unittest.TestCase):
             second = native_manifest_image_signatures(manifest)
             self.assertNotEqual(first, second)
 
-    def test_browser_is_default_and_legacy_values_normalize_to_browser(self) -> None:
-        self.assertEqual(resolve_render_backend(None), "browser")
-        self.assertEqual(resolve_render_backend("auto"), "browser")
-        self.assertEqual(resolve_render_backend("native-core"), "browser")
-        self.assertEqual(resolve_render_backend("native"), "browser")
+    def test_auto_is_default_and_backend_aliases_remain_supported(self) -> None:
+        self.assertEqual(resolve_render_backend(None), "auto")
+        self.assertEqual(resolve_render_backend("auto"), "auto")
+        self.assertEqual(resolve_render_backend("native-core"), "native")
+        self.assertEqual(resolve_render_backend("native"), "native")
+        self.assertEqual(resolve_render_backend("compatibility"), "browser")
 
     def test_character_css_selector_detection_uses_effective_character_id(self) -> None:
         selectors = character_specific_css_selectors({"characterId": "popsy"})

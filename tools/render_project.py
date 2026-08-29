@@ -707,7 +707,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
     native_manifest_signature = file_signature(native_manifest_path)
     native_image_signatures = native_manifest_image_signatures(native_manifest_path)
     native_binary_signature = ""
-    if getattr(args, "render_backend", "browser") in {"auto", "native"}:
+    if getattr(args, "render_backend", "auto") in {"auto", "native"}:
         try:
             native_binary = find_native_binary(ROOT)
             native_binary_signature = file_signature(native_binary) if native_binary else "unavailable"
@@ -739,7 +739,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
             str(bool(args.no_branding)).encode("utf-8"),
             file_signature(args.brand_logo).encode("utf-8"),
             args.brand_name.encode("utf-8"),
-            str(getattr(args, "render_backend", "browser")).encode("utf-8"),
+            str(getattr(args, "render_backend", "auto")).encode("utf-8"),
             native_manifest_signature.encode("utf-8"),
             json.dumps(native_image_signatures, ensure_ascii=False).encode("utf-8"),
             native_binary_signature.encode("utf-8"),
@@ -749,24 +749,18 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
 
 
 def resolve_render_backend(value: str | None) -> str:
-    """Resolve the current render policy.
+    """Resolve the hybrid render policy.
 
-    Browser is intentionally the only active production backend until the
-    Native Core has CSS parity. Keep accepting legacy values so old CLI calls,
-    environment variables, and saved preferences cannot break a render, but
-    normalize them to the Browser path.
+    Auto is the production default: Native Core handles scenes covered by the
+    native contract, while unsupported CSS/custom layers use Browser
+    compatibility rendering. Explicit Browser and Native choices remain
+    available for diagnostics and controlled exports.
     """
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
-    aliases = {
-        "auto": "browser",
-        "native": "browser",
-        "native-core": "browser",
-        "aurex": "browser",
-        "compatibility": "browser",
-    }
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "auto").strip().lower()
+    aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
     requested = aliases.get(requested, requested)
-    if requested != "browser":
-        raise ValueError("Render backend hiện tại chỉ hỗ trợ browser.")
+    if requested not in {"browser", "auto", "native"}:
+        raise ValueError("Render backend phải là browser, auto hoặc native.")
     return requested
 
 
@@ -822,7 +816,8 @@ def requires_character_css_compatibility(
         examples = "; ".join(selectors[:3])
         raise NativeRenderUnavailable(
             "Aurex Render Core native scene không thể bảo toàn CSS riêng theo nhân vật "
-            f"trong style.css ({examples}). Dùng Browser raster để giữ đúng preview.",
+            f"trong style.css ({examples}). Dùng --render-backend auto để raster Browser "
+            "giữ đúng preview, với Aurex Render Core vẫn mã hoá video.",
             reason="character_css_parity_required",
         )
     return backend == "auto"
@@ -846,7 +841,7 @@ def requires_custom_intro_compatibility(backend: str, topic: dict[str, object]) 
     if backend == "native":
         raise NativeRenderUnavailable(
             "Custom Intro cần Browser raster để giữ đúng lớp mở đầu 0–3 giây; "
-            "hãy dùng Browser render.",
+            "hãy dùng --render-backend auto hoặc browser.",
             reason="custom_intro_browser_required",
         )
     return backend == "auto"
@@ -1079,7 +1074,7 @@ def main() -> None:
         "--render-backend",
         choices=["browser", "auto", "native"],
         default=None,
-        help="Backend render: Browser là chế độ hiện tại; auto/native cũ sẽ được chuẩn hoá về Browser.",
+        help="Backend render: auto (mặc định) dùng Native khi đủ contract rồi fallback Browser.",
     )
     parser.add_argument("--voice", default="vi-VN-NamMinhNeural")
     parser.add_argument("--model-id", default="")
