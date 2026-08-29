@@ -637,7 +637,7 @@ function buildGroups(words) {
   const groups = [];
   let index = 0;
   const compactCjk = usesCompactCjkText();
-  const maxWords = compactCjk ? maxCjkCharacters() : 3;
+  const maxWords = compactCjk ? maxCjkCharacters() : 5;
   const maxChars = compactCjk ? maxWords : maxLatinCharacters();
   while (index < words.length) {
     const segmentEnd = words[index].segmentEnd;
@@ -671,22 +671,15 @@ function poseAt(time) {
   return { ...topic.poseTimeline[index], index };
 }
 
-// Frame timestamps land on 1/fps boundaries while word timings come from the
-// aligner, so a word can start a few milliseconds after the frame that should
-// already highlight it. This epsilon absorbs that edge and stops off-by-one
-// word drift at both ends of a word.
-const WORD_EDGE_EPSILON = 0.035;
-const WORD_TAIL_EPSILON = 0.08;
-
 function activeWordAt(time) {
-  // Đồng bộ với renderer AurexVideo: trong khoảng trống giữa hai word timing,
+  // Đồng bộ với renderer FastScene: trong khoảng trống giữa hai word timing,
   // giữ từ gần nhất đã bắt đầu thay vì ẩn subtitle rồi hiện lại.
   let candidate = -1;
   for (let index = 0; index < timedWords.length; index += 1) {
     const word = timedWords[index];
-    if (time >= word.start - WORD_EDGE_EPSILON && time <= word.end + WORD_TAIL_EPSILON) return index;
-    if (word.start - WORD_EDGE_EPSILON <= time) candidate = index;
-    if (word.start - WORD_EDGE_EPSILON > time) break;
+    if (time >= word.start && time <= word.end + 0.08) return index;
+    if (word.start <= time) candidate = index;
+    if (word.start > time) break;
   }
   const lastEnd = timedWords[timedWords.length - 1]?.end || 0;
   return candidate >= 0 && time <= lastEnd + 0.7 ? candidate : -1;
