@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from difflib import SequenceMatcher
 import json
 from pathlib import Path
@@ -22,6 +23,7 @@ VIETNAMESE_RE = re.compile(r"[ăâđêôơưáàảãạắằẳẵặấầẩ
 JAPANESE_RE = re.compile(r"[\u3040-\u30ff\u31f0-\u31ff]")
 HANGUL_RE = re.compile(r"[\uac00-\ud7af\u1100-\u11ff]")
 HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+ALIGNMENT_VERSION = 3
 
 
 def normalize_text(text: str) -> str:
@@ -175,8 +177,64 @@ def transcribe(audio: Path, model_size: str, language: str | None = None) -> lis
     return words
 
 
+def script_token_rarity(line_words: list[list[str]]) -> dict[str, float]:
+    counts = Counter(token for line in line_words for token in line)
+    return {token: 1.0 / count for token, count in counts.items()}
+
+
+def distinctive_line_tokens(tokens: list[str], rarity: dict[str, float]) -> list[str]:
+    """Prefer tokens that appear once in the script; they disambiguate repeated openings."""
+    unique = [token for token in tokens if rarity.get(token, 0) >= 0.999]
+    if unique:
+        return unique
+    ranked = sorted(tokens, key=lambda token: (-rarity.get(token, 0.0), -len(token)))
+    return ranked[: max(1, min(3, len(ranked)))]
+
+
+def window_contains_token(window: list[str], token: str) -> bool:
+    if not token:
+        return False
+    for value in window:
+        if not value:
+            continue
+        if value == token or token in value or value in token:
+            return True
+    return False
+
+
+def score_line_start_candidate(
+    words: list[dict],
+    candidate: int,
+    next_words: list[str],
+    *,
+    rarity: dict[str, float],
+    target: int,
+) -> float:
+    total_transcript = len(words)
+    window = [
+        normalize_word(words[candidate + offset]["word"])
+        for offset in range(min(len(next_words) + 4, total_transcript - candidate))
+    ]
+    positional = 0.0
+    for offset, value in enumerate(next_words):
+        weight = 2.0 + 8.0 * rarity.get(value, 0.2)
+        if offset < len(window) and value == window[offset]:
+            positional += 3.0 * weight
+        elif offset < len(window) and value and (value in window[offset] or window[offset] in value):
+            positional += 1.0 * weight
+    sequence = SequenceMatcher(None, next_words, window).ratio() * max(1, len(next_words)) * 2
+    first = 2.0 if next_words and window and next_words[0] == window[0] else 0.0
+    distinctive = distinctive_line_tokens(next_words, rarity)
+    distinctive_hits = sum(1 for token in distinctive if window_contains_token(window, token))
+    distinctive_bonus = 14.0 * distinctive_hits
+    if distinctive and distinctive_hits == 0:
+        distinctive_bonus -= 18.0
+    return positional + sequence + first + distinctive_bonus - abs(candidate - target) * 0.015
+
+
 def split_indexes(words: list[dict], lines: list[str]) -> list[int]:
     line_words = [normalize_text(line).split() for line in lines]
+    rarity = script_token_rarity(line_words)
     total_script = sum(len(line) for line in line_words) or 1
     total_transcript = len(words)
     indexes = []
@@ -188,19 +246,140 @@ def split_indexes(words: list[dict], lines: list[str]) -> list[int]:
         next_words = line_words[line_index + 1][:10]
         start = max(previous + 1, target - 60)
         end = min(total_transcript - 1, target + 60)
+        search_indexes = set(range(start, end + 1))
+        for token in distinctive_line_tokens(next_words, rarity):
+            for word_index, word in enumerate(words):
+                if word_index <= previous:
+                    continue
+                if window_contains_token([normalize_word(str(word.get("word") or ""))], token):
+                    for neighbor in range(max(previous + 1, word_index - 4), min(total_transcript, word_index + 1)):
+                        search_indexes.add(neighbor)
         best_index, best_score = min(max(target, start), end), float("-inf")
-        for candidate in range(start, end + 1):
-            window = [normalize_word(words[candidate + offset]["word"]) for offset in range(min(len(next_words) + 4, total_transcript - candidate))]
-            positional = sum(3 if offset < len(window) and value == window[offset] else 1 if offset < len(window) and value and (value in window[offset] or window[offset] in value) else 0 for offset, value in enumerate(next_words))
-            sequence = SequenceMatcher(None, next_words, window).ratio() * max(1, len(next_words)) * 2
-            first = 6 if next_words and window and next_words[0] == window[0] else 0
-            score = positional + sequence + first - abs(candidate - target) * 0.015
+        for candidate in sorted(search_indexes):
+            score = score_line_start_candidate(
+                words,
+                candidate,
+                next_words,
+                rarity=rarity,
+                target=target,
+            )
             if score > best_score:
                 best_index, best_score = candidate, score
         indexes.append(best_index)
         previous = best_index
         print(f"Dòng {line_index + 2} bắt đầu {words[best_index]['start']:.2f}s: {words[best_index]['word']}")
     return indexes
+
+
+def minimum_line_duration(token_count: int) -> float:
+    if token_count <= 1:
+        return 0.18
+    return max(0.4, min(1.6, token_count * 0.12))
+
+
+def timeline_quality(
+    starts: list[float],
+    lines: list[str],
+    final_end: float,
+    *,
+    cjk: bool,
+) -> tuple[int, float]:
+    """Return crushed-line count and normalized duration deficit."""
+    if len(starts) != len(lines) or not starts:
+        return len(lines) or 1, float("inf")
+    if any(starts[index] <= starts[index - 1] for index in range(1, len(starts))):
+        return len(lines), float("inf")
+
+    ends = [*starts[1:], final_end]
+    severe = 0
+    deficit = 0.0
+    for line, start, end in zip(lines, starts, ends):
+        token_count = max(1, len(alignment_tokens(line, cjk=cjk)))
+        required = max(minimum_line_duration(token_count), token_count * 0.04)
+        actual = max(0.0, end - start)
+        if actual < required * 0.5:
+            severe += 1
+        deficit += max(0.0, required - actual) / required
+    return severe, deficit
+
+
+def structural_silence_starts(
+    silences: list[tuple[float, float, float]],
+    line_count: int,
+    first_word_start: float,
+    last_word_end: float,
+) -> list[float] | None:
+    """Pick a clearly separated cluster of long inter-line pauses."""
+    needed = line_count - 1
+    if needed <= 0:
+        return None
+    internal = [
+        (start, end, pause_duration)
+        for start, end, pause_duration in silences
+        if start > 0.05
+        and end > first_word_start + 0.05
+        and start < last_word_end - 0.05
+    ]
+    if len(internal) < needed:
+        return None
+    ranked = sorted(internal, key=lambda item: (-item[2], item[1]))
+    selected = ranked[:needed]
+    rejected = ranked[needed:]
+    shortest_selected = min(item[2] for item in selected)
+    if shortest_selected < 0.42:
+        return None
+    if rejected:
+        longest_rejected = max(item[2] for item in rejected)
+        if not (
+            shortest_selected >= longest_rejected * 1.5
+            or shortest_selected - longest_rejected >= 0.18
+        ):
+            return None
+    starts = sorted(item[1] for item in selected)
+    if any(starts[index] <= starts[index - 1] for index in range(1, len(starts))):
+        return None
+    if starts[0] <= first_word_start or starts[-1] >= last_word_end:
+        return None
+    return starts
+
+
+def ensure_positive_word_timings(
+    line_words: list[dict],
+    line_start: float,
+    line_end: float,
+) -> list[dict]:
+    """Guarantee every karaoke word has a positive duration inside the line window."""
+    if not line_words:
+        return []
+    window_start = float(line_start)
+    count = len(line_words)
+    min_span = max(0.12, count * 0.04)
+    window_end = max(window_start + min_span, float(line_end))
+    step = (window_end - window_start) / count
+    needs_spread = False
+    provisional = []
+    for word in line_words:
+        word_start = max(window_start, min(window_end, float(word.get("start", window_start))))
+        word_end = min(window_end, max(word_start, float(word.get("end", word_start))))
+        if word_end - word_start < 0.03:
+            needs_spread = True
+        provisional.append((str(word.get("word") or ""), word_start, word_end))
+    if needs_spread:
+        provisional = [
+            (text, window_start + step * index, window_start + step * (index + 1))
+            for index, (text, _, _) in enumerate(provisional)
+        ]
+    repaired = []
+    previous_end = window_start
+    for text, word_start, word_end in provisional:
+        start = max(window_start, min(window_end, max(previous_end, word_start)))
+        end = max(start + 0.03, min(window_end, word_end))
+        if end > window_end:
+            end = window_end
+            start = min(start, max(window_start, end - 0.03))
+        repaired.append({"word": text, "start": round(start, 3), "end": round(end, 3)})
+        previous_end = repaired[-1]["end"]
+    return repaired
 
 
 def pose_at(topic: dict, time: float) -> dict:
@@ -255,7 +434,80 @@ def align_line_words(
             "start": round(word_start, 3),
             "end": round(word_end, 3),
         })
-    return line_words
+    return ensure_positive_word_timings(line_words, line_start, window_end)
+
+
+def sync_boundary_indexes_to_starts(
+    timing_words: list[dict],
+    starts: list[float],
+) -> list[int]:
+    """Keep Whisper word slices aligned after silence snapping moves line starts."""
+    indexes: list[int] = []
+    search_from = 0
+    for start in starts[1:]:
+        best_index = min(search_from, len(timing_words) - 1)
+        best_distance = abs(float(timing_words[best_index]["start"]) - start)
+        for word_index in range(search_from, len(timing_words)):
+            distance = abs(float(timing_words[word_index]["start"]) - start)
+            if distance < best_distance:
+                best_index = word_index
+                best_distance = distance
+            if float(timing_words[word_index]["start"]) > start + 0.25:
+                break
+        indexes.append(best_index)
+        search_from = best_index + 1
+    return indexes
+
+
+def repair_short_line_starts(
+    timing_words: list[dict],
+    lines: list[str],
+    starts: list[float],
+    duration: float,
+) -> list[float]:
+    """Pull a crushed line start earlier when Whisper still has that line's rare tokens."""
+    line_words = [normalize_text(line).split() for line in lines]
+    rarity = script_token_rarity(line_words)
+    repaired = list(starts)
+    for index, tokens in enumerate(line_words):
+        line_end = repaired[index + 1] if index + 1 < len(repaired) else duration
+        if line_end - repaired[index] >= minimum_line_duration(len(tokens)):
+            continue
+        distinctive = distinctive_line_tokens(tokens, rarity)
+        if not distinctive:
+            continue
+        previous_end = repaired[index - 1] + 0.2 if index > 0 else 0.0
+        next_start = repaired[index + 1] if index + 1 < len(repaired) else duration
+        candidates = []
+        first_token = normalize_word(tokens[0]) if tokens else ""
+        for word_index, word in enumerate(timing_words):
+            word_start = float(word["start"])
+            if word_start < previous_end or word_start >= next_start - 0.15:
+                continue
+            normalized = normalize_word(str(word.get("word") or ""))
+            if not any(window_contains_token([normalized], token) for token in distinctive):
+                continue
+            phrase_start_index = word_index
+            for back in range(word_index - 1, max(-1, word_index - 5), -1):
+                previous = normalize_word(str(timing_words[back].get("word") or ""))
+                if first_token and window_contains_token([previous], first_token):
+                    phrase_start_index = back
+                elif phrase_start_index != word_index:
+                    break
+            candidates.append(float(timing_words[phrase_start_index]["start"]))
+        if not candidates:
+            continue
+        chosen = min(candidates)
+        if chosen < repaired[index] - 0.05:
+            print(
+                f"Sửa biên câu {index + 1}: {repaired[index]:.3f}s → {chosen:.3f}s "
+                f"(khôi phục token đặc trưng {', '.join(distinctive[:3])})"
+            )
+            repaired[index] = chosen
+    for index in range(1, len(repaired)):
+        if repaired[index] <= repaired[index - 1] + 0.12:
+            repaired[index] = repaired[index - 1] + 0.12
+    return repaired
 
 
 def align_topic(
@@ -281,12 +533,48 @@ def align_topic(
         timing_words = words
     raw_starts = [max(0.0, timing_words[0]["start"])] + [timing_words[index]["start"] for index in indexes]
     starts = raw_starts
+    silences: list[tuple[float, float, float]] = []
     if audio is not None:
         silences = detect_silences(audio, silence_noise, silence_min_duration)
         print(f"Phát hiện {len(silences)} khoảng lặng; chốt đầu câu theo lúc giọng bắt đầu lại.")
         starts = [raw_starts[0], *snap_split_points_to_speech_starts(raw_starts[1:], silences, silence_max_distance)]
+    starts = repair_short_line_starts(timing_words, lines, starts, duration)
+    final_end = min(duration, max(starts[-1] + 0.12, words[-1]["end"] + 0.08))
+    severe, deficit = timeline_quality(starts, lines, final_end, cjk=cjk)
+    used_structural_silences = False
+    if silences and (severe > 0 or deficit >= 0.75):
+        silence_boundaries = structural_silence_starts(
+            silences,
+            len(lines),
+            float(timing_words[0]["start"]),
+            float(timing_words[-1]["end"]),
+        )
+        if silence_boundaries is not None:
+            candidate_starts = [max(0.0, float(timing_words[0]["start"])), *silence_boundaries]
+            candidate_final_end = min(
+                duration,
+                max(candidate_starts[-1] + 0.12, words[-1]["end"] + 0.08),
+            )
+            candidate_severe, candidate_deficit = timeline_quality(
+                candidate_starts,
+                lines,
+                candidate_final_end,
+                cjk=cjk,
+            )
+            clearly_better = (
+                candidate_severe == 0
+                and (severe > 0 or candidate_deficit + 0.25 < deficit)
+            )
+            if clearly_better:
+                print("Whisper chia câu không đáng tin cậy; khôi phục biên câu theo các khoảng lặng dài.")
+                starts = candidate_starts
+                final_end = candidate_final_end
+                severe, deficit = candidate_severe, candidate_deficit
+                used_structural_silences = True
+    if not cjk or used_structural_silences:
+        indexes = sync_boundary_indexes_to_starts(timing_words, starts)
     ends = [max(starts[index] + 0.12, starts[index + 1]) for index in range(len(starts) - 1)]
-    ends.append(min(duration, max(starts[-1] + 0.12, words[-1]["end"] + 0.08)))
+    ends.append(final_end)
 
     # Slice Whisper words by the same boundary indexes used for line starts so
     # repeated phrases cannot steal timestamps from a later occurrence.
@@ -322,8 +610,20 @@ def align_topic(
                 next_event["sfx"] = sfx
             timeline.append(next_event)
         previous_pose = pose
+    for segment in aligned:
+        segment_start = float(segment["start"])
+        segment_end = float(segment["end"])
+        for word in segment["words"]:
+            if (
+                float(word["start"]) < segment_start - 0.001
+                or float(word["end"]) > segment_end + 0.001
+                or float(word["end"]) <= float(word["start"])
+            ):
+                raise RuntimeError(
+                    "Whisper căn timing không đáng tin cậy; hãy thử lại hoặc đổi voice."
+                )
     topic["duration"] = round(duration, 3)
-    topic["alignmentVersion"] = 2
+    topic["alignmentVersion"] = ALIGNMENT_VERSION
     if language:
         topic["language"] = language
     topic["segments"] = aligned
@@ -349,7 +649,7 @@ def existing_alignment_is_compatible(path: Path, lines: list[str], duration: flo
     except (TypeError, ValueError):
         return False
     return (
-        existing.get("alignmentVersion") == 2
+        existing.get("alignmentVersion") == ALIGNMENT_VERSION
         and existing_lines == lines
         and abs(existing_duration - duration) <= 0.12
     )
@@ -456,7 +756,7 @@ def align_topic_without_whisper(
         previous_pose = pose
 
     topic["duration"] = round(duration, 3)
-    topic["alignmentVersion"] = 2
+    topic["alignmentVersion"] = ALIGNMENT_VERSION
     topic["segments"] = aligned
     fallback = next(iter(topic.get("poseAssets", {}) or {"question": {}}))
     topic["poseTimeline"] = timeline or [{"time": 0.0, "pose": fallback}]
@@ -486,7 +786,7 @@ def main() -> None:
         # Reuse only timing results. Visual/editor properties must come from the
         # current topic so background/layout changes are reflected in renders.
         result = dict(topic)
-        for key in ("duration", "segments", "poseTimeline", "language", "alignmentMethod"):
+        for key in ("duration", "segments", "poseTimeline", "language", "alignmentMethod", "alignmentVersion"):
             if key in existing:
                 result[key] = existing[key]
         args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
