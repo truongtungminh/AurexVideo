@@ -26,13 +26,16 @@ from tools.native_scene import (  # noqa: E402
 )
 from tools.render_project import (  # noqa: E402
     RenderBackendOutcome,
+    character_css_contract_matches,
     character_specific_css_selectors,
     native_manifest_image_signatures,
+    native_unsupported_text_styles,
     render_backend_report,
     render_native_backend,
     resolve_render_backend,
     requires_custom_intro_compatibility,
     requires_character_css_compatibility,
+    requires_text_style_compatibility,
 )
 from tools.render_quality import get_render_profile  # noqa: E402
 
@@ -127,17 +130,45 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertIn(".stage.character-popsy .topic-label-stack", selectors)
         self.assertNotIn(".stage.character-popsy .teacher", selectors)
 
-    def test_bietchichomet_stays_on_browser_compatibility_until_css_contract(self) -> None:
+    def test_bietchichomet_default_css_contract_uses_native(self) -> None:
         topic = {"characterId": "bietchichomet"}
 
         selectors = character_specific_css_selectors(topic)
         self.assertTrue(selectors)
-        self.assertTrue(requires_character_css_compatibility("auto", topic))
+        self.assertTrue(character_css_contract_matches(topic))
+        self.assertFalse(requires_character_css_compatibility("auto", topic))
         self.assertFalse(requires_character_css_compatibility("browser", topic))
-        with self.assertRaises(NativeRenderUnavailable) as raised:
-            requires_character_css_compatibility("native", topic)
+        self.assertFalse(requires_character_css_compatibility("native", topic))
+
+    def test_bietchichomet_css_override_routes_auto_to_browser(self) -> None:
+        topic = {"characterId": "bietchichomet"}
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            stylesheet = Path(temp) / "style.css"
+            stylesheet.write_text(
+                (ENGINE_ROOT / "style.css").read_text(encoding="utf-8")
+                + "\n.stage.character-bietchichomet .topic-label { text-shadow: 0 1px #000; }\n",
+                encoding="utf-8",
+            )
+
+            self.assertFalse(character_css_contract_matches(topic, stylesheet=stylesheet))
+            self.assertTrue(requires_character_css_compatibility("auto", topic, stylesheet=stylesheet))
+            with self.assertRaises(NativeRenderUnavailable) as raised:
+                requires_character_css_compatibility("native", topic, stylesheet=stylesheet)
 
         self.assertEqual(raised.exception.reason, "character_css_parity_required")
+
+    def test_non_inter_label_font_routes_auto_to_browser(self) -> None:
+        topic = {
+            "characterId": "bietchichomet",
+            "labelFontFamily": '"Be Vietnam Pro", "Inter", sans-serif',
+        }
+
+        self.assertEqual(native_unsupported_text_styles(topic), ("labelFontFamily",))
+        self.assertTrue(requires_text_style_compatibility("auto", topic))
+        with self.assertRaises(NativeRenderUnavailable) as raised:
+            requires_text_style_compatibility("native", topic)
+
+        self.assertEqual(raised.exception.reason, "native_text_style_parity_required")
 
     def test_character_css_guard_routes_auto_and_rejects_explicit_native(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
@@ -264,6 +295,39 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(rect["width"], 0.444)
         self.assertAlmostEqual(rect["y"] + rect["height"], 0.240)
         self.assertAlmostEqual(rect["height"], 54 * 0.98 / 1920)
+
+    def test_bietchichomet_default_text_style_compiles_to_native_ir(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            root = Path(temp)
+            (root / "assets").mkdir()
+            (root / "poses").mkdir()
+            (root / "assets/left.png").write_bytes(b"left")
+            (root / "assets/right.png").write_bytes(b"right")
+            (root / "poses/pose-1.mp4").write_bytes(b"video")
+            topic_path = root / "topic.rendered.json"
+            topic_path.write_text(json.dumps({
+                "characterId": "bietchichomet",
+                "duration": 1.0,
+                "segments": [{"start": 0, "end": 1, "text": "Đây là test."}],
+                "poseTimeline": [{"time": 0, "pose": "pose-1"}],
+                "poseAssets": {"pose-1": {"speaking": "poses/pose-1.mp4"}},
+                "leftImage": "assets/left.png",
+                "rightImage": "assets/right.png",
+                "leftLabel": "Trái",
+                "rightLabel": "Phải",
+            }), encoding="utf-8")
+
+            document = compile_standard_topic(
+                topic_path,
+                staging_dir=root / ".stage",
+                resource_root=ENGINE_ROOT,
+            )
+
+        labels = [layer for layer in document["layers"] if layer["id"].endswith("-label")]
+        karaoke = [layer for layer in document["layers"] if layer["id"].startswith("karaoke-")]
+        self.assertEqual([layer["fontFamily"] for layer in labels], ["Inter", "Inter"])
+        self.assertEqual([layer["textColor"] for layer in labels], ["#090909", "#090909"])
+        self.assertEqual(karaoke[0]["textColor"], "#1B2E35")
 
     def test_single_image_scene_uses_one_centered_native_slot(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:

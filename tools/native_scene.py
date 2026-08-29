@@ -52,6 +52,12 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         "karaoke_rect": {"x": 0.050, "y": 0.462, "width": 0.900, "height": 0.090},
         "label_font_size": 54.0,
         "karaoke_font_size": 59.9,
+        # These are the browser/editor defaults for this profile. Explicit
+        # topic colors still win, and both label and karaoke colors are Scene
+        # IR properties rather than a reason to rasterize through Browser.
+        "label_color": "#090909",
+        "karaoke_color": "#1B2E35",
+        "karaoke_active_color": "#A83220",
         "border_color": "#8b5a2b",
         "border_inset": 0.006,
         "border": True,
@@ -72,6 +78,9 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         "karaoke_rect": {"x": 0.050, "y": 0.462, "width": 0.900, "height": 0.090},
         "label_font_size": 58.0,
         "karaoke_font_size": 59.9,
+        "label_color": "#090909",
+        "karaoke_color": "#111111",
+        "karaoke_active_color": "#de370d",
         "border": False,
     },
 }
@@ -472,8 +481,8 @@ def compile_standard_topic(
             "rightImageZoom": topic.get("rightImageZoom"),
             "rightImageX": topic.get("rightImageX"),
             "rightImageY": topic.get("rightImageY"),
-            "leftLabelColor": topic.get("leftLabelColor") or topic.get("labelColor") or "#090909",
-            "rightLabelColor": topic.get("rightLabelColor") or topic.get("labelColor") or "#090909",
+            "leftLabelColor": topic.get("leftLabelColor") or topic.get("labelColor") or profile["label_color"],
+            "rightLabelColor": topic.get("rightLabelColor") or topic.get("labelColor") or profile["label_color"],
             "leftSubLabelColor": topic.get("leftSubLabelColor") or "#808080",
             "rightSubLabelColor": topic.get("rightSubLabelColor") or "#808080",
             "labelFontFamily": topic.get("labelFontFamily") or "Inter",
@@ -548,7 +557,7 @@ def compile_standard_topic(
                     rect=label_rect,
                     font_source=font_source,
                     text=label_value,
-                    color=str(scene.get(f"{side}LabelColor") or "#090909"),
+                    color=str(scene.get(f"{side}LabelColor") or profile["label_color"]),
                     font_size=float(profile.get("label_font_size", 58.0)),
                     line_height=0.98,
                     z_index=6,
@@ -567,8 +576,8 @@ def compile_standard_topic(
                     z_index=6,
                 ))
 
-    karaoke_color = str(topic.get("karaokeColor") or "#111111")
-    active_color = str(topic.get("karaokeActiveColor") or "#de370d")
+    karaoke_color = str(topic.get("karaokeColor") or profile["karaoke_color"])
+    active_color = str(topic.get("karaokeActiveColor") or profile["karaoke_active_color"])
     karaoke_size = max(0.6, min(1.5, _number(topic.get("karaokeSize"), 1.2)))
     words = _timed_words(segments)
     groups = _word_groups(words, karaoke_size=karaoke_size)

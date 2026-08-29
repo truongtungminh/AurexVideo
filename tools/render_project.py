@@ -53,6 +53,54 @@ ROOT = RESOURCE_ROOT
 PYTHON = PYTHON_EXECUTABLE
 VIENEU_PYTHON = resolve_vieneu_python()
 
+# These fingerprints are the browser stylesheet rules represented by a native
+# style profile.  A profile is an explicit compatibility contract, not a
+# blanket exemption for every selector bearing the same character class.  If a
+# user changes one of these rules, Auto returns to Browser until the compiler
+# grows the corresponding Scene IR support and this contract is deliberately
+# refreshed.
+_NATIVE_CHARACTER_STYLESHEET_CONTRACTS = {
+    "bietchichomet": "8cc15e01669601cf3617780e75aa26283ebbddcc95c7dd5023ec2c3410a44d53",
+}
+
+
+def _native_inter_font(value: object) -> bool:
+    """Whether a browser label stack resolves to the bundled Inter font.
+
+    Scene IR v2 currently stages Inter-Bold for labels and karaoke.  Color is
+    represented natively, but silently replacing a selected non-Inter font
+    would be a preview-parity regression, so leave that project on Browser.
+    """
+    family = str(value or "").strip().lstrip('"\'').split(",", 1)[0].strip().strip('"\'').lower()
+    return not family or family == "inter"
+
+
+def native_unsupported_text_styles(topic: dict[str, object]) -> tuple[str, ...]:
+    """List per-project text choices that Scene IR v2 cannot yet preserve."""
+    unsupported: list[str] = []
+    if not _native_inter_font(topic.get("labelFontFamily")):
+        unsupported.append("labelFontFamily")
+    comparisons = topic.get("comparisons")
+    if isinstance(comparisons, list):
+        for index, comparison in enumerate(comparisons, start=1):
+            if isinstance(comparison, dict) and not _native_inter_font(comparison.get("labelFontFamily")):
+                unsupported.append(f"comparisons[{index}].labelFontFamily")
+    return tuple(unsupported)
+
+
+def requires_text_style_compatibility(backend: str, topic: dict[str, object]) -> bool:
+    """Guard only text properties for which native has no faithful contract."""
+    unsupported = native_unsupported_text_styles(topic)
+    if not unsupported:
+        return False
+    if backend == "native":
+        raise NativeRenderUnavailable(
+            "Aurex Render Core hiện chỉ bảo toàn font Inter cho nhãn/karaoke "
+            f"({', '.join(unsupported)}). Dùng --render-backend auto để Browser giữ đúng font.",
+            reason="native_text_style_parity_required",
+        )
+    return backend == "auto"
+
 
 @dataclass(frozen=True)
 class RenderBackendOutcome:
@@ -802,15 +850,54 @@ def character_specific_css_selectors(
     return tuple(dict.fromkeys(selectors))
 
 
+def character_css_contract_matches(
+    topic: dict[str, object],
+    *,
+    stylesheet: Path | None = None,
+) -> bool:
+    """Return whether this character's browser CSS matches a native profile.
+
+    The canonical form intentionally includes declarations as well as
+    selectors.  This lets the built-in bietchichomet profile use Core, while a
+    project/installation that adds an unsupported shadow, transform, clipping
+    rule, or any other character CSS override remains on Browser.
+    """
+    character_id = str(topic.get("characterId") or topic.get("brand") or "").strip().lower()
+    expected = _NATIVE_CHARACTER_STYLESHEET_CONTRACTS.get(character_id)
+    if not expected:
+        return False
+    path = stylesheet or ROOT / "style.css"
+    try:
+        css = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    active_css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    class_pattern = re.compile(rf"\.character-{re.escape(character_id)}(?![\w-])")
+    rules: list[str] = []
+    for prelude, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", active_css):
+        canonical_declarations = " ".join(declarations.split())
+        for selector in prelude.split(","):
+            normalized_selector = " ".join(selector.split())
+            if normalized_selector and class_pattern.search(normalized_selector):
+                rules.append(f"{normalized_selector}{{{canonical_declarations}}}")
+    if not rules:
+        return False
+    actual = hashlib.sha256("\n".join(rules).encode("utf-8")).hexdigest()
+    return actual == expected
+
+
 def requires_character_css_compatibility(
     backend: str,
     topic: dict[str, object],
     *,
     stylesheet: Path | None = None,
 ) -> bool:
-    """Guard native scene rendering when the preview has character-only CSS."""
+    """Guard native rendering for character CSS outside an explicit contract."""
     selectors = character_specific_css_selectors(topic, stylesheet=stylesheet)
     if not selectors:
+        return False
+    if character_css_contract_matches(topic, stylesheet=stylesheet):
         return False
     if backend == "native":
         examples = "; ".join(selectors[:3])
@@ -1112,6 +1199,10 @@ def main() -> None:
         args.render_backend,
         original,
     )
+    text_style_compatibility = requires_text_style_compatibility(
+        args.render_backend,
+        original,
+    )
     signature = render_signature(topic_path, args, topic_value=original)
     output = project / "output" / "final_video.mp4"
     signature_file = output.with_suffix(".signature.json")
@@ -1184,12 +1275,16 @@ def main() -> None:
             "--model", args.whisper_model,
         ])
         render_fps = max(1, int(args.fps))
-        if character_css_compatibility or custom_intro_compatibility:
+        if character_css_compatibility or custom_intro_compatibility or text_style_compatibility:
             selectors = character_specific_css_selectors(original)
             guard_reasons: list[str] = []
             if character_css_compatibility:
                 guard_reasons.append(
                     "character CSS " + ", ".join(selectors[:3])
+                )
+            if text_style_compatibility:
+                guard_reasons.append(
+                    "unsupported text style " + ", ".join(native_unsupported_text_styles(original))
                 )
             if custom_intro_compatibility:
                 guard_reasons.append("Custom Intro 0–3 giây")
@@ -1201,13 +1296,19 @@ def main() -> None:
             compatibility_reason = (
                 "custom_intro_browser_required"
                 if custom_intro_compatibility
-                else "character_css_parity_required"
+                else (
+                    "character_css_parity_required"
+                    if character_css_compatibility
+                    else "native_text_style_parity_required"
+                )
             )
             compatibility_detail = " ".join([
                 "Custom Intro của Custom project cần Browser raster để đồng nhất preview và video."
                 if custom_intro_compatibility else "",
                 "Character-specific selectors in engine/style.css require Browser raster rendering for preview parity."
                 if character_css_compatibility else "",
+                "Label font selection is not represented by the current Native Core font contract."
+                if text_style_compatibility else "",
             ]).strip()
             try:
                 backend_outcome = render_core_compatibility_backend(
