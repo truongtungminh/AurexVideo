@@ -46,7 +46,7 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         # CSS equivalent: .topic-label-stack { top: 24%;
         # transform: translateY(-100%); }. The compiler expands the line box
         # from the actual label text so multi-line labels keep the same anchor.
-        "label_anchor_y": 0.230,
+        "label_anchor_y": 0.233,
         "label_line_height": 1.15,
         "label_gap_cqw": 0.35,
         "karaoke_rect": {"x": 0.050, "y": 0.462, "width": 0.900, "height": 0.090},
