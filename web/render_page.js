@@ -1,11 +1,18 @@
 (() => {
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
-  // Browser is the canonical render path until Native Core reaches CSS parity.
+  // Auto is the default: Native for contract-covered scenes, Browser for CSS compatibility.
   const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v3';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
   const RENDER_ENGINE_STORAGE_KEY = 'aurexvideo-render-engine-v1';
   const RENDER_ENGINES = new Set(['vieneu', 'maziao', 'edgetts']);
+  const RENDER_BACKENDS = new Set(['auto', 'browser', 'native']);
+  const RENDER_BACKEND_POLICY_VERSION = 2;
+
+  function normalizeRenderBackend(value, fallback = 'auto') {
+    const backend = String(value || '').trim().toLowerCase();
+    return RENDER_BACKENDS.has(backend) ? backend : fallback;
+  }
 
   function normalizeRenderEngine(value) {
     const engine = String(value || '').trim().toLowerCase();
@@ -179,7 +186,8 @@
       branding: brandingControl?.checked === true,
       brandName: state.renderOptions.brandName || 'aurexvideo.app',
       qualityProfile: $('#renderQuality')?.value || 'standard',
-      renderBackend: $('#renderBackend')?.value || 'browser',
+      renderBackend: normalizeRenderBackend($('#renderBackend')?.value),
+      renderBackendPolicyVersion: RENDER_BACKEND_POLICY_VERSION,
     };
     localStorage.setItem(RENDER_PREFERENCES_KEY, JSON.stringify(value));
   }
@@ -194,7 +202,13 @@
       if (typeof value.brandName === 'string' && value.brandName.trim()) state.renderOptions.brandName = value.brandName.trim();
       const quality = String(value.qualityProfile || '').trim().toLowerCase();
       if (['draft', 'standard', 'master'].includes(quality) && $('#renderQuality')) $('#renderQuality').value = quality;
-      if ($('#renderBackend')) $('#renderBackend').value = 'browser';
+      const renderBackend = $('#renderBackend');
+      if (renderBackend) {
+        const policyVersion = Number(value.renderBackendPolicyVersion || 0);
+        renderBackend.value = normalizeRenderBackend(
+          policyVersion >= RENDER_BACKEND_POLICY_VERSION ? value.renderBackend : 'auto',
+        );
+      }
     } catch (_) {
       const brandingControl = $('#renderBranding');
       if (brandingControl && !brandingControl.disabled) brandingControl.checked = false;
@@ -3786,7 +3800,7 @@
         volume: Number($('#renderVolume').value || 1),
         size: $('#renderSize')?.value || '1080x1920',
         qualityProfile: $('#renderQuality')?.value || 'standard',
-        renderBackend: $('#renderBackend')?.value || 'browser',
+        renderBackend: normalizeRenderBackend($('#renderBackend')?.value),
         fps: 30,
         outro: false,
         branding: $('#renderBranding')?.checked === true,
@@ -5152,7 +5166,10 @@
     applyValue('#renderSize', preferences.size);
     applyValue('#renderQuality', preferences.qualityProfile);
     const renderBackend = $('#renderBackend');
-    if (renderBackend) renderBackend.value = 'browser';
+    if (renderBackend) {
+      const serverBackend = normalizeRenderBackend(preferences.renderBackend, '');
+      if (serverBackend) renderBackend.value = serverBackend;
+    }
     applyValue('#maziaoTtsMode', preferences.ttsMode);
     const branding = $('#renderBranding');
     if (branding && !branding.disabled && typeof preferences.branding === 'boolean') {

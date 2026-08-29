@@ -981,8 +981,17 @@ LEGACY_LABEL_FONT_MAP = {
 
 
 RENDER_PREFERENCE_KEYS = (
-    "engine", "speed", "volume", "size", "qualityProfile", "renderBackend", "voice", "ttsMode", "branding", "force", "rebuildAudioCache",
+    "engine", "speed", "volume", "size", "qualityProfile", "renderBackend", "renderBackendPolicyVersion", "voice", "ttsMode", "branding", "force", "rebuildAudioCache",
 )
+RENDER_BACKEND_POLICY_VERSION = 2
+RENDER_BACKEND_ALIASES = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
+RENDER_BACKENDS = {"auto", "browser", "native"}
+
+
+def normalize_render_backend_preference(value: object, fallback: str = "auto") -> str:
+    raw = str(value or "").strip().lower()
+    normalized = RENDER_BACKEND_ALIASES.get(raw, raw)
+    return normalized if normalized in RENDER_BACKENDS else fallback
 
 
 def read_render_preferences() -> dict:
@@ -991,9 +1000,18 @@ def read_render_preferences() -> dict:
     if not isinstance(value, dict):
         return {}
     preferences = dict(value)
-    # Keep older Core-first/native preferences from reactivating a backend that
-    # is intentionally disabled until Native Core reaches CSS parity.
-    preferences["renderBackend"] = "browser"
+    # Browser-only builds wrote browser without a policy version. Migrate that
+    # stale value to Auto so standard projects can use Native again. Once a
+    # user explicitly chooses a backend under this policy, version 2 preserves
+    # that choice across launches.
+    try:
+        policy_version = int(preferences.get("renderBackendPolicyVersion") or 0)
+    except (TypeError, ValueError):
+        policy_version = 0
+    if "renderBackend" in preferences:
+        preferences["renderBackend"] = normalize_render_backend_preference(
+            preferences.get("renderBackend") if policy_version >= RENDER_BACKEND_POLICY_VERSION else "auto"
+        )
     return preferences
 
 
@@ -1014,7 +1032,13 @@ def write_render_preferences(payload: dict) -> dict:
         elif key in {"branding", "force", "rebuildAudioCache"}:
             cleaned[key] = bool(value)
         elif key == "renderBackend":
-            cleaned[key] = "browser"
+            cleaned[key] = normalize_render_backend_preference(value)
+            cleaned["renderBackendPolicyVersion"] = RENDER_BACKEND_POLICY_VERSION
+        elif key == "renderBackendPolicyVersion":
+            try:
+                cleaned[key] = max(0, int(value))
+            except (TypeError, ValueError):
+                continue
         else:
             cleaned[key] = str(value or "").strip()[:80]
     with PROJECT_DEFAULTS_LOCK:

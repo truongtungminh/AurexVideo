@@ -911,18 +911,12 @@ def coerce_quality_profile(value: object) -> str:
 
 
 def coerce_render_backend(value: object) -> str:
-    """Apply the current Browser-only render policy at the API boundary."""
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
-    aliases = {
-        "auto": "browser",
-        "native": "browser",
-        "native-core": "browser",
-        "aurex": "browser",
-        "compatibility": "browser",
-    }
+    """Validate and normalize the hybrid native/browser render policy."""
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "auto").strip().lower()
+    aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
     requested = aliases.get(requested, requested)
-    if requested != "browser":
-        raise ValueError("Render backend currently supports browser only.")
+    if requested not in {"browser", "auto", "native"}:
+        raise ValueError("Render backend must be browser, auto or native.")
     return requested
 
 
@@ -1897,7 +1891,7 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
                 render_report = json.loads(report_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 render_report = {}
-            backend_requested = str(render_report.get("backend_requested") or "browser")
+            backend_requested = str(render_report.get("backend_requested") or "auto")
             backend_used = str(render_report.get("backend_used") or render_report.get("render_backend") or "unknown")
             fallback_reason = render_report.get("fallback_reason")
             append_log(job_id, f"\nPostflight OK: {postflight.get('width')}x{postflight.get('height')} @ {postflight.get('fps')}fps, BT.709, AAC stereo 48kHz.\n")
@@ -3917,10 +3911,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <span>Bộ máy render</span>
             </span>
             <select id="renderBackend">
-              <option value="browser" selected>Browser · giữ đúng CSS preview (mặc định)</option>
+              <option value="auto" selected>Auto · Native nhanh, CSS custom tự dùng Browser</option>
+              <option value="native">Aurex Render Core · bắt buộc Native</option>
+              <option value="browser">Browser · giữ đúng CSS preview</option>
             </select>
           </label>
-          <p class="engine-note render-backend-note">Hiện dùng Browser raster + FFmpeg để video khớp CSS trong editor. Native Core sẽ mở lại sau khi hoàn tất CSS parity.</p>
+          <p class="engine-note render-backend-note">Auto dùng Native khi scene có contract; CSS custom như bietchichomet và Custom Intro tự chuyển Browser compatibility để giữ đúng preview. Chọn Native sẽ dừng nếu project chưa đạt parity.</p>
         </div>
       </section>
 
@@ -6785,7 +6781,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-  <script src="/web/render_page.js?v=20260824-core-first-v1"></script>
+      <script src="/web/render_page.js?v=20260829-hybrid-render-v1"></script>
 """,
     )
 
@@ -8856,7 +8852,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-  <script src="/web/render_page.js?v=20260824-core-first-v1"></script>
+      <script src="/web/render_page.js?v=20260829-hybrid-render-v1"></script>
 """,
     )
 
