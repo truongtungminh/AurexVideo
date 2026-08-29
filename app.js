@@ -395,9 +395,12 @@ function hideIntro() {
 function applyIntro(nextTopic = topic, time = 0) {
   const introRoot = elements.stageIntro;
   if (!introRoot) return false;
+  if (!isCustomProject(nextTopic)) {
+    hideIntro();
+    return false;
+  }
   const intro = customIntroConfig(nextTopic);
-  const active = isCustomProject(nextTopic)
-    && ["color", "media"].includes(intro.type)
+  const active = ["color", "media"].includes(intro.type)
     && Number(time) >= 0
     && Number(time) < CUSTOM_INTRO_DURATION_SECONDS;
   if (!active) {
