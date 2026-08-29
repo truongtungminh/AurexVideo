@@ -96,6 +96,9 @@ let previewTimeLock = null;
 let presenterLayoutRaf = 0;
 let presenterLayoutGeneration = 0;
 let lastPresenterSource = "";
+let lastIntroStaticKey = "";
+let introVisible = false;
+let currentTopicPresentationKey = "";
 let lastKaraokeGroupKey = "";
 let lastKaraokeRenderKey = "";
 let lastOfflineLayoutKey = "";
@@ -349,88 +352,161 @@ function introVideoTargetTime(time, duration) {
   return Math.min(value, Math.max(0, safeDuration - 0.001));
 }
 
+function topicPresentationKey(nextTopic = topic) {
+  if (!nextTopic || typeof nextTopic !== "object") return "";
+  const presentation = { ...nextTopic };
+  if (Array.isArray(presentation.segments)) {
+    // Script text changes should only invalidate karaoke timing/markup. Keep
+    // the stable segment metadata in the key so retiming, speakers, or pose
+    // changes still take the full visual path.
+    presentation.segments = presentation.segments.map((segment) => {
+      if (!segment || typeof segment !== "object") return segment;
+      const copy = { ...segment };
+      delete copy.text;
+      return copy;
+    });
+  }
+  try {
+    return JSON.stringify(presentation);
+  } catch (_error) {
+    // Messages arrive as JSON, but keep the renderer safe if a test injects a
+    // non-serializable object.
+    return "__uncacheable__";
+  }
+}
+
+function hideIntro() {
+  const introRoot = elements.stageIntro;
+  if (!introRoot) return;
+  const video = elements.stageIntroVideo;
+  const needsReset = introVisible
+    || !introRoot.hidden
+    || elements.stage?.classList.contains("intro-active")
+    || Boolean(video && !video.paused);
+  if (!needsReset) return;
+  video?.pause();
+  introRoot.hidden = true;
+  introRoot.setAttribute("aria-hidden", "true");
+  elements.stage?.classList.remove("intro-active");
+  introVisible = false;
+  lastIntroStaticKey = "";
+}
+
 function applyIntro(nextTopic = topic, time = 0) {
   const introRoot = elements.stageIntro;
   if (!introRoot) return false;
   const intro = customIntroConfig(nextTopic);
-  const active = customIntroIsActive(nextTopic, time);
-  introRoot.hidden = !active;
-  introRoot.setAttribute("aria-hidden", active ? "false" : "true");
-  elements.stage?.classList.toggle("intro-active", active);
-  const video = elements.stageIntroVideo;
+  const active = isCustomProject(nextTopic)
+    && ["color", "media"].includes(intro.type)
+    && Number(time) >= 0
+    && Number(time) < CUSTOM_INTRO_DURATION_SECONDS;
   if (!active) {
-    video?.pause();
+    // Standard comparison projects spend almost all of their lifetime here.
+    // Avoid touching the DOM or pausing an already-paused video on every
+    // animation frame.
+    hideIntro();
     return false;
   }
 
+  if (!introVisible) {
+    introRoot.hidden = false;
+    introRoot.setAttribute("aria-hidden", "false");
+    elements.stage?.classList.add("intro-active");
+    introVisible = true;
+  }
+
+  const video = elements.stageIntroVideo;
   const color = String(intro.color || "#0b1020");
-  introRoot.style.setProperty("--intro-color", color);
-  introRoot.style.backgroundColor = "transparent";
   const mediaPath = intro.type === "media" ? String(intro.media || "").trim() : "";
   const mediaSource = mediaPath ? resolveTopicAsset(mediaPath) : "";
   const videoMedia = String(intro.mediaType || "").toLowerCase() === "video" || isVideoAssetSource(mediaSource);
   const image = elements.stageIntroImage;
-  if (videoMedia) {
-    if (image) {
-      image.hidden = true;
-      image.removeAttribute("src");
-    }
-    if (video) {
-      if ((video.getAttribute("src") || "") !== mediaSource) {
-        if (mediaSource) video.setAttribute("src", mediaSource);
-        else video.removeAttribute("src");
-        video.load();
+  const logoSource = intro.logo ? resolveTopicAsset(intro.logo) : "";
+  const logoScale = Math.min(1.6, Math.max(0.5, Number(intro.logoScale) || 1));
+  const titleText = String(intro.title || "");
+  const titleColor = String(intro.titleColor || "#ffffff");
+  const titleSize = Math.min(1.5, Math.max(0.6, Number(intro.titleSize) || 1));
+  const staticKey = [
+    intro.type,
+    color,
+    mediaSource,
+    videoMedia ? "video" : "image",
+    intro.mediaZoom,
+    intro.mediaX,
+    intro.mediaY,
+    logoSource,
+    logoScale,
+    titleText,
+    titleColor,
+    titleSize,
+  ].map((value) => String(value ?? "")).join("\u001f");
+
+  if (staticKey !== lastIntroStaticKey) {
+    lastIntroStaticKey = staticKey;
+    introRoot.style.setProperty("--intro-color", color);
+    introRoot.style.backgroundColor = "transparent";
+    if (videoMedia) {
+      if (image) {
+        image.hidden = true;
+        image.removeAttribute("src");
       }
-      video.hidden = !mediaSource;
-      if (mediaSource && mediaReady(video)) {
-        applyImageFrame(video, intro.mediaZoom, intro.mediaX, intro.mediaY);
-      }
-      if (mediaSource && !offlineRender) {
-        const duration = Number(video.duration);
-        const target = introVideoTargetTime(time, duration);
-        if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
-          try { video.currentTime = target; } catch (_error) { /* media is still loading */ }
+      if (video) {
+        if ((video.getAttribute("src") || "") !== mediaSource) {
+          if (mediaSource) video.setAttribute("src", mediaSource);
+          else video.removeAttribute("src");
+          video.load();
         }
-        if (video.paused) video.play().catch(() => {});
+        video.hidden = !mediaSource;
+      }
+    } else {
+      video?.pause();
+      if (video) {
+        video.hidden = true;
+        video.removeAttribute("src");
+      }
+      if (image) {
+        if (image.getAttribute("src") !== mediaSource) {
+          if (mediaSource) image.setAttribute("src", mediaSource);
+          else image.removeAttribute("src");
+        }
+        image.hidden = !mediaSource;
       }
     }
-  } else {
-    video?.pause();
-    if (video) {
-      video.hidden = true;
-      video.removeAttribute("src");
+
+    const logo = elements.stageIntroLogo;
+    if (logo) {
+      if (logo.getAttribute("src") !== logoSource) {
+        if (logoSource) logo.setAttribute("src", logoSource);
+        else logo.removeAttribute("src");
+      }
+      logo.hidden = !logoSource;
+      if (logoSource) logo.style.width = `${Math.min(62, Math.max(22, 38 * logoScale))}%`;
     }
-    if (image) {
-      if (image.getAttribute("src") !== mediaSource) {
-        if (mediaSource) image.setAttribute("src", mediaSource);
-        else image.removeAttribute("src");
-      }
-      image.hidden = !mediaSource;
-      if (mediaSource) {
-        applyImageFrame(image, intro.mediaZoom, intro.mediaX, intro.mediaY);
-      }
+    const title = elements.stageIntroTitle;
+    if (title) {
+      title.textContent = titleText;
+      title.hidden = !titleText;
+      title.style.color = titleColor;
+      title.style.setProperty("--intro-title-size", String(titleSize));
     }
   }
 
-  const logo = elements.stageIntroLogo;
-  const logoSource = intro.logo ? resolveTopicAsset(intro.logo) : "";
-  if (logo) {
-    if (logo.getAttribute("src") !== logoSource) {
-      if (logoSource) logo.setAttribute("src", logoSource);
-      else logo.removeAttribute("src");
+  if (videoMedia) {
+    if (video && mediaSource && mediaReady(video)) {
+      applyImageFrame(video, intro.mediaZoom, intro.mediaX, intro.mediaY);
     }
-    logo.hidden = !logoSource;
-    if (logoSource) {
-      const scale = Math.min(1.6, Math.max(0.5, Number(intro.logoScale) || 1));
-      logo.style.width = `${Math.min(62, Math.max(22, 38 * scale))}%`;
+    if (video && mediaSource && !offlineRender) {
+      const duration = Number(video.duration);
+      const target = introVideoTargetTime(time, duration);
+      if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
+        try { video.currentTime = target; } catch (_error) { /* media is still loading */ }
+      }
+      if (video.paused) video.play().catch(() => {});
     }
-  }
-  const title = elements.stageIntroTitle;
-  if (title) {
-    title.textContent = String(intro.title || "");
-    title.hidden = !title.textContent;
-    title.style.color = String(intro.titleColor || "#ffffff");
-    title.style.setProperty("--intro-title-size", String(Math.min(1.5, Math.max(0.6, Number(intro.titleSize) || 1))));
+  } else if (image && mediaSource) {
+    // The frame depends on the responsive slot size, so refresh it only for
+    // the active intro path. Inactive standard projects never reach here.
+    applyImageFrame(image, intro.mediaZoom, intro.mediaX, intro.mediaY);
   }
   return true;
 }
@@ -1611,11 +1687,7 @@ function showPreviewBlank() {
   lastSfxAt = -Infinity;
   elements.karaoke.classList.remove("visible");
   elements.karaoke.replaceChildren();
-  elements.stage.classList.remove("intro-active");
-  if (elements.stageIntro) {
-    elements.stageIntro.hidden = true;
-    elements.stageIntro.setAttribute("aria-hidden", "true");
-  }
+  hideIntro();
   elements.stage.classList.add("preview-blank");
 }
 
@@ -1812,11 +1884,31 @@ function applyStageBackground(nextTopic = topic) {
 }
 
 async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false } = {}) {
+  const nextPresentationKey = topicPresentationKey(nextTopic);
+  const presentationChanged = nextPresentationKey !== currentTopicPresentationKey;
+  const previousCompactCjk = usesCompactCjkText(topic);
+  const previousVietnamese = usesVietnameseText(topic);
   topic = nextTopic;
-  elements.stage.classList.toggle("custom-slide-project", isCustomProject(topic));
-  if (!isCustomProject(topic)) { previewSlideId = ""; if (elements.slideCanvas) elements.slideCanvas.hidden = true; }
+  currentTopicPresentationKey = nextPresentationKey;
   timedWords = buildTimedWords(topic.segments || []);
   wordGroups = buildGroups(timedWords);
+
+  if (!presentationChanged) {
+    // Text edits only change the timed words and subtitle markup. Keep the
+    // already-painted image/label/presenter tree intact; rebuilding it for
+    // every keystroke is particularly expensive in the desktop WKWebView.
+    lastKaraokeGroupKey = "";
+    lastKaraokeRenderKey = "";
+    lastOfflineLayoutKey = "";
+    const scriptStyleChanged = previousCompactCjk !== usesCompactCjkText(topic)
+      || previousVietnamese !== usesVietnameseText(topic);
+    if (scriptStyleChanged) applyKaraokeStyle(topic);
+    if (blank) showPreviewBlank();
+    return;
+  }
+
+  elements.stage.classList.toggle("custom-slide-project", isCustomProject(topic));
+  if (!isCustomProject(topic)) { previewSlideId = ""; if (elements.slideCanvas) elements.slideCanvas.hidden = true; }
   currentPose = topic.poseTimeline?.[0]?.pose || Object.keys(topic.poseAssets || {})[0] || "question";
   lastPoseIndex = -1;
   lastKaraokeGroupKey = "";

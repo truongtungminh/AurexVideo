@@ -1264,6 +1264,16 @@ function renderPoseList() {
   }).join("");
 }
 
+let poseListRenderFrame = 0;
+
+function schedulePoseListRender() {
+  if (poseListRenderFrame) return;
+  poseListRenderFrame = requestAnimationFrame(() => {
+    poseListRenderFrame = 0;
+    renderPoseList();
+  });
+}
+
 async function loadRenderedTiming() {
   state.renderedSegments = [];
   try {
@@ -2343,7 +2353,7 @@ function handleEditorInput(event) {
     "backgroundMusicVolume",
   ].includes(event.target.id)) sendDraftToPreview();
  if (event.target.id === "sfxVolumeInput") elements.sfxVolumeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
-  if (event.target.id === "scriptInput") renderPoseList();
+  if (event.target.id === "scriptInput") schedulePoseListRender();
  if (event.target.id === "karaokeSize") elements.karaokeSizeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "backgroundMusicVolume") {
     const volume = clamp(Number(event.target.value) || DEFAULT_BACKGROUND_MUSIC_VOLUME, 0.05, 0.5);
