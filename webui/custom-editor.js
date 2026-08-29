@@ -5,6 +5,7 @@ const state = {
   timer: 0,
   saving: false,
   savePromise: null,
+  saveRevision: 0,
   selected: "",
   previewSentence: 1,
   backgroundPreviewUrl: "",
@@ -382,6 +383,7 @@ function setStatus(text) {
 }
 
 function queueSave(delay = 350) {
+  state.saveRevision += 1;
   clearTimeout(state.timer);
   setStatus("Đang chờ tự lưu…");
   state.timer = setTimeout(() => { void save(); }, delay);
@@ -393,12 +395,18 @@ async function save() {
   state.saving = true;
   state.savePromise = (async () => {
     retime();
+    const topicAtSave = state.topic;
+    const saveRevision = state.saveRevision;
     setStatus("Đang tự lưu…");
     try {
       const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`, {
         method: "PUT",
         body: JSON.stringify({ ...state.topic, projectType: "custom" }),
       });
+      if (state.topic !== topicAtSave || state.saveRevision !== saveRevision) {
+        queueSave(20);
+        return true;
+      }
       state.topic = result.topic || state.topic;
       state.topic.slides = Array.isArray(state.topic.slides) && state.topic.slides.length ? state.topic.slides : [defaultSlide(1)];
       if (!state.topic.slides.some((slide) => slide.id === state.selected)) state.selected = state.topic.slides[0].id;
@@ -436,11 +444,15 @@ async function uploadProjectAsset(kind, file) {
 
 async function uploadSlideImage(slide, file) {
   if (!slide || !file) return;
+  const slideId = slide.id;
   try {
     setStatus("Đang tải ảnh…");
     const uploaded = await uploadProjectAsset("leftImage", file);
-    slideMediaLayer(slide).src = uploaded.path;
-    selectSlide(slide);
+    const currentSlide = state.topic?.slides?.find((item) => item.id === slideId);
+    const media = slideMediaLayer(currentSlide);
+    if (!media) return;
+    media.src = uploaded.path;
+    selectSlide(currentSlide);
     renderSlides();
     queueSave(20);
   } catch (error) {
@@ -573,9 +585,10 @@ async function uploadBackgroundImage(file) {
 
 async function uploadIntroMedia(file) {
   if (!file || !state.topic) return;
+  const mediaType = isVideoAssetPath(file.name) ? "video" : "image";
   const intro = ensureIntro();
   intro.type = "media";
-  intro.mediaType = isVideoAssetPath(file.name) ? "video" : "image";
+  intro.mediaType = mediaType;
   if (state.introMediaPreviewUrl) URL.revokeObjectURL(state.introMediaPreviewUrl);
   state.introMediaPreviewUrl = URL.createObjectURL(file);
   syncIntroSettings();
@@ -583,8 +596,10 @@ async function uploadIntroMedia(file) {
   try {
     setStatus("Đang tải intro…");
     const uploaded = await uploadProjectAsset("introMedia", file);
-    intro.media = uploaded.path;
-    intro.mediaType = uploaded.mediaType || intro.mediaType;
+    const currentIntro = ensureIntro();
+    currentIntro.type = "media";
+    currentIntro.media = uploaded.path;
+    currentIntro.mediaType = uploaded.mediaType || mediaType;
     URL.revokeObjectURL(state.introMediaPreviewUrl);
     state.introMediaPreviewUrl = "";
     syncIntroSettings();
@@ -597,7 +612,7 @@ async function uploadIntroMedia(file) {
 
 async function uploadIntroLogo(file) {
   if (!file || !state.topic) return;
-  const intro = ensureIntro();
+  ensureIntro();
   if (state.introLogoPreviewUrl) URL.revokeObjectURL(state.introLogoPreviewUrl);
   state.introLogoPreviewUrl = URL.createObjectURL(file);
   syncIntroSettings();
@@ -605,7 +620,7 @@ async function uploadIntroLogo(file) {
   try {
     setStatus("Đang tải logo intro…");
     const uploaded = await uploadProjectAsset("introLogo", file);
-    intro.logo = uploaded.path;
+    ensureIntro().logo = uploaded.path;
     URL.revokeObjectURL(state.introLogoPreviewUrl);
     state.introLogoPreviewUrl = "";
     syncIntroSettings();
