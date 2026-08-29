@@ -143,6 +143,9 @@ function isVideoAssetPath(value) {
 }
 
 function defaultSlide(startSentence = 1, sourceSlide = null) {
+  const enterEffect = EFFECT_OPTIONS.some(([id]) => id === sourceSlide?.enterEffect)
+    ? sourceSlide.enterEffect
+    : "fade";
   if (sourceSlide) {
     const layers = (Array.isArray(sourceSlide.layers) ? sourceSlide.layers : []).map((layer) => {
       if (layer.type === "text") {
@@ -161,7 +164,7 @@ function defaultSlide(startSentence = 1, sourceSlide = null) {
       return null;
     }).filter(Boolean);
     return {
-      id: token("slide"), startSentence: Math.max(1, Number(startSentence) || 1), enterEffect: "fade",
+      id: token("slide"), startSentence: Math.max(1, Number(startSentence) || 1), enterEffect,
       layers: layers.length ? layers : [defaultTextLayer(), defaultMediaLayer()],
     };
   }

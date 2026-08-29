@@ -1133,6 +1133,13 @@ def _copy_into_project_defaults(source: Path, relative_dir: str, preferred_name:
     return target.relative_to(root).as_posix()
 
 
+def _remove_project_defaults_asset(relative: object) -> None:
+    """Remove one remembered asset without ever touching a project file."""
+    target = _resolve_under_root(project_defaults_assets_root(), relative)
+    if target is not None:
+        target.unlink(missing_ok=True)
+
+
 def _resolve_under_root(root: Path, relative: object) -> Path | None:
     raw = str(relative or "").strip()
     if not raw:
@@ -1146,6 +1153,86 @@ def _resolve_under_root(root: Path, relative: object) -> Path | None:
     except ValueError:
         return None
     return candidate if candidate.is_file() else None
+
+
+def _read_custom_editor_defaults(value: object) -> dict | None:
+    """Normalize the optional app-level Custom editor preset.
+
+    Asset paths here are relative to ``project-defaults-assets``, unlike the
+    project-relative paths stored in a topic. Missing or older config values
+    deliberately return ``None`` so Custom projects retain their old starters.
+    """
+    if not isinstance(value, dict):
+        return None
+    raw_intro = value.get("intro") if isinstance(value.get("intro"), dict) else {}
+    try:
+        intro = normalize_custom_intro(raw_intro)
+    except ValueError:
+        intro = default_custom_intro()
+    raw_slide = value.get("slide") if isinstance(value.get("slide"), dict) else {}
+    raw_text = raw_slide.get("text") if isinstance(raw_slide.get("text"), dict) else {}
+    effect = str(raw_slide.get("enterEffect") or "fade").strip().lower()
+    subtitle = value.get("subtitle") if isinstance(value.get("subtitle"), dict) else {}
+    return {
+        "intro": intro,
+        "slide": {
+            "enterEffect": effect if effect in CUSTOM_SLIDE_EFFECTS else "fade",
+            "text": {
+                "font": normalize_label_font_family(raw_text.get("font"), DEFAULT_LABEL_FONT_FAMILY),
+                "color": normalize_hex_color(raw_text.get("color"), "#090909"),
+                "fontSize": _clamp_custom_number(raw_text.get("fontSize"), 1.2, 0.5, 2),
+            },
+        },
+        "subtitle": {
+            "color": normalize_hex_color(subtitle.get("color"), "#271f11"),
+            "activeColor": normalize_hex_color(subtitle.get("activeColor"), "#de370d"),
+            "size": _clamp_custom_number(subtitle.get("size"), 1.2, 0.6, 1.5),
+        },
+    }
+
+
+def _remember_custom_editor_defaults(project: Path, topic: dict, defaults: dict) -> None:
+    """Store portable Custom editor choices and their private asset copies."""
+    previous = defaults.get("customEditorDefaults")
+    previous = previous if isinstance(previous, dict) else {}
+    previous_intro = previous.get("intro") if isinstance(previous.get("intro"), dict) else {}
+    intro = normalize_custom_intro(topic.get("intro"))
+    preset_intro = dict(intro)
+    for field, asset_name in (("logo", "intro-logo"), ("media", "intro-media")):
+        source = _resolve_under_root(project, intro.get(field)) if intro.get(field) else None
+        old_asset = previous_intro.get(field)
+        if source is None:
+            _remove_project_defaults_asset(old_asset)
+            preset_intro[field] = ""
+            continue
+        remembered = _copy_into_project_defaults(source, "custom-editor", asset_name)
+        if remembered != old_asset:
+            _remove_project_defaults_asset(old_asset)
+        preset_intro[field] = remembered
+
+    slides = topic.get("slides") if isinstance(topic.get("slides"), list) else []
+    first_slide = slides[0] if slides and isinstance(slides[0], dict) else {}
+    first_text = next(
+        (layer for layer in first_slide.get("layers", []) if isinstance(layer, dict) and layer.get("type") == "text"),
+        {},
+    )
+    effect = str(first_slide.get("enterEffect") or "fade").strip().lower()
+    defaults["customEditorDefaults"] = {
+        "intro": preset_intro,
+        "slide": {
+            "enterEffect": effect if effect in CUSTOM_SLIDE_EFFECTS else "fade",
+            "text": {
+                "font": normalize_label_font_family(first_text.get("font"), DEFAULT_LABEL_FONT_FAMILY),
+                "color": normalize_hex_color(first_text.get("color"), "#090909"),
+                "fontSize": _clamp_custom_number(first_text.get("fontSize"), 1.2, 0.5, 2),
+            },
+        },
+        "subtitle": {
+            "color": normalize_hex_color(topic.get("karaokeColor"), "#271f11"),
+            "activeColor": normalize_hex_color(topic.get("karaokeActiveColor"), "#de370d"),
+            "size": _clamp_custom_number(topic.get("karaokeSize"), 1.2, 0.6, 1.5),
+        },
+    }
 
 
 def remembered_pose_sfx(character_id: str, poses: object, custom_sfx: object = None) -> dict[str, str]:
@@ -1293,6 +1380,8 @@ def remember_project_defaults(slug: str, topic: dict) -> None:
             mappings[character_id] = portable
             defaults["poseSfxByCharacter"] = mappings
         defaults["customSfx"] = custom_catalog
+        if normalize_project_type(topic.get("projectType")) == "custom":
+            _remember_custom_editor_defaults(project, topic, defaults)
 
         if defaults != previous:
             CONFIG_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1400,16 +1489,25 @@ def _clamp_custom_number(value: object, default: float, low: float, high: float)
     return round(min(high, max(low, number)), 3)
 
 
-def default_custom_slide(start_sentence: int = 1, font_size: float = 1.2) -> dict:
+def default_custom_slide(
+    start_sentence: int = 1,
+    font_size: float = 1.2,
+    *,
+    text_font: object = DEFAULT_LABEL_FONT_FAMILY,
+    text_color: object = "#090909",
+    enter_effect: object = "fade",
+) -> dict:
     """A portable starter slide. Asset paths are project-relative by design."""
+    effect = str(enter_effect or "fade").strip().lower()
     return {
         "id": _custom_token("slide"),
         "startSentence": max(1, int(start_sentence)),
-        "enterEffect": "fade",
+        "enterEffect": effect if effect in CUSTOM_SLIDE_EFFECTS else "fade",
         "layers": [
             {
                 "id": _custom_token("text"), "type": "text", "text": "",
-                "font": "default", "color": "#090909", "fontSize": _clamp_custom_number(font_size, 1.2, 0.5, 2),
+                "font": normalize_label_font_family(text_font, DEFAULT_LABEL_FONT_FAMILY),
+                "color": normalize_hex_color(text_color, "#090909"), "fontSize": _clamp_custom_number(font_size, 1.2, 0.5, 2),
                 "x": 0, "y": 20, "w": 100, "h": 12,
             },
             {
@@ -1479,6 +1577,26 @@ def normalize_custom_intro(value: object, fallback: object = None) -> dict:
         "titleSize": _clamp_custom_number(source.get("titleSize"), 1.0, 0.6, 1.5),
     }
     return normalized
+
+
+def _copy_custom_intro_defaults(destination: Path, preset: dict | None) -> dict:
+    """Copy remembered intro assets into a new project and return its intro."""
+    if not preset:
+        return default_custom_intro()
+    intro = dict(preset["intro"])
+    defaults_assets = project_defaults_assets_root()
+    assets_dir = destination / "assets"
+    for field, target_name in (("logo", "intro-logo-default"), ("media", "intro-media-default")):
+        source = _resolve_under_root(defaults_assets, intro.get(field))
+        if source is None:
+            intro[field] = ""
+            continue
+        target = assets_dir / f"{target_name}{source.suffix.lower() or '.bin'}"
+        shutil.copy2(source, target)
+        intro[field] = target.relative_to(destination).as_posix()
+    if intro["type"] == "media" and not intro["media"]:
+        intro["type"] = "color"
+    return normalize_custom_intro(intro)
 
 
 def normalize_custom_slides(raw: object, segment_count: int) -> list[dict]:
@@ -1997,6 +2115,7 @@ def create_project(payload: dict) -> dict:
     is_en = language == "en"
     project_type = normalize_project_type(payload.get("projectType") or payload.get("type"))
     defaults = read_project_defaults()
+    custom_editor_defaults = _read_custom_editor_defaults(defaults.get("customEditorDefaults")) if project_type == "custom" else None
     character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
     try:
         character = character_manifest(character_id)
@@ -2171,6 +2290,25 @@ def create_project(payload: dict) -> dict:
         else:
             background_music_volume = 0.18
 
+    karaoke_color = normalize_hex_color(karaoke_scoped.get(character_id) or defaults.get("karaokeColor"), "#271f11")
+    karaoke_active_color = normalize_hex_color(karaoke_active_scoped.get(character_id) or defaults.get("karaokeActiveColor"), "#de370d")
+    custom_slide = default_custom_slide(1, karaoke_size)
+    custom_intro = default_custom_intro()
+    if custom_editor_defaults is not None:
+        subtitle = custom_editor_defaults["subtitle"]
+        karaoke_color = subtitle["color"]
+        karaoke_active_color = subtitle["activeColor"]
+        karaoke_size = subtitle["size"]
+        slide_text = custom_editor_defaults["slide"]["text"]
+        custom_slide = default_custom_slide(
+            1,
+            slide_text["fontSize"],
+            text_font=slide_text["font"],
+            text_color=slide_text["color"],
+            enter_effect=custom_editor_defaults["slide"]["enterEffect"],
+        )
+        custom_intro = _copy_custom_intro_defaults(destination, custom_editor_defaults)
+
     topic = {
         "id": slug,
         "projectType": project_type,
@@ -2212,10 +2350,10 @@ def create_project(payload: dict) -> dict:
         "rightLabelColor": remembered_label_color(character_id),
         "comparisons": [],
         "baseComparisonEnabled": project_type != "custom",
-        "slides": [default_custom_slide(1, karaoke_size)] if project_type == "custom" else [],
-        "intro": default_custom_intro(),
-        "karaokeColor": normalize_hex_color(karaoke_scoped.get(character_id) or defaults.get("karaokeColor"), "#271f11"),
-        "karaokeActiveColor": normalize_hex_color(karaoke_active_scoped.get(character_id) or defaults.get("karaokeActiveColor"), "#de370d"),
+        "slides": [custom_slide] if project_type == "custom" else [],
+        "intro": custom_intro if project_type == "custom" else default_custom_intro(),
+        "karaokeColor": karaoke_color,
+        "karaokeActiveColor": karaoke_active_color,
         "karaokeSize": karaoke_size,
         "karaokeY": 66.0 if project_type == "custom" else 46.2,
     }
