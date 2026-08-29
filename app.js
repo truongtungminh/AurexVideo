@@ -716,7 +716,7 @@ function buildGroups(words) {
   const groups = [];
   let index = 0;
   const compactCjk = usesCompactCjkText();
-  const maxWords = compactCjk ? maxCjkCharacters() : 5;
+  const maxWords = compactCjk ? maxCjkCharacters() : 3;
   const maxChars = compactCjk ? maxWords : maxLatinCharacters();
   while (index < words.length) {
     const segmentEnd = words[index].segmentEnd;

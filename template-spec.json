@@ -25,7 +25,7 @@
     "presenter": {"x": 0.21, "y": 0.525, "w": 0.58, "h": 0.46}
   },
   "subtitle": {
-    "maxWords": 6,
+    "maxWords": 3,
     "maxLines": 1,
     "fontFamily": "Inter, -apple-system, BlinkMacSystemFont, SF Pro Display, sans-serif",
     "fontWeight": 950,

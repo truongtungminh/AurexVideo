@@ -17,18 +17,18 @@ WORD_RE = re.compile(r"\S+")
 NORMALIZE_TOKEN_RE = re.compile(r"[^\w]+", re.UNICODE)
 VIETNAMESE_RE = re.compile(r"[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]", re.IGNORECASE)
 CACHE_FILE_NAME = "subtitle-word-timing.json"
-CAPTION_CONSTRAINTS_VERSION = 2
+CAPTION_CONSTRAINTS_VERSION = 3
 
 
 def split_sentences(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
 
 
-def split_caption_chunks(text: str, max_words: int = 9, max_chars: int = 62) -> list[str]:
+def split_caption_chunks(text: str, max_words: int = 3, max_chars: int = 30) -> list[str]:
     return [" ".join(group).strip() for group in split_caption_token_groups(text, max_words=max_words, max_chars=max_chars)]
 
 
-def split_caption_token_groups(text: str, max_words: int = 9, max_chars: int = 62) -> list[list[str]]:
+def split_caption_token_groups(text: str, max_words: int = 3, max_chars: int = 30) -> list[list[str]]:
     groups: list[list[str]] = []
 
     def append_sentence(sentence: str) -> None:
@@ -66,8 +66,8 @@ def normalize_token(token: str) -> str:
 
 def caption_constraints(max_lines: int = 2) -> tuple[int, int]:
     if max_lines <= 1:
-        return 6, 34
-    return 9, 62
+        return 3, 24
+    return 3, 30
 
 
 def guess_whisper_language(line_items: list[dict[str, Any]]) -> str | None:
