@@ -127,6 +127,18 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertIn(".stage.character-popsy .topic-label-stack", selectors)
         self.assertNotIn(".stage.character-popsy .teacher", selectors)
 
+    def test_bietchichomet_stays_on_browser_compatibility_until_css_contract(self) -> None:
+        topic = {"characterId": "bietchichomet"}
+
+        selectors = character_specific_css_selectors(topic)
+        self.assertTrue(selectors)
+        self.assertTrue(requires_character_css_compatibility("auto", topic))
+        self.assertFalse(requires_character_css_compatibility("browser", topic))
+        with self.assertRaises(NativeRenderUnavailable) as raised:
+            requires_character_css_compatibility("native", topic)
+
+        self.assertEqual(raised.exception.reason, "character_css_parity_required")
+
     def test_character_css_guard_routes_auto_and_rejects_explicit_native(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
             stylesheet = Path(temp) / "style.css"

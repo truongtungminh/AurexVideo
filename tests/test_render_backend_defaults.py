@@ -55,7 +55,10 @@ class RenderBackendDefaultTests(unittest.TestCase):
             with patch.object(m3_backend, "PROJECT_DEFAULTS_PATH", path), patch.object(
                 m3_backend, "CONFIG_ROOT", root
             ):
-                preferences = m3_backend.write_render_preferences({"renderBackend": "browser"})
+                preferences = m3_backend.write_render_preferences({
+                    "renderBackend": "browser",
+                    "renderBackendPolicyVersion": 0,
+                })
                 self.assertEqual(preferences["renderBackend"], "browser")
                 self.assertEqual(
                     preferences["renderBackendPolicyVersion"],

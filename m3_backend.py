@@ -1041,6 +1041,10 @@ def write_render_preferences(payload: dict) -> dict:
                 continue
         else:
             cleaned[key] = str(value or "").strip()[:80]
+    # The policy version is owned by this writer. A stale value from an older
+    # client must not undo the migration marker when a backend is selected.
+    if "renderBackend" in payload:
+        cleaned["renderBackendPolicyVersion"] = RENDER_BACKEND_POLICY_VERSION
     with PROJECT_DEFAULTS_LOCK:
         previous = read_project_defaults()
         defaults = json.loads(json.dumps(previous))
