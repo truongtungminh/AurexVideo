@@ -309,6 +309,16 @@ function renderSlides() {
   updatePreviewCounter();
 }
 
+let slidesRenderFrame = 0;
+
+function scheduleSlidesRender() {
+  if (slidesRenderFrame) return;
+  slidesRenderFrame = requestAnimationFrame(() => {
+    slidesRenderFrame = 0;
+    renderSlides();
+  });
+}
+
 function updatePreviewCounter() {
   const total = Math.max(1, lines().length);
   state.previewSentence = clamp(state.previewSentence, 1, total);
@@ -683,7 +693,7 @@ function updateSlideField(target) {
 
 $("#script")?.addEventListener("input", () => {
   retime();
-  renderSlides();
+  scheduleSlidesRender();
   updatePreviewCounter();
   sendPreview();
   queueSave();
