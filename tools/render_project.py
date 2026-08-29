@@ -816,7 +816,7 @@ def requires_character_css_compatibility(
         examples = "; ".join(selectors[:3])
         raise NativeRenderUnavailable(
             "Aurex Render Core native scene không thể bảo toàn CSS riêng theo nhân vật "
-            f"trong style.css ({examples}). Dùng --render-backend auto để raster Browser "
+            f"trong style.css ({examples}). Dùng --render-backend auto để dùng Browser raster "
             "giữ đúng preview, với Aurex Render Core vẫn mã hoá video.",
             reason="character_css_parity_required",
         )
