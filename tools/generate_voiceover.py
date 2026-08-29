@@ -78,7 +78,16 @@ def generate_vieneu(
     from tts.vieneu_adapter import generate_vieneu_voiceover
 
     vieneu_cfg = config.get("vieneu") if isinstance(config.get("vieneu"), dict) else {}
+    # VieNeu-TTS factory chỉ chấp nhận các mode liệt kê trong factory.py; không có
+    # default case nên mode lạ (vd "paragraph" của maziao lọt từ topic tts config)
+    # sẽ làm Vieneu() trả None và crash. Whitelist ở đây để fallback an toàn.
+    _VIENEU_MODES = {
+        "v3turbo", "standard", "fast", "gpu", "turbo",
+        "turbo_gpu", "xpu", "remote", "api",
+    }
     mode = str(tts_config.get("mode") or vieneu_cfg.get("mode") or "v3turbo").strip()
+    if mode not in _VIENEU_MODES:
+        mode = "v3turbo"
     device = str(tts_config.get("device") or vieneu_cfg.get("device") or "cpu").strip()
     ref_audio = str(
         tts_config.get("refAudio")
