@@ -39,7 +39,6 @@ try:
         build_native_render_plan,
         find_native_binary,
     )
-    from native_scene import native_character_style_supported
 except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/tools.
     from tools.native_render import (
         NativeRenderUnavailable,
@@ -47,7 +46,6 @@ except ModuleNotFoundError:  # Imported as ``tools.render_project`` by tests/too
         build_native_render_plan,
         find_native_binary,
     )
-    from tools.native_scene import native_character_style_supported
 
 configure_native_runtime()
 
@@ -709,7 +707,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
     native_manifest_signature = file_signature(native_manifest_path)
     native_image_signatures = native_manifest_image_signatures(native_manifest_path)
     native_binary_signature = ""
-    if getattr(args, "render_backend", "auto") in {"auto", "native"}:
+    if getattr(args, "render_backend", "browser") in {"auto", "native"}:
         try:
             native_binary = find_native_binary(ROOT)
             native_binary_signature = file_signature(native_binary) if native_binary else "unavailable"
@@ -741,7 +739,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
             str(bool(args.no_branding)).encode("utf-8"),
             file_signature(args.brand_logo).encode("utf-8"),
             args.brand_name.encode("utf-8"),
-            str(getattr(args, "render_backend", "auto")).encode("utf-8"),
+            str(getattr(args, "render_backend", "browser")).encode("utf-8"),
             native_manifest_signature.encode("utf-8"),
             json.dumps(native_image_signatures, ensure_ascii=False).encode("utf-8"),
             native_binary_signature.encode("utf-8"),
@@ -751,11 +749,24 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
 
 
 def resolve_render_backend(value: str | None) -> str:
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "auto").strip().lower()
-    aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
+    """Resolve the current render policy.
+
+    Browser is intentionally the only active production backend until the
+    Native Core has CSS parity. Keep accepting legacy values so old CLI calls,
+    environment variables, and saved preferences cannot break a render, but
+    normalize them to the Browser path.
+    """
+    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "browser").strip().lower()
+    aliases = {
+        "auto": "browser",
+        "native": "browser",
+        "native-core": "browser",
+        "aurex": "browser",
+        "compatibility": "browser",
+    }
     requested = aliases.get(requested, requested)
-    if requested not in {"browser", "auto", "native"}:
-        raise ValueError("Render backend phải là browser, auto hoặc native.")
+    if requested != "browser":
+        raise ValueError("Render backend hiện tại chỉ hỗ trợ browser.")
     return requested
 
 
@@ -803,16 +814,7 @@ def requires_character_css_compatibility(
     *,
     stylesheet: Path | None = None,
 ) -> bool:
-    """Guard native scene rendering when the preview has unsupported character CSS.
-
-    Built-in character profiles are compiled by ``native_scene`` and therefore
-    may contain matching CSS selectors without requiring a browser raster pass.
-    Unknown characters remain on the compatibility path so custom CSS keeps
-    preview parity.
-    """
-    character_id = str(topic.get("characterId") or topic.get("brand") or "").strip().lower()
-    if native_character_style_supported(character_id):
-        return False
+    """Guard native scene rendering when the preview has character-only CSS."""
     selectors = character_specific_css_selectors(topic, stylesheet=stylesheet)
     if not selectors:
         return False
@@ -820,8 +822,7 @@ def requires_character_css_compatibility(
         examples = "; ".join(selectors[:3])
         raise NativeRenderUnavailable(
             "Aurex Render Core native scene không thể bảo toàn CSS riêng theo nhân vật "
-            f"trong style.css ({examples}). Dùng --render-backend auto để raster Browser "
-            "giữ đúng preview, với Aurex Render Core vẫn mã hoá video.",
+            f"trong style.css ({examples}). Dùng Browser raster để giữ đúng preview.",
             reason="character_css_parity_required",
         )
     return backend == "auto"
@@ -845,7 +846,7 @@ def requires_custom_intro_compatibility(backend: str, topic: dict[str, object]) 
     if backend == "native":
         raise NativeRenderUnavailable(
             "Custom Intro cần Browser raster để giữ đúng lớp mở đầu 0–3 giây; "
-            "hãy dùng --render-backend auto hoặc browser.",
+            "hãy dùng Browser render.",
             reason="custom_intro_browser_required",
         )
     return backend == "auto"
@@ -1078,7 +1079,7 @@ def main() -> None:
         "--render-backend",
         choices=["browser", "auto", "native"],
         default=None,
-        help="Backend render: auto (mặc định) dùng Core khi scene đủ capability rồi fallback Browser.",
+        help="Backend render: Browser là chế độ hiện tại; auto/native cũ sẽ được chuẩn hoá về Browser.",
     )
     parser.add_argument("--voice", default="vi-VN-NamMinhNeural")
     parser.add_argument("--model-id", default="")

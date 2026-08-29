@@ -23,7 +23,6 @@ from tools.native_scene import (  # noqa: E402
     _STYLE_PROFILES,
     _css_label_rects,
     compile_standard_topic,
-    native_character_style_supported,
 )
 from tools.render_project import (  # noqa: E402
     RenderBackendOutcome,
@@ -115,9 +114,11 @@ class NativeRenderBridgeTests(unittest.TestCase):
             second = native_manifest_image_signatures(manifest)
             self.assertNotEqual(first, second)
 
-    def test_backend_defaults_to_auto_and_supports_native_alias(self) -> None:
-        self.assertEqual(resolve_render_backend(None), "auto")
-        self.assertEqual(resolve_render_backend("native-core"), "native")
+    def test_browser_is_default_and_legacy_values_normalize_to_browser(self) -> None:
+        self.assertEqual(resolve_render_backend(None), "browser")
+        self.assertEqual(resolve_render_backend("auto"), "browser")
+        self.assertEqual(resolve_render_backend("native-core"), "browser")
+        self.assertEqual(resolve_render_backend("native"), "browser")
 
     def test_character_css_selector_detection_uses_effective_character_id(self) -> None:
         selectors = character_specific_css_selectors({"characterId": "popsy"})
@@ -149,15 +150,7 @@ class NativeRenderBridgeTests(unittest.TestCase):
                 requires_character_css_compatibility("native", topic, stylesheet=stylesheet)
 
         self.assertEqual(raised.exception.reason, "character_css_parity_required")
-        self.assertIn("--render-backend auto", str(raised.exception))
-
-    def test_built_in_character_style_uses_native_core(self) -> None:
-        topic = {"characterId": "bietchichomet"}
-
-        self.assertTrue(native_character_style_supported("bietchichomet"))
-        self.assertFalse(native_character_style_supported("custom-character"))
-        self.assertFalse(requires_character_css_compatibility("auto", topic))
-        self.assertFalse(requires_character_css_compatibility("native", topic))
+        self.assertIn("Browser raster", str(raised.exception))
 
     def test_custom_intro_routes_auto_to_browser_and_rejects_native(self) -> None:
         topic = {"projectType": "custom", "intro": {"type": "color"}}

@@ -1,8 +1,7 @@
 (() => {
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
-  // v3 intentionally resets the old Browser-first preference so existing
-  // installs adopt the Core-first Auto policy after the native bridge rollout.
+  // Browser is the canonical render path until Native Core reaches CSS parity.
   const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v3';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
   const RENDER_ENGINE_STORAGE_KEY = 'aurexvideo-render-engine-v1';
@@ -180,7 +179,7 @@
       branding: brandingControl?.checked === true,
       brandName: state.renderOptions.brandName || 'aurexvideo.app',
       qualityProfile: $('#renderQuality')?.value || 'standard',
-      renderBackend: $('#renderBackend')?.value || 'auto',
+      renderBackend: $('#renderBackend')?.value || 'browser',
     };
     localStorage.setItem(RENDER_PREFERENCES_KEY, JSON.stringify(value));
   }
@@ -195,8 +194,7 @@
       if (typeof value.brandName === 'string' && value.brandName.trim()) state.renderOptions.brandName = value.brandName.trim();
       const quality = String(value.qualityProfile || '').trim().toLowerCase();
       if (['draft', 'standard', 'master'].includes(quality) && $('#renderQuality')) $('#renderQuality').value = quality;
-      const renderBackend = String(value.renderBackend || '').trim().toLowerCase();
-      if (['browser', 'auto', 'native'].includes(renderBackend) && $('#renderBackend')) $('#renderBackend').value = renderBackend;
+      if ($('#renderBackend')) $('#renderBackend').value = 'browser';
     } catch (_) {
       const brandingControl = $('#renderBranding');
       if (brandingControl && !brandingControl.disabled) brandingControl.checked = false;
@@ -3788,7 +3786,7 @@
         volume: Number($('#renderVolume').value || 1),
         size: $('#renderSize')?.value || '1080x1920',
         qualityProfile: $('#renderQuality')?.value || 'standard',
-        renderBackend: $('#renderBackend')?.value || 'auto',
+        renderBackend: $('#renderBackend')?.value || 'browser',
         fps: 30,
         outro: false,
         branding: $('#renderBranding')?.checked === true,
@@ -5153,7 +5151,8 @@
     applyValue('#renderVolume', preferences.volume);
     applyValue('#renderSize', preferences.size);
     applyValue('#renderQuality', preferences.qualityProfile);
-    applyValue('#renderBackend', preferences.renderBackend);
+    const renderBackend = $('#renderBackend');
+    if (renderBackend) renderBackend.value = 'browser';
     applyValue('#maziaoTtsMode', preferences.ttsMode);
     const branding = $('#renderBranding');
     if (branding && !branding.disabled && typeof preferences.branding === 'boolean') {
