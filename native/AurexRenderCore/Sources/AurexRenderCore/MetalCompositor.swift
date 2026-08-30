@@ -57,8 +57,10 @@ float roundedMask(
     float2 point = (input.uv - 0.5) * (halfSize * 2.0);
     float2 q = abs(point) - (halfSize - radius);
     float distance = length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
-    float antialias = max(fwidth(distance), 0.001);
-    return 1.0 - smoothstep(-antialias, antialias, distance);
+    // `distance` is already measured in canvas pixels.  A fixed one-pixel
+    // transition keeps the edge antialiased without relying on derivative
+    // functions that are unstable for this IOSurface render target.
+    return 1.0 - smoothstep(-1.0, 1.0, distance);
 }
 
 fragment float4 solidFragment(
