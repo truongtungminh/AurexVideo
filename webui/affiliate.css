@@ -1,0 +1,42 @@
+.affiliate-page { min-height: 100vh; overflow: auto; }
+.affiliate-shell { width: min(1380px, calc(100% - 36px)); margin: 32px auto 76px; }
+.affiliate-hero { display: flex; align-items: end; justify-content: space-between; gap: 28px; padding: clamp(28px, 5vw, 58px); overflow: hidden; background: radial-gradient(circle at 86% 18%, rgba(243,107,33,.22), transparent 26%), radial-gradient(circle at 72% 100%, rgba(30,139,92,.12), transparent 28%), var(--paper); }
+.affiliate-hero h1 { margin: 0; font-size: clamp(32px, 4vw, 54px); letter-spacing: -.055em; line-height: .98; }
+.affiliate-hero p:not(.eyebrow) { max-width: 630px; margin: 16px 0 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
+.affiliate-context { display: grid; gap: 6px; min-width: 210px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 17px; background: color-mix(in srgb, var(--paper) 78%, transparent); }
+.affiliate-context strong { font-size: 14px; }
+.context-label { color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.affiliate-toolbar { display: grid; grid-template-columns: 190px 190px minmax(220px, 1fr) 160px; gap: 14px; margin-top: 20px; padding: 16px; }
+.affiliate-toolbar label { display: grid; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
+.affiliate-toolbar input, .affiliate-toolbar select { min-height: 44px; padding: 0 12px; font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.connection-grid, .kpi-grid { display: grid; gap: 16px; margin-top: 20px; }
+.connection-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.connection-card { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 17px 18px; }
+.connection-card > div:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
+.connection-card span:not(.status-pill) { color: var(--muted); font-size: 12px; font-weight: 750; }
+.connection-card strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.connection-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 14px; color: white; font-size: 24px; font-weight: 900; box-shadow: 0 8px 20px rgba(44,37,20,.16); }
+.shopee-icon { background: #ee4d2d; }.facebook-icon { background: #1877f2; font-family: Arial, sans-serif; }
+.status-pill { padding: 6px 9px; border-radius: 999px; font-size: 10px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+.status-pill.ok { color: #166a46; background: rgba(30,139,92,.13); }.status-pill.warn { color: #8a4c10; background: rgba(243,107,33,.14); }.status-pill.neutral { color: var(--muted); background: var(--soft); }
+.kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kpi-card { display: grid; gap: 8px; min-height: 155px; padding: 22px; }
+.kpi-card > span { color: var(--muted); font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.kpi-card strong { overflow: hidden; font-size: clamp(27px, 3vw, 40px); letter-spacing: -.055em; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.kpi-card small { align-self: end; color: var(--muted); font-size: 11px; font-weight: 650; line-height: 1.4; }
+.kpi-card.commission { border-color: rgba(30,139,92,.32); background: linear-gradient(140deg, rgba(30,139,92,.08), transparent 70%), var(--paper); }
+.affiliate-table-panel { margin-top: 20px; overflow: hidden; }
+.affiliate-table-heading { padding: 25px 26px 19px; }
+.affiliate-table-heading h2 { margin: 0; font-size: 23px; letter-spacing: -.035em; }.affiliate-table-heading > p { margin: 0; color: var(--muted); font-size: 12px; }
+.affiliate-table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
+.affiliate-table-wrap table { width: 100%; min-width: 950px; border-collapse: collapse; text-align: left; }
+.affiliate-table-wrap th { padding: 13px 15px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.affiliate-table-wrap td { padding: 15px; border-top: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+.affiliate-table-wrap tbody tr:hover { background: color-mix(in srgb, var(--soft) 64%, transparent); }
+.record-content { display: grid; gap: 4px; min-width: 190px; }.record-content strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.record-content small { color: var(--muted); font-size: 11px; }
+.type-tag { display: inline-flex; padding: 5px 8px; border-radius: 8px; color: var(--accent-dark); background: rgba(243,107,33,.12); font-size: 10px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }.type-tag.product { color: #166a46; background: rgba(30,139,92,.12); }.type-tag.campaign { color: #575149; background: var(--soft); }
+.record-status { display: inline-flex; padding: 5px 8px; border-radius: 8px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 850; }.record-status.active { color: #166a46; background: rgba(30,139,92,.12); }.record-status.paused { color: #8a4c10; background: rgba(243,107,33,.13); }
+.metric-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }.table-empty { padding: 54px 20px !important; color: var(--muted); text-align: center; }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+@media (max-width: 900px) { .affiliate-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }.affiliate-search { grid-column: span 2; }.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .affiliate-shell { width: min(100% - 24px, 1380px); margin-top: 18px; }.affiliate-topbar { align-items: flex-start; }.affiliate-topbar .top-actions { justify-content: flex-end; }.affiliate-hero { display: grid; padding: 26px; }.affiliate-context { min-width: 0; }.affiliate-toolbar, .connection-grid { grid-template-columns: 1fr; }.affiliate-search { grid-column: auto; }.kpi-grid { gap: 12px; }.kpi-card { min-height: 132px; padding: 18px; }.connection-card { grid-template-columns: 42px minmax(0, 1fr); }.connection-card .status-pill { grid-column: 2; justify-self: start; }.affiliate-table-heading { padding: 21px 18px 17px; } }
+html[data-theme="dark"] .affiliate-context { background: rgba(255,255,255,.035); }.affiliate-page .affiliate-toolbar input, .affiliate-page .affiliate-toolbar select { color: var(--ink); background: var(--paper); }

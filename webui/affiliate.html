@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Affiliate Dashboard · AurexVideo</title>
+    <link rel="stylesheet" href="/webui/styles.css" />
+    <link rel="stylesheet" href="/webui/affiliate.css" />
+  </head>
+  <body class="affiliate-page">
+    <header class="topbar affiliate-topbar">
+      <a class="brand" href="/">
+        <img src="/assets/generated/channel-avatar.png" alt="" />
+        <span><strong>Aurex</strong><small>Affiliate Dashboard</small></span>
+      </a>
+      <div class="top-actions">
+        <a class="button secondary" href="/" target="_self">← Xưởng video</a>
+        <button class="button secondary" id="refreshButton" type="button">Làm mới</button>
+      </div>
+    </header>
+
+    <main class="affiliate-shell">
+      <section class="affiliate-hero panel" aria-labelledby="affiliateTitle">
+        <div>
+          <p class="eyebrow">Bán hàng qua nội dung</p>
+          <h1 id="affiliateTitle">Affiliate Dashboard</h1>
+          <p>Theo dõi link, sản phẩm và hiệu quả campaign của từng Brand tại một nơi.</p>
+        </div>
+        <div class="affiliate-context" aria-live="polite">
+          <span class="context-label">Đồng bộ dữ liệu</span>
+          <strong id="syncState">Đang kiểm tra...</strong>
+        </div>
+      </section>
+
+      <section class="affiliate-toolbar panel" aria-label="Bộ lọc affiliate">
+        <label>Brand
+          <select id="brandSelect" aria-label="Chọn Brand"><option value="">Đang tải Brand...</option></select>
+        </label>
+        <label>Khoảng thời gian
+          <select id="periodSelect" aria-label="Chọn khoảng thời gian">
+            <option value="today">Hôm nay</option>
+            <option value="7d" selected>7 ngày gần nhất</option>
+            <option value="30d">30 ngày gần nhất</option>
+            <option value="month">Tháng này</option>
+          </select>
+        </label>
+        <label class="affiliate-search">Tìm link, sản phẩm hoặc campaign
+          <input id="searchInput" type="search" placeholder="Ví dụ: máy xay, campaign 9.9" autocomplete="off" />
+        </label>
+        <label>Trạng thái
+          <select id="statusSelect" aria-label="Lọc trạng thái">
+            <option value="all">Tất cả</option>
+            <option value="active">Đang chạy</option>
+            <option value="paused">Tạm dừng</option>
+            <option value="ended">Đã kết thúc</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="connection-grid" aria-label="Trạng thái nền tảng">
+        <article class="connection-card panel" data-platform="shopee">
+          <div class="connection-icon shopee-icon" aria-hidden="true">S</div>
+          <div><span>Shopee Affiliate</span><strong id="shopeeState">Đang kiểm tra...</strong></div>
+          <span class="status-pill neutral" id="shopeeBadge">—</span>
+        </article>
+        <article class="connection-card panel" data-platform="facebook">
+          <div class="connection-icon facebook-icon" aria-hidden="true">f</div>
+          <div><span>Facebook</span><strong id="facebookState">Đang kiểm tra...</strong></div>
+          <span class="status-pill neutral" id="facebookBadge">—</span>
+        </article>
+      </section>
+
+      <section class="kpi-grid" aria-label="Chỉ số hiệu quả">
+        <article class="kpi-card panel"><span>Clicks</span><strong id="kpiClicks">—</strong><small id="kpiClicksDetail">Chưa có dữ liệu</small></article>
+        <article class="kpi-card panel"><span>Orders</span><strong id="kpiOrders">—</strong><small id="kpiOrdersDetail">Chưa có dữ liệu</small></article>
+        <article class="kpi-card panel"><span>GMV</span><strong id="kpiGmv">—</strong><small id="kpiGmvDetail">Chưa có dữ liệu</small></article>
+        <article class="kpi-card panel commission"><span>Commission</span><strong id="kpiCommission">—</strong><small id="kpiCommissionDetail">Chưa có dữ liệu</small></article>
+      </section>
+
+      <section class="affiliate-table-panel panel" aria-labelledby="recordsTitle">
+        <div class="section-heading affiliate-table-heading">
+          <div><p class="eyebrow">Kho nội dung thương mại</p><h2 id="recordsTitle">Link, sản phẩm &amp; campaign</h2></div>
+          <p id="recordsCount" aria-live="polite">Đang tải...</p>
+        </div>
+        <div class="affiliate-table-wrap">
+          <table>
+            <thead><tr><th>Loại</th><th>Nội dung</th><th>Campaign</th><th>Trạng thái</th><th>Clicks</th><th>Orders</th><th>GMV</th><th>Commission</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
+            <tbody id="recordsBody"><tr><td colspan="9" class="table-empty">Đang tải dữ liệu affiliate...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/webui/affiliate.js"></script>
+  </body>
+</html>

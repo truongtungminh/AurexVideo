@@ -1,6 +1,7 @@
-const state = { projects: [], selected: new URLSearchParams(location.search).get("project") || "", status: null };
+const state = { projects: [], selected: new URLSearchParams(location.search).get("project") || "", status: null, affiliateContext: null, affiliateProduct: null, affiliateLink: "" };
 const elements = Object.fromEntries([
   "uploadProject", "uploadVideo", "videoState", "uploadTitle", "youtubeDescription", "facebookCaption",
+  "affiliateCard", "affiliateStatus", "affiliateMode", "affiliatePlacement", "affiliateQuery", "affiliateSearchButton", "affiliateLinkButton", "affiliateProduct", "affiliateLink", "affiliateAutoComment", "affiliateDashboardLink",
   "uploadYoutubeChannel", "youtubePrivacy", "youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", "uploadYoutubeButton", "uploadFacebookPage", "facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", "uploadFacebookButton", "instagramScheduleToggle", "instagramScheduleRow", "instagramScheduleTime", "uploadInstagram", "threadsScheduleToggle", "threadsScheduleRow", "threadsScheduleTime", "uploadThreads", "tiktokCaption", "tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime", "uploadTiktokButton", "configureTiktokButton", "tiktokConfigModal", "tiktokConfigClose", "tiktokConfigState", "zernioApiKey", "zernioAccountId", "tiktokSaveButton", "tiktokDisconnectButton", "uploadBinanceButton", "binanceDuration", "binanceCaption",
   "configureBinanceButton", "binanceConfigModal", "binanceConfigClose", "binanceConfigState", "binanceApiKey", "binanceSaveConfigButton", "binanceDisconnectButton",
   "uploadResult", "toast",
@@ -37,6 +38,7 @@ function setupScheduleToggle(toggleId, rowId, timeId, onEnable) {
   const toggle = elements[toggleId];
   const row = elements[rowId];
   const time = elements[timeId];
+  if (!toggle || !row || !time) return;
   toggle.addEventListener("change", () => {
     if (toggle.checked) {
       time.min = localDatetimeValue(new Date(Date.now() + 15 * 60 * 1000));
@@ -82,12 +84,141 @@ async function loadProject() {
     elements.uploadVideo.removeAttribute("src");
     elements.videoState.textContent = "Dự án này chưa có video render.";
   }
-  const metadata = await api(`/api/social/metadata?project=${encodeURIComponent(state.selected)}`);
+  const metadata = await api(`/api/social/upload-metadata?project=${encodeURIComponent(state.selected)}`);
   elements.uploadTitle.value = metadata.title;
   elements.youtubeDescription.value = metadata.youtubeDescription;
   elements.facebookCaption.value = metadata.facebookCaption;
   elements.youtubePrivacy.value = metadata.privacyStatus || "public";
   elements.tiktokCaption.value = metadata.tiktokCaption || metadata.instagramCaption || metadata.facebookCaption || "";
+  await loadAffiliateContext();
+}
+
+function affiliateBrand() {
+  return state.affiliateContext?.selected_brand || state.affiliateContext?.project_brand || "";
+}
+
+function formatAffiliatePercent(value) {
+  const number = Number(value) || 0;
+  return `${(number <= 1 ? number * 100 : number).toFixed(1)}%`;
+}
+
+function renderAffiliateProduct() {
+  if (!elements.affiliateProduct) return;
+  const product = state.affiliateProduct;
+  elements.affiliateLink.textContent = state.affiliateLink ? `Link Affiliate: ${state.affiliateLink}` : "";
+  elements.affiliateLinkButton.disabled = !product || !affiliateBrand();
+  if (!product) {
+    elements.affiliateProduct.className = "affiliate-product empty";
+    elements.affiliateProduct.textContent = "Chưa chọn sản phẩm.";
+    return;
+  }
+  elements.affiliateProduct.className = "affiliate-product";
+  elements.affiliateProduct.replaceChildren();
+  if (product.image_url) {
+    const image = document.createElement("img");
+    image.src = product.image_url;
+    image.alt = "";
+    elements.affiliateProduct.append(image);
+  } else {
+    const placeholder = document.createElement("div");
+    placeholder.className = "affiliate-product-image-placeholder";
+    placeholder.textContent = "🛒";
+    elements.affiliateProduct.append(placeholder);
+  }
+  const detail = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = product.name || "Shopee product";
+  detail.append(name);
+  const meta = document.createElement("small");
+  const price = Number(product.price_min) > 0 ? `${Number(product.price_min).toLocaleString("vi-VN")}đ` : "Giá chưa có";
+  meta.textContent = `${price} · Hoa hồng ${formatAffiliatePercent(product.commission_rate)} · Liên quan ${formatAffiliatePercent(product.relevance_score)}`;
+  detail.append(meta);
+  elements.affiliateProduct.append(detail);
+  const score = document.createElement("span");
+  score.className = "score";
+  score.textContent = `Score ${(Number(product.ranking_score) || 0).toFixed(2)}`;
+  elements.affiliateProduct.append(score);
+}
+
+async function loadAffiliateContext() {
+  if (!elements.affiliateCard || !state.selected) return;
+  const context = await api(`/api/affiliate/context?project=${encodeURIComponent(state.selected)}`);
+  state.affiliateContext = context;
+  state.affiliateProduct = null;
+  state.affiliateLink = "";
+  const affiliate = context.affiliate || {};
+  const settings = affiliate.settings || {};
+  const connection = affiliate.connection || {};
+  elements.affiliateMode.value = settings.enabled ? (settings.mode || "manual") : "off";
+  elements.affiliatePlacement.value = settings.placement || "first_comment";
+  elements.affiliateQuery.value = "";
+  elements.affiliateAutoComment.checked = ["first_comment", "caption_and_comment"].includes(elements.affiliatePlacement.value);
+  elements.affiliateStatus.textContent = connection.connected
+    ? `Đã kết nối ${connection.display_name || "Shopee Affiliate"} · Brand ${context.selected_brand || context.project_brand || "—"}`
+    : (connection.message || "Chưa cấu hình Shopee Affiliate cho Brand này.");
+  elements.affiliateDashboardLink.href = `/affiliate${context.selected_brand ? `?brand=${encodeURIComponent(context.selected_brand)}` : ""}`;
+  elements.affiliateSearchButton.disabled = !connection.connected;
+  renderAffiliateProduct();
+}
+
+async function searchAffiliateProducts() {
+  const brand = affiliateBrand();
+  if (!brand) return showToast("Project chưa có Brand để tìm sản phẩm.", true);
+  const query = elements.affiliateQuery.value.trim();
+  if (!query) return showToast("Nhập từ khoá sản phẩm trước.", true);
+  elements.affiliateSearchButton.disabled = true;
+  try {
+    const result = await api(`/api/affiliate/products?brand=${encodeURIComponent(brand)}&project=${encodeURIComponent(state.selected)}&query=${encodeURIComponent(query)}`);
+    state.affiliateProduct = result.products?.[0] || null;
+    state.affiliateLink = "";
+    renderAffiliateProduct();
+    if (!state.affiliateProduct) showToast("Không có sản phẩm đạt ngưỡng relevance/commission.", true);
+    else showToast("Đã chọn sản phẩm có điểm phù hợp nhất.");
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    elements.affiliateSearchButton.disabled = false;
+  }
+}
+
+async function generateAffiliateLink() {
+  const brand = affiliateBrand();
+  if (!brand || !state.affiliateProduct) return showToast("Hãy chọn Brand và sản phẩm trước.", true);
+  elements.affiliateLinkButton.disabled = true;
+  try {
+    const pageId = elements.uploadFacebookPage?.value || "";
+    const result = await api("/api/affiliate/link", {
+      method: "POST",
+      body: JSON.stringify({
+        project: state.selected,
+        brand,
+        productId: state.affiliateProduct.id,
+        placement: elements.affiliatePlacement.value,
+        pageId,
+      }),
+    });
+    state.affiliateLink = result.link?.affiliate_url || "";
+    renderAffiliateProduct();
+    showToast("Đã tạo link Shopee Affiliate có SubID.");
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    elements.affiliateLinkButton.disabled = false;
+  }
+}
+
+function readAffiliatePayload() {
+  const mode = elements.affiliateMode?.value || "off";
+  return {
+    enabled: mode !== "off",
+    mode,
+    placement: elements.affiliatePlacement?.value || "first_comment",
+    query: elements.affiliateQuery?.value.trim() || "",
+    productId: state.affiliateProduct?.id || "",
+    originUrl: state.affiliateProduct?.origin_url || "",
+    affiliateUrl: state.affiliateLink || "",
+    autoComment: Boolean(elements.affiliateAutoComment?.checked),
+  };
 }
 
 async function load() {
@@ -141,7 +272,7 @@ async function upload(platform) {
       platform === "youtube"
         ? { project: state.selected, title: elements.uploadTitle.value, description: elements.youtubeDescription.value, privacyStatus: elements.youtubePrivacy.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
         : platform === "facebook"
-          ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+          ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", affiliate: readAffiliatePayload(), ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
           : platform === "tiktok"
             ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }
             : platform === "instagram"
@@ -220,14 +351,17 @@ elements.binanceDisconnectButton.addEventListener("click", async () => {
   }
 });
 
-elements.uploadProject.addEventListener("change", () => { state.selected = elements.uploadProject.value; history.replaceState({}, "", `/upload?project=${encodeURIComponent(state.selected)}`); loadProject().catch((error) => showToast(error.message, true)); });
-elements.uploadYoutubeChannel.addEventListener("change", () => setActive("youtube", elements.uploadYoutubeChannel.value).catch((error) => showToast(error.message, true)));
-elements.uploadFacebookPage.addEventListener("change", () => setActive("facebook", elements.uploadFacebookPage.value).catch((error) => showToast(error.message, true)));
-elements.uploadYoutubeButton.addEventListener("click", () => upload("youtube"));
-elements.uploadFacebookButton.addEventListener("click", () => upload("facebook"));
-elements.uploadTiktokButton.addEventListener("click", () => upload("tiktok"));
-elements.uploadInstagram.addEventListener("click", () => upload("instagram"));
-elements.uploadThreads.addEventListener("click", () => upload("threads"));
+elements.uploadProject?.addEventListener("change", () => { state.selected = elements.uploadProject.value; history.replaceState({}, "", `/upload?project=${encodeURIComponent(state.selected)}`); loadProject().catch((error) => showToast(error.message, true)); });
+elements.uploadYoutubeChannel?.addEventListener("change", () => setActive("youtube", elements.uploadYoutubeChannel.value).catch((error) => showToast(error.message, true)));
+elements.uploadFacebookPage?.addEventListener("change", () => setActive("facebook", elements.uploadFacebookPage.value).catch((error) => showToast(error.message, true)));
+elements.uploadYoutubeButton?.addEventListener("click", () => upload("youtube"));
+elements.uploadFacebookButton?.addEventListener("click", () => upload("facebook"));
+elements.uploadTiktokButton?.addEventListener("click", () => upload("tiktok"));
+elements.uploadInstagram?.addEventListener("click", () => upload("instagram"));
+elements.uploadThreads?.addEventListener("click", () => upload("threads"));
+elements.affiliateSearchButton?.addEventListener("click", searchAffiliateProducts);
+elements.affiliateLinkButton?.addEventListener("click", generateAffiliateLink);
+elements.affiliatePlacement?.addEventListener("change", () => { state.affiliateLink = ""; renderAffiliateProduct(); });
 function openTiktokConfig() {
   const current = state.status?.platforms?.tiktok || {};
   elements.tiktokConfigState.textContent = current.connected ? `Đã cấu hình Zernio: ${current.masked_api_key || "đã lưu"}` : "Nhập API key và TikTok account ID từ Zernio.";
