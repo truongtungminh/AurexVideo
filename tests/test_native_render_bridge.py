@@ -313,7 +313,7 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertIsNone(sub_rect)
         self.assertAlmostEqual(rect["x"], 0.030)
         self.assertAlmostEqual(rect["width"], 0.444)
-        self.assertAlmostEqual(rect["y"] + rect["height"], 0.240)
+        self.assertAlmostEqual(rect["y"] + rect["height"], profile["label_anchor_y"])
         self.assertAlmostEqual(rect["height"], 54 * profile["label_line_height"] / 1920)
 
     def test_bietchichomet_default_text_style_compiles_to_native_ir(self) -> None:
