@@ -67,12 +67,14 @@ _NATIVE_CHARACTER_STYLESHEET_CONTRACTS = {
 def _native_supported_font(value: object) -> bool:
     """Whether a browser label stack resolves to a bundled Native font.
 
-    Scene IR v2 stages Inter-Bold and Saira for labels and karaoke. Color is
-    represented natively, but silently replacing any other selected font
-    would be a preview-parity regression, so leave that project on Browser.
+    Scene IR v2 stages Inter-Bold, Be Vietnam Pro, and Saira for labels and
+    karaoke. Color is represented natively, but silently replacing any other
+    selected font would be a preview-parity regression, so leave that project
+    on Browser.
     """
     family = str(value or "").strip().lstrip('"\'').split(",", 1)[0].strip().strip('"\'').lower()
-    return not family or family in {"inter", "saira"}
+    family = " ".join(family.split())
+    return not family or family in {"inter", "saira", "be vietnam pro", "be-vietnam-pro"}
 
 
 def native_unsupported_text_styles(topic: dict[str, object]) -> tuple[str, ...]:
@@ -95,7 +97,8 @@ def requires_text_style_compatibility(backend: str, topic: dict[str, object]) ->
         return False
     if backend == "native":
         raise NativeRenderUnavailable(
-            "Aurex Render Core hiện chỉ bảo toàn font Inter hoặc Saira cho nhãn/karaoke "
+            "Aurex Render Core hiện chỉ bảo toàn font Inter, Be Vietnam Pro "
+            "hoặc Saira cho nhãn/karaoke "
             f"({', '.join(unsupported)}). Dùng --render-backend auto để Browser giữ đúng font.",
             reason="native_text_style_parity_required",
         )

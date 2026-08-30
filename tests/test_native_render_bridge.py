@@ -157,10 +157,10 @@ class NativeRenderBridgeTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.reason, "character_css_parity_required")
 
-    def test_non_inter_label_font_routes_auto_to_browser(self) -> None:
+    def test_unknown_label_font_routes_auto_to_browser(self) -> None:
         topic = {
             "characterId": "bietchichomet",
-            "labelFontFamily": '"Be Vietnam Pro", "Inter", sans-serif',
+            "labelFontFamily": '"Playfair Display", Georgia, serif',
         }
 
         self.assertEqual(native_unsupported_text_styles(topic), ("labelFontFamily",))
@@ -174,6 +174,16 @@ class NativeRenderBridgeTests(unittest.TestCase):
         topic = {
             "characterId": "bietchichomet",
             "labelFontFamily": '"Saira", "Inter", sans-serif',
+        }
+
+        self.assertEqual(native_unsupported_text_styles(topic), ())
+        self.assertFalse(requires_text_style_compatibility("auto", topic))
+        self.assertFalse(requires_text_style_compatibility("native", topic))
+
+    def test_be_vietnam_pro_label_font_is_supported_by_native_core(self) -> None:
+        topic = {
+            "characterId": "bietchichomet",
+            "labelFontFamily": '"Be Vietnam Pro", "Inter", sans-serif',
         }
 
         self.assertEqual(native_unsupported_text_styles(topic), ())
@@ -335,10 +345,11 @@ class NativeRenderBridgeTests(unittest.TestCase):
 
         labels = [layer for layer in document["layers"] if layer["id"].endswith("-label")]
         karaoke = [layer for layer in document["layers"] if layer["id"].startswith("karaoke-")]
-        self.assertEqual([layer["fontFamily"] for layer in labels], ["Saira", "Saira"])
+        self.assertEqual([layer["fontFamily"] for layer in labels], ["Be Vietnam Pro", "Be Vietnam Pro"])
+        self.assertEqual(karaoke[0]["fontFamily"], "Be Vietnam Pro")
         self.assertTrue(all(
             layer["fontSource"].endswith(
-                "Saira-memjYa2wxmKQyPMrZX79wwYZQMhsyuSLiIvSdyqOvg.woff2"
+                "BeVietnamPro-QdVMSTAyLFyeg_IDWvOJmVES_HSMIG81Rb0JcBao.woff2"
             )
             for layer in labels
         ))

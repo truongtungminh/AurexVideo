@@ -18,16 +18,18 @@ final class TextRasterizer {
                     if let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String,
                        let name = CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute) as? String {
                         registeredFontNames[family] = name
-                        // The bundled Google Fonts Saira WOFF2 subset exposes
-                        // its Core Text family as "Saira Thin", while the
-                        // editor/Scene IR contract uses the CSS family name
-                        // "Saira". Keep an alias so native text does not
-                        // silently fall back to Inter when resolving it.
+                        // Some bundled Google Fonts subsets expose an internal
+                        // family name that differs from the CSS/Scene IR
+                        // contract. Keep aliases so native text does not
+                        // silently fall back to Inter when resolving them.
                         let normalizedFamily = family
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                             .lowercased()
                         if normalizedFamily == "saira thin" {
                             registeredFontNames["Saira"] = name
+                        }
+                        if normalizedFamily.hasPrefix("be vietnam pro") {
+                            registeredFontNames["Be Vietnam Pro"] = name
                         }
                     }
                 }

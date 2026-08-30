@@ -31,9 +31,12 @@ WORD_TAIL_EPSILON = 0.08
 
 _FONT_ASSETS: dict[str, Path] = {
     "inter": Path("assets/fonts/Inter-Bold.ttf"),
-    # This is the bundled Latin Saira variable subset. Core Text registers the
-    # WOFF2 directly; TextRasterizer aliases its internal family name back to
-    # the CSS/Scene family contract.
+    # This is the bundled Be Vietnam Pro bold Latin subset. Core Text registers
+    # the WOFF2 directly; the CSS catalog still supplies unicode-range variants
+    # to Browser renders.
+    "be vietnam pro": Path(
+        "assets/fonts/BeVietnamPro-QdVMSTAyLFyeg_IDWvOJmVES_HSMIG81Rb0JcBao.woff2"
+    ),
     "saira": Path("assets/fonts/Saira-memjYa2wxmKQyPMrZX79wwYZQMhsyuSLiIvSdyqOvg.woff2"),
 }
 
@@ -44,12 +47,18 @@ def _font_family(value: object, default: str = "Inter") -> str:
     first = raw.split(",", 1)[0].strip().strip("\"'") if raw else ""
     if not first:
         return default
-    return {"inter": "Inter", "saira": "Saira"}.get(first.casefold(), first)
+    key = re.sub(r"\s+", " ", first).strip().casefold()
+    return {
+        "inter": "Inter",
+        "saira": "Saira",
+        "be vietnam pro": "Be Vietnam Pro",
+        "be-vietnam-pro": "Be Vietnam Pro",
+    }.get(key, first)
 
 
 _STYLE_PROFILES: dict[str, dict[str, Any]] = {
     "bietchichomet": {
-        "font_family": "Saira",
+        "font_family": "Be Vietnam Pro",
         "presenter_full_stage": True,
         "media_rects": {
             "left": {"x": 0.030, "y": 0.240, "width": 0.420, "height": 0.230},
