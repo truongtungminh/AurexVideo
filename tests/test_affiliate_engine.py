@@ -84,6 +84,25 @@ class AffiliateEngineTests(unittest.TestCase):
         self.assertEqual(ranked[0]["provider_product_id"], "relevant")
         self.assertGreater(ranked[0]["ranking_score"], ranked[1]["ranking_score"])
 
+    def test_rank_includes_historical_conversion_weight(self):
+        ranked = rank_products(
+            [{
+                "itemId": "item-1",
+                "name": "Bình giữ nhiệt",
+                "productLink": "https://shopee.vn/binh-giu-nhiet",
+                "relevance": 0.8,
+                "commissionRate": 0.1,
+                "sales": 100,
+                "rating": 5,
+                "priceDiscountRate": 20,
+                "shopQuality": 0.8,
+                "historicalConversion": 0.4,
+            }],
+            "bình giữ nhiệt",
+        )
+
+        self.assertAlmostEqual(ranked[0]["ranking_score"], 0.84, places=6)
+
     def test_brand_connection_is_scoped_and_secret_is_not_in_public_context(self):
         config = {}
         secret = "s" * 32
@@ -135,11 +154,13 @@ class AffiliateEngineTests(unittest.TestCase):
 
         overview = affiliate_store.overview(brand_id="knowzy")
         cached = list_saved_products("Bình giữ nhiệt")
+        conversion_rates = affiliate_store.product_conversion_rates()
         self.assertEqual(overview["kpis"]["clicks"], 12)
         self.assertEqual(overview["kpis"]["orders"], 2)
         self.assertEqual(overview["kpis"]["commission"], 36000.0)
         self.assertEqual(len(overview["links"]), 1)
         self.assertEqual(cached["products"][0]["id"], product["id"])
+        self.assertAlmostEqual(conversion_rates[product["id"]], 2 / 12)
 
     def test_graphql_short_link_uses_signed_official_request_shape(self):
         captured = {}

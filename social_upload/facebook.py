@@ -467,7 +467,7 @@ def facebook_upload_video(payload: dict) -> dict:
                 affiliate_comment_text(affiliate_url),
                 access_token,
             )
-        affiliate_status = "published" if not affiliate_comment_error else "comment_failed"
+        affiliate_status = "published" if video_state == "PUBLISHED" and not affiliate_comment_error else "comment_failed" if affiliate_comment_error else "draft"
         if video_state == "SCHEDULED":
             affiliate_status = "scheduled"
         affiliate_result = finalize_affiliate_publish(
