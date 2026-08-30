@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from social_upload.affiliate import (
     brand_context as affiliate_brand_context,
     build_sub_ids,
     create_affiliate_link,
+    ingest_conversion_rows,
     list_saved_products,
     rank_products,
 )
@@ -122,6 +124,17 @@ class AffiliateEngineTests(unittest.TestCase):
         self.assertEqual(context["connection"]["app_id"], "app-123")
         self.assertEqual(config["brand_routes"]["knowzy"]["shopee"]["connection_id"], result["connection_id"])
 
+    def test_missing_brand_does_not_use_global_shopee_environment(self):
+        with patch.dict(
+            os.environ,
+            {"SHOPEE_AFFILIATE_APP_ID": "global-app", "SHOPEE_AFFILIATE_SECRET": "g" * 32},
+            clear=False,
+        ):
+            context = affiliate_brand_context({}, "knowzy")
+
+        self.assertFalse(context["connection"]["connected"])
+        self.assertEqual(context["connection"]["app_id"], "")
+
     def test_store_overview_and_cached_products(self):
         affiliate_store.upsert_settings("knowzy", {"enabled": True, "mode": "manual"})
         product = affiliate_store.upsert_product(
@@ -192,21 +205,59 @@ class AffiliateEngineTests(unittest.TestCase):
         self.assertEqual(captured["timeout"], 60)
 
     def test_dashboard_can_reuse_existing_affiliate_url_without_provider_call(self):
-        result = create_affiliate_link(
-            brand="knowzy",
-            content_id="affiliate-dashboard",
-            product_id="content-record-1",
-            placement="first_comment",
-            product_payload={
-                "product_name": "Bình giữ nhiệt",
-                "original_url": "https://shopee.vn/binh-giu-nhiet",
-                "affiliate_url": "https://s.shopee.vn/already-created",
-            },
-        )
+        with patch(
+            "social_upload.affiliate.read_social_config",
+            return_value={"brand_routes": {"knowzy": {"facebook": {"page_id": "123456"}}}},
+        ):
+            result = create_affiliate_link(
+                brand="knowzy",
+                content_id="affiliate-dashboard",
+                product_id="content-record-1",
+                placement="first_comment",
+                product_payload={
+                    "product_name": "Bình giữ nhiệt",
+                    "original_url": "https://shopee.vn/binh-giu-nhiet",
+                    "affiliate_url": "https://s.shopee.vn/already-created",
+                },
+            )
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/already-created")
         self.assertEqual(result["link"]["content_id"], "affiliate-dashboard")
+        self.assertEqual(result["sub_ids"][1], "123456")
+
+    def test_conversion_import_rebuilds_daily_stats_idempotently(self):
+        rows = [
+            {
+                "conversion_id": "conversion-1",
+                "brand_id": "Knowzy",
+                "content_id": "video-1",
+                "product_id": "item-1",
+                "order_time": "2026-08-30T09:00:00+07:00",
+                "order_value": 100000,
+                "commission": 8000,
+                "clicks": 3,
+            },
+            {
+                "conversion_id": "conversion-2",
+                "brand_id": "Knowzy",
+                "content_id": "video-1",
+                "product_id": "item-1",
+                "order_time": "2026-08-30T10:00:00+07:00",
+                "order_value": 200000,
+                "commission": 16000,
+                "clicks": 4,
+            },
+        ]
+
+        self.assertEqual(ingest_conversion_rows(rows)["imported"], 2)
+        self.assertEqual(ingest_conversion_rows(rows)["imported"], 2)
+
+        overview = affiliate_store.overview(brand_id="knowzy")
+        self.assertEqual(overview["kpis"]["clicks"], 7)
+        self.assertEqual(overview["kpis"]["orders"], 2)
+        self.assertEqual(overview["kpis"]["gmv"], 300000.0)
+        self.assertEqual(overview["kpis"]["commission"], 24000.0)
 
 
 if __name__ == "__main__":

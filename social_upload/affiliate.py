@@ -311,6 +311,12 @@ def create_affiliate_link(
         raise ValueError("Origin URL phải là link Shopee HTTPS hợp lệ.")
     if affiliate_url and not _valid_shopee_link(affiliate_url):
         raise ValueError("Affiliate URL phải là link Shopee HTTPS hợp lệ.")
+    if not page_id:
+        brand_routes = config.get("brand_routes") if isinstance(config, dict) else {}
+        brand_route = brand_routes.get(brand) if isinstance(brand_routes, dict) else {}
+        facebook_route = brand_route.get("facebook") if isinstance(brand_route, dict) else {}
+        if isinstance(facebook_route, dict):
+            page_id = str(facebook_route.get("page_id") or facebook_route.get("connection_id") or "").strip()
     sub_ids = build_sub_ids(brand, page_id, content_id, product_id or product.get("provider_product_id"), placement)
     if not affiliate_url:
         _, connection = resolve_social_brand_connection(config, brand, "shopee")
@@ -330,13 +336,14 @@ def create_affiliate_link(
 
 
 def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_id: str = "") -> dict:
-    raw = payload.get("affiliate") if isinstance(payload.get("affiliate"), dict) else {}
+    has_affiliate_payload = isinstance(payload.get("affiliate"), dict)
+    raw = payload.get("affiliate") if has_affiliate_payload else {}
     brand = canonical_brand(brand)
     settings = affiliate_store.get_settings(brand)
     mode = str(raw.get("mode") or raw.get("affiliateMode") or "").strip().lower()
     if not mode:
-        mode = str(settings.get("mode") or "off").strip().lower() if raw.get("enabled") else "off"
-    enabled = bool(raw.get("enabled", mode != "off")) and mode != "off"
+        mode = str(settings.get("mode") or "off").strip().lower() if (not has_affiliate_payload or raw.get("enabled")) else "off"
+    enabled = bool(raw.get("enabled", settings.get("enabled") if not has_affiliate_payload else mode != "off")) and mode != "off"
     if not enabled:
         return {"enabled": False, "mode": "off", "placement": "first_comment", "auto_comment": False}
     if mode not in AFFILIATE_MODES:
@@ -375,7 +382,6 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         placement=placement,
         page_id=page_id,
     )
-    link = link_result["link"]
     link_row = link_result["link"]
     record = affiliate_store.record_content_product({
         "content_id": project,
@@ -384,7 +390,7 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         "product_id": str(product.get("id") or product_id),
         "product_name": str(product.get("name") or "Shopee product"),
         "original_url": origin_url,
-        "affiliate_url": str(link_row.get("affiliate_url") or link),
+        "affiliate_url": str(link_row.get("affiliate_url") or ""),
         "commission_rate": _fraction(product.get("commission_rate")),
         "relevance_score": relevance_score,
         "ranking_score": ranking_score,
@@ -488,6 +494,7 @@ def overview(brand: str = "", content_id: str = "", *, start_date: str = "", end
 def ingest_conversion_rows(rows: list[dict], brand: str = "") -> dict:
     """Persist normalized rows supplied by a future Shopee report sync job."""
     count = 0
+    affected_stats: list[tuple[str, str, str, str]] = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
@@ -496,15 +503,12 @@ def ingest_conversion_rows(rows: list[dict], brand: str = "") -> dict:
         affiliate_store.record_conversion(normalized)
         order_time = str(normalized.get("order_time") or normalized.get("click_time") or "")
         stat_date = order_time[:10] if len(order_time) >= 10 else datetime.now(timezone.utc).date().isoformat()
-        affiliate_store.upsert_daily_stats(
+        affected_stats.append((
             stat_date,
-            brand_id=normalized["brand_id"],
-            content_id=str(normalized.get("content_id") or ""),
-            product_id=str(normalized.get("product_id") or ""),
-            clicks=int(_float(normalized.get("clicks"), 0)),
-            orders=1,
-            gmv=_float(normalized.get("order_value")),
-            commission=_float(normalized.get("commission")),
-        )
+            normalized["brand_id"],
+            str(normalized.get("content_id") or ""),
+            str(normalized.get("product_id") or ""),
+        ))
         count += 1
+    affiliate_store.rebuild_daily_stats_from_conversions(affected_stats)
     return {"ok": True, "imported": count}
