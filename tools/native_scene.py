@@ -87,6 +87,10 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         "karaoke_active_color": "#ff2200",
         "border_color": "#8b5a2b",
         "border_inset": 0.006,
+        # Browser CSS uses `border-radius: 2.2cqw` for this card.  Scene IR
+        # stores the equivalent radius as a fraction of the canvas height so
+        # the Metal mask remains resolution-independent.
+        "media_corner_radius_cqw": 2.2,
         "border": True,
     },
     "default": {
@@ -108,6 +112,8 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         "label_color": "#090909",
         "karaoke_color": "#111111",
         "karaoke_active_color": "#de370d",
+        # Shared Browser media-slot radius (`0.8cqw`).
+        "media_corner_radius_cqw": 0.8,
         "border": False,
     },
 }
@@ -133,6 +139,14 @@ def _rect(value: object, fallback: dict[str, float]) -> dict[str, float]:
         "width": max(0.001, _number(value.get("width"), fallback["width"])),
         "height": max(0.001, _number(value.get("height"), fallback["height"])),
     }
+
+
+def _media_corner_radius(profile: dict[str, Any], *, canvas_width: int, canvas_height: int) -> float:
+    """Return a CSS `cqw` radius converted to normalized canvas-height units."""
+    cqw = max(0.0, _number(profile.get("media_corner_radius_cqw")))
+    if canvas_width <= 0 or canvas_height <= 0:
+        return 0.0
+    return cqw / 100.0 * canvas_width / canvas_height
 
 
 def _safe_filename(source: Path) -> str:
@@ -412,6 +426,11 @@ def compile_standard_topic(
     width, height = 1080, 1920
     character_id = str(topic.get("characterId") or topic.get("brand") or "").strip().lower()
     profile = _STYLE_PROFILES.get(character_id, _STYLE_PROFILES["default"])
+    media_corner_radius = _media_corner_radius(
+        profile,
+        canvas_width=width,
+        canvas_height=height,
+    )
     font_family = _font_family(topic.get("labelFontFamily"), str(profile.get("font_family", "Inter")))
     font_source = _stage_font(resource_root.resolve(), staging_dir, asset_cache, font_family)
     background_type = str(topic.get("backgroundType") or "default").strip().lower()
@@ -552,6 +571,7 @@ def compile_standard_topic(
                 continue
             outer = _rect(profile["media_rects"].get(slot), profile["media_rects"]["left"])
             image_rect = dict(outer)
+            image_corner_radius = media_corner_radius
             if profile.get("border"):
                 inset = float(profile.get("border_inset", 0.0))
                 layers.append({
@@ -562,7 +582,12 @@ def compile_standard_topic(
                     "endFrame": end_frame,
                     "rect": outer,
                     "color": str(profile.get("border_color") or "#8b5a2b"),
+                    "cornerRadius": media_corner_radius,
                 })
+                # CSS clips the content box at the inner border radius.  Keep
+                # a little more wood visible at the corners instead of using
+                # the outer border-box radius for both layers.
+                image_corner_radius = max(0.0, media_corner_radius - inset)
                 image_rect = {
                     "x": outer["x"] + inset,
                     "y": outer["y"] + inset,
@@ -581,6 +606,7 @@ def compile_standard_topic(
                 "zoom": max(1.0, min(3.0, _number(scene.get(f"{side}ImageZoom"), 1.0))),
                 "panX": max(-50.0, min(50.0, _number(scene.get(f"{side}ImageX")))),
                 "panY": max(-50.0, min(50.0, _number(scene.get(f"{side}ImageY")))),
+                "cornerRadius": image_corner_radius,
             })
             label_value = _format_label(scene.get(f"{side}Label"))
             sub_value = str(scene.get(f"{side}SubLabel") or "").strip()

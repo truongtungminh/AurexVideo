@@ -12,6 +12,8 @@ struct QuadUniforms {
     float4 clipRect;
     float4 uvRect;
     float4 color;
+    // x = radius in canvas pixels, y = canvas width, z = canvas height.
+    float4 shape;
 };
 
 struct VertexOutput {
@@ -39,11 +41,32 @@ vertex VertexOutput quadVertex(
     return output;
 }
 
+float roundedMask(
+    VertexOutput input,
+    constant QuadUniforms &uniforms)
+{
+    // Work in physical canvas pixels so a CSS-style circular radius remains
+    // circular even when the Scene IR canvas is a 9:16 vertical video.
+    float2 canvasSize = max(uniforms.shape.yz, float2(1.0));
+    float2 halfSize = abs(uniforms.clipRect.zw - uniforms.clipRect.xy) * canvasSize * 0.25;
+    float radius = min(uniforms.shape.x, min(halfSize.x, halfSize.y));
+    if (radius <= 0.0) {
+        return 1.0;
+    }
+
+    float2 point = (input.uv - 0.5) * (halfSize * 2.0);
+    float2 q = abs(point) - (halfSize - radius);
+    float distance = length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    float antialias = max(fwidth(distance), 0.001);
+    return 1.0 - smoothstep(-antialias, antialias, distance);
+}
+
 fragment float4 solidFragment(
     VertexOutput input [[stage_in]],
     constant QuadUniforms &uniforms [[buffer(0)]])
 {
-    return float4(uniforms.color.rgb * uniforms.color.a, uniforms.color.a);
+    float mask = roundedMask(input, uniforms);
+    return float4(uniforms.color.rgb * uniforms.color.a * mask, uniforms.color.a * mask);
 }
 
 fragment float4 imageFragment(
@@ -54,8 +77,9 @@ fragment float4 imageFragment(
     constexpr sampler textureSampler(coord::normalized, address::clamp_to_edge, filter::linear);
     float2 uv = mix(uniforms.uvRect.xy, uniforms.uvRect.zw, input.uv);
     float4 value = image.sample(textureSampler, uv);
-    value.rgb *= uniforms.color.a;
-    value.a *= uniforms.color.a;
+    float mask = roundedMask(input, uniforms);
+    value.rgb *= uniforms.color.a * mask;
+    value.a *= uniforms.color.a * mask;
     return value;
 }
 """#
@@ -64,6 +88,7 @@ private struct QuadUniforms {
     var clipRect: SIMD4<Float>
     var uvRect: SIMD4<Float>
     var color: SIMD4<Float>
+    var shape: SIMD4<Float>
 }
 
 struct ImageGeometry: Equatable {
@@ -381,7 +406,13 @@ public final class MetalCompositor {
             var uniforms = QuadUniforms(
                 clipRect: Self.clipRect(drawRect),
                 uvRect: uvRect,
-                color: color
+                color: color,
+                shape: SIMD4<Float>(
+                    Float(layer.cornerRadius * Double(canvas.height)),
+                    Float(canvas.width),
+                    Float(canvas.height),
+                    0
+                )
             )
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<QuadUniforms>.stride, index: 0)
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<QuadUniforms>.stride, index: 0)

@@ -35,10 +35,16 @@ native/bin/aurex-render capabilities
 
 Manifest dùng `schemaVersion: 2`. Canvas phải có kích thước chẵn để xuất H.264. Mỗi layer có frame range, z-index, normalized rect và opacity. Các layer v2 chính:
 
-- `solid`: nền hoặc viền card.
-- `image`: ảnh tĩnh với `fill`/`fit`, zoom và pan.
-- `video`: pose/background video với `videoSyncMode`, loop start/end.
+- `solid`: nền hoặc viền card; có thể đặt `cornerRadius` để mask bo góc.
+- `image`: ảnh tĩnh với `fill`/`fit`, zoom, pan và `cornerRadius`.
+- `video`: pose/background video với `videoSyncMode`, loop start/end và
+  `cornerRadius`.
 - `text`: text hoặc `spans`, `fontSource`, font size, alignment và màu.
+
+`cornerRadius` là tỉ lệ trên chiều cao canvas (ví dụ `0.012375` tương đương
+`2.2cqw` trên canvas 1080×1920). Metal áp mask ở pixel-space để bo tròn đúng
+trên canvas dọc; profile `bietchichomet` đặt radius cho cả viền và content box,
+giữ bốn góc giống Browser preview.
 
 Manifest custom vẫn phải là full-scene contract. Đường dẫn asset trong manifest phải tương đối, không chứa `..` và không dùng đường dẫn tuyệt đối. Schema v1 vẫn được đọc để giữ tương thích với fixture cũ.
 

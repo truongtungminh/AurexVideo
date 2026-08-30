@@ -356,6 +356,21 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertEqual([layer["textColor"] for layer in labels], ["#090909", "#090909"])
         self.assertEqual(karaoke[0]["textColor"], _STYLE_PROFILES["bietchichomet"]["karaoke_color"])
 
+        media = [
+            layer for layer in document["layers"]
+            if layer["id"].startswith("comparison-")
+            and layer["type"] in {"solid", "image"}
+        ]
+        self.assertEqual(len(media), 4)
+        border_radius = [layer["cornerRadius"] for layer in media if layer["type"] == "solid"]
+        image_radius = [layer["cornerRadius"] for layer in media if layer["type"] == "image"]
+        self.assertEqual(len(border_radius), 2)
+        self.assertEqual(len(image_radius), 2)
+        expected_radius = 2.2 / 100 * 1080 / 1920
+        self.assertTrue(all(abs(value - expected_radius) < 1e-9 for value in border_radius))
+        self.assertTrue(all(value > 0 for value in image_radius))
+        self.assertTrue(all(value < expected_radius for value in image_radius))
+
     def test_single_image_scene_uses_one_centered_native_slot(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
             root = Path(temp)

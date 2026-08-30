@@ -25,6 +25,7 @@ import Foundation
             "type": "solid",
             "rect": {"x": 0.1, "y": 0.2, "width": 0.4, "height": 0.3},
             "endRect": {"x": 0.5, "y": 0.2, "width": 0.4, "height": 0.3},
+            "cornerRadius": 0.012375,
             "color": "#E8B44FFF"
           }]
         }
@@ -34,6 +35,7 @@ import Foundation
     try ManifestValidator.validate(manifest)
     #expect(manifest.output.hardwareAcceleration == .prefer)
     #expect(manifest.layers[0].rect(at: 59, frameCount: 60).x == 0.5)
+    #expect(manifest.layers[0].cornerRadius == 0.012375)
 }
 
 @Test func rationalTimelineHasExactPresentationTimes() {
