@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "frameRate": { "numerator": 30, "denominator": 1 },
+    "frameCount": 30,
+    "backgroundColor": "#F3EBDD"
+  },
+  "output": {
+    "bitRate": 2500000,
+    "hardwareAcceleration": "prefer",
+    "keyFrameIntervalSeconds": 2
+  },
+  "layers": [
+    {
+      "id": "saira-text",
+      "type": "text",
+      "zIndex": 1,
+      "startFrame": 0,
+      "endFrame": 30,
+      "rect": { "x": 0.05, "y": 0.35, "width": 0.9, "height": 0.3 },
+      "text": "Saira tiếng Việt",
+      "textColor": "#111111",
+      "fontFamily": "Saira",
+      "fontSource": "assets/fonts/Saira-memjYa2wxmKQyPMrZX79wwYZQMhsyuSLiIvSdyqOvg.woff2",
+      "fontSize": 42,
+      "fontWeight": 700,
+      "lineHeight": 1.15,
+      "textAlignment": "center"
+    }
+  ]
+}
