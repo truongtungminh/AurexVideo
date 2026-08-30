@@ -36,6 +36,13 @@ class RenderBackendDefaultTests(unittest.TestCase):
         self.assertIn('<option value="native">Aurex Render Core', server_source)
         self.assertIn("renderBackend: normalizeRenderBackend($('#renderBackend')?.value)", client_source)
 
+    def test_progress_parser_recognizes_native_render_and_mux_stages(self) -> None:
+        client_source = (ENGINE_ROOT / "web" / "render_page.js").read_text(encoding="utf-8")
+
+        self.assertIn("Rendering with Aurex Render Core", client_source)
+        self.assertIn("aurex-render render", client_source)
+        self.assertIn("-c:v copy", client_source)
+
     def test_legacy_browser_preference_migrates_to_auto(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-preferences-test-") as temp:
             root = Path(temp)

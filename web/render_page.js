@@ -2656,7 +2656,8 @@
       [/Whisper transcription|Whisper nhận|align_voiceover/, tr('Whisper đang căn phụ đề...', 'Whisper is aligning subtitles…'), 1, 13],
       [/Phát hiện \d+ khoảng lặng|speech starts after silence|Đã căn \d+ dòng/, tr('Đang gắn pose và âm thanh...', 'Applying poses and sounds…'), 2, 20],
       [/Recording one-scene video|Rendering one-scene video frame-by-frame|render_demo\.py/, tr('Đang render video...', 'Rendering video…'), 3, 25],
-      [/Measured browser preroll|frame=\s*\d+/, tr('Đang ghép và mã hóa MP4...', 'Muxing and encoding MP4…'), 4, 90],
+      [/Rendering with Aurex Render Core|aurex-render render|aurex-native-scene/, tr('Đang render bằng Aurex Render Core...', 'Rendering with Aurex Render Core…'), 3, 25],
+      [/Measured browser preroll|frame=\s*\d+|-c:v copy/, tr('Đang ghép và mã hóa MP4...', 'Muxing and encoding MP4…'), 4, 90],
       [/Applying branding/, tr('Đang gắn logo AurexVideo...', 'Applying AurexVideo logo…'), 4, 96],
       [/^Done:/m, tr('Sắp hoàn thành...', 'Almost done…'), 4, 99],
     ];
