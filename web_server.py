@@ -3911,12 +3911,12 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <span>Bộ máy render</span>
             </span>
             <select id="renderBackend">
-              <option value="auto" selected>Auto · Native nhanh, CSS custom tự dùng Browser</option>
+              <option value="auto" selected>Auto · Aurex Render Core ưu tiên, Browser fallback</option>
               <option value="native">Aurex Render Core · bắt buộc Native</option>
               <option value="browser">Browser · giữ đúng CSS preview</option>
             </select>
           </label>
-          <p class="engine-note render-backend-note">Auto dùng Native khi scene có contract; CSS custom như bietchichomet và Custom Intro tự chuyển Browser compatibility để giữ đúng preview. Chọn Native sẽ dừng nếu project chưa đạt parity.</p>
+          <p class="engine-note render-backend-note">Auto ưu tiên Aurex Render Core; scene chưa đạt contract hoặc Core lỗi sẽ fallback Browser để giữ đúng preview. Chọn Native sẽ dừng nếu project chưa đạt parity.</p>
         </div>
       </section>
 

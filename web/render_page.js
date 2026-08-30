@@ -1,7 +1,7 @@
 (() => {
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
-  // Auto is the default: Native for contract-covered scenes, Browser for CSS compatibility.
+  // Auto is the default: Aurex Render Core first, Browser fallback for compatibility.
   const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v3';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
   const RENDER_ENGINE_STORAGE_KEY = 'aurexvideo-render-engine-v1';

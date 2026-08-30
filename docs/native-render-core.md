@@ -53,8 +53,8 @@ chuẩn, `Auto` cũng fallback Browser và ghi rõ lý do trong report.
 
 `Native` là strict mode: thiếu capability, CSS parity hoặc scene không compile
 được thì job dừng, không âm thầm chuyển Browser. `Browser` là lựa chọn ép dùng
-compatibility path. Vì vậy `bietchichomet` hiện mặc định được guard sang Browser
-compatibility cho tới khi style contract/golden-frame đạt parity.
+compatibility path. Profile built-in của `bietchichomet` đã có Native style
+contract; chỉ các CSS override/custom scene chưa có contract mới fallback Browser.
 
 Mọi output ghi rõ provenance trong `final_video.render-report.json`:
 

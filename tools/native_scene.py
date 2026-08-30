@@ -31,9 +31,9 @@ WORD_TAIL_EPSILON = 0.08
 
 _FONT_ASSETS: dict[str, Path] = {
     "inter": Path("assets/fonts/Inter-Bold.ttf"),
-    # This is the bundled Latin Saira variable subset. Core Text can register
-    # the WOFF2 directly, and it contains the Vietnamese glyphs used by the
-    # editor's labels/subtitles.
+    # This is the bundled Latin Saira variable subset. Core Text registers the
+    # WOFF2 directly; TextRasterizer aliases its internal family name back to
+    # the CSS/Scene family contract.
     "saira": Path("assets/fonts/Saira-memjYa2wxmKQyPMrZX79wwYZQMhsyuSLiIvSdyqOvg.woff2"),
 }
 

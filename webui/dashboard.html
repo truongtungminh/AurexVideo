@@ -116,12 +116,12 @@
               <label>Độ phân giải<select id="renderSize"><option value="720x1280">720 × 1280 · nhanh</option><option value="1080x1920" selected>1080 × 1920 · nét</option></select></label>
               <label>Bộ máy render
                 <select id="renderBackend">
-                  <option value="auto" selected>Auto · Native nhanh, CSS custom tự dùng Browser</option>
+                  <option value="auto" selected>Auto · Aurex Render Core ưu tiên, Browser fallback</option>
                   <option value="native">Aurex Render Core · bắt buộc Native</option>
                   <option value="browser">Browser · giữ đúng CSS preview</option>
                 </select>
               </label>
-              <p class="form-note">Auto dùng Native khi scene đủ contract; CSS custom, text, karaoke, pose hoặc Intro đặc biệt sẽ fallback Browser để giữ đúng preview.</p>
+              <p class="form-note">Auto ưu tiên Aurex Render Core; scene chưa đạt contract hoặc Core lỗi sẽ fallback Browser để giữ đúng preview.</p>
             </div>
           </details>
 
