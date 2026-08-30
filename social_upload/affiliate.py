@@ -83,6 +83,7 @@ def normalize_product(raw: dict, query: str = "") -> dict:
     provider_product_id = str(raw.get("provider_product_id") or raw.get("itemId") or raw.get("item_id") or "").strip()
     origin_url = str(
         raw.get("origin_url")
+        or raw.get("original_url")
         or raw.get("productLink")
         or raw.get("product_link")
         or raw.get("productUrl")
@@ -227,6 +228,12 @@ def discover_products(brand: str, query: str, *, limit: int = 10) -> dict:
     return {"brand": brand, "query": query, "products": stored, "candidates": len(ranked), "settings": settings}
 
 
+def list_saved_products(query: str = "", *, limit: int = 50) -> dict:
+    """Return cached products for the dashboard without calling Shopee."""
+    products = affiliate_store.list_products(query=query, limit=limit)
+    return {"query": str(query or "").strip(), "products": products, "candidates": len(products)}
+
+
 def _valid_shopee_link(value: str) -> bool:
     parsed = urlparse(str(value or "").strip())
     return parsed.scheme == "https" and (parsed.hostname or "").lower().rstrip(".") in SHOPEE_HOSTS and bool(parsed.path)
@@ -241,6 +248,7 @@ def create_affiliate_link(
     affiliate_url: str = "",
     placement: str = "first_comment",
     page_id: str = "",
+    product_payload: dict | None = None,
 ) -> dict:
     config = read_social_config()
     brand = canonical_brand(brand)
@@ -253,6 +261,28 @@ def create_affiliate_link(
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(origin_url or product.get("origin_url") or "").strip()
     affiliate_url = str(affiliate_url or "").strip()
+    if not product and isinstance(product_payload, dict):
+        candidate = normalize_product(product_payload)
+        if candidate.get("origin_url") or candidate.get("offer_url"):
+            product = affiliate_store.upsert_product(candidate)
+            product_id = str(product.get("id") or product_id)
+            origin_url = str(origin_url or product.get("origin_url") or "").strip()
+    if isinstance(product_payload, dict):
+        origin_url = str(
+            origin_url
+            or product_payload.get("origin_url")
+            or product_payload.get("original_url")
+            or product_payload.get("productLink")
+            or product_payload.get("product_link")
+            or ""
+        ).strip()
+        affiliate_url = str(
+            affiliate_url
+            or product_payload.get("affiliate_url")
+            or product_payload.get("affiliateUrl")
+            or product_payload.get("shortUrl")
+            or ""
+        ).strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
     if affiliate_url and not _valid_shopee_link(affiliate_url):

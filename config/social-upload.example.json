@@ -51,6 +51,11 @@
     "threads_user_id": "YOUR_THREADS_USER_ID",
     "access_token": "YOUR_THREADS_ACCESS_TOKEN"
   },
+  "shopee": {
+    "app_id": "YOUR_SHOPEE_AFFILIATE_APP_ID",
+    "secret": "YOUR_SHOPEE_AFFILIATE_SECRET",
+    "api_base_url": "https://open-api.affiliate.shopee.vn/graphql"
+  },
   "r2": {
     "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
     "bucket": "instagram-media",
