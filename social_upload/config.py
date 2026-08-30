@@ -12,8 +12,8 @@ REPO_ROOT = RESOURCE_ROOT
 # Native startup may rebind path roots as strings; normalize them once here.
 SOCIAL_UPLOAD_CONFIG = Path(CONFIG_ROOT).expanduser().resolve() / "social-upload.json"
 SOCIAL_UPLOAD_EXAMPLE = Path(REPO_ROOT).expanduser().resolve() / "config" / "social-upload.example.json"
-SOCIAL_ROUTE_ID_KEYS = {"facebook": "page_id", "youtube": "channel_id"}
-SOCIAL_ROUTE_PLATFORMS = ("youtube", "facebook", "instagram", "tiktok", "threads", "binance")
+SOCIAL_ROUTE_ID_KEYS = {"facebook": "page_id", "youtube": "channel_id", "shopee": "connection_id"}
+SOCIAL_ROUTE_PLATFORMS = ("youtube", "facebook", "instagram", "tiktok", "threads", "binance", "shopee")
 SOCIAL_BRAND_ROUTES_VERSION = 1
 SOCIAL_BRAND_CONNECTIONS_VERSION = 1
 LEGACY_SOCIAL_BRAND = "popsy"
@@ -24,6 +24,7 @@ SOCIAL_CONNECTION_CONFIG_KEYS = {
     "instagram": "instagram",
     "tiktok": "zernio",
     "threads": "threads",
+    "shopee": "shopee",
 }
 SOCIAL_CONNECTION_ENV_KEYS = {
     "instagram": {
@@ -39,16 +40,23 @@ SOCIAL_CONNECTION_ENV_KEYS = {
         "threads_user_id": "THREADS_USER_ID",
         "access_token": "THREADS_ACCESS_TOKEN",
     },
+    "shopee": {
+        "app_id": "SHOPEE_AFFILIATE_APP_ID",
+        "secret": "SHOPEE_AFFILIATE_SECRET",
+        "api_base_url": "SHOPEE_AFFILIATE_API_BASE_URL",
+    },
 }
 SOCIAL_CONNECTION_PUBLIC_ID_KEYS = {
     "instagram": "ig_user_id",
     "tiktok": "account_id",
     "threads": "threads_user_id",
+    "shopee": "app_id",
 }
 SOCIAL_CONNECTION_REQUIRED_KEYS = {
     "instagram": ("ig_user_id", "access_token"),
     "tiktok": ("account_id", "api_key"),
     "threads": ("threads_user_id", "access_token"),
+    "shopee": ("app_id", "secret"),
 }
 SOCIAL_CONNECTION_COPY_KEYS = {
     "instagram": (
@@ -60,11 +68,13 @@ SOCIAL_CONNECTION_COPY_KEYS = {
         "threads_user_id", "access_token", "graph_version", "display_name",
         "poll_attempts", "poll_interval_seconds",
     ),
+    "shopee": ("app_id", "secret", "api_base_url", "display_name"),
 }
 SOCIAL_CONNECTION_DEFAULT_NAMES = {
     "instagram": "Popsy Instagram",
     "tiktok": "Popsy TikTok",
     "threads": "Popsy Threads",
+    "shopee": "Shopee Affiliate",
 }
 
 

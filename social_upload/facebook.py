@@ -9,6 +9,12 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .config import canonical_brand, read_social_config, social_brand_route, write_social_config
+from .affiliate import (
+    affiliate_comment_text,
+    caption_with_affiliate,
+    finalize_affiliate_publish,
+    prepare_affiliate_for_publish,
+)
 from .http import http_form_request, http_get_request
 from .metadata import (
     build_upload_metadata,
@@ -355,6 +361,14 @@ def facebook_upload_video(payload: dict) -> dict:
     if not facebook_page_id(facebook, page) or not facebook_page_access_token(facebook, page):
         raise ValueError(facebook_config_hint())
     access_token = facebook_page_access_token(facebook, page)
+    affiliate = prepare_affiliate_for_publish(
+        payload,
+        project,
+        brand,
+        page_id=facebook_page_id(facebook, page),
+    )
+    if affiliate.get("enabled") and affiliate.get("placement") in {"caption", "caption_and_comment"}:
+        caption = caption_with_affiliate(caption, str(affiliate.get("link", {}).get("affiliate_url") or ""))
     video_bytes = read_expected_video_bytes(video_path, payload)
     video_state = str(payload.get("facebookVideoState") or metadata.get("facebookVideoState") or facebook.get("video_state") or "PUBLISHED").strip().upper()
     if video_state not in {"DRAFT", "PUBLISHED", "SCHEDULED"}:
@@ -434,6 +448,37 @@ def facebook_upload_video(payload: dict) -> dict:
     comment_target_id = facebook_full_post_id(facebook, post_id or video_id, page)
     permalink_url = str(finish_data.get("permalink_url") or "").strip()
 
+    affiliate_result = {}
+    affiliate_comment_id = ""
+    affiliate_comment_error = ""
+    affiliate_url = str(affiliate.get("link", {}).get("affiliate_url") or "") if affiliate.get("enabled") else ""
+    if affiliate.get("enabled"):
+        can_comment = (
+            video_state == "PUBLISHED"
+            and bool(affiliate.get("auto_comment"))
+            and affiliate.get("placement") in {"first_comment", "caption_and_comment"}
+            and bool(comment_target_id)
+            and bool(affiliate_url)
+        )
+        if can_comment:
+            affiliate_comment_id, affiliate_comment_error = post_facebook_source_comment(
+                facebook,
+                comment_target_id,
+                affiliate_comment_text(affiliate_url),
+                access_token,
+            )
+        affiliate_status = "published" if not affiliate_comment_error else "comment_failed"
+        if video_state == "SCHEDULED":
+            affiliate_status = "scheduled"
+        affiliate_result = finalize_affiliate_publish(
+            affiliate,
+            page_id=facebook_page_id(facebook, page),
+            post_id=post_id or video_id,
+            comment_id=affiliate_comment_id,
+            error=affiliate_comment_error,
+            status=affiliate_status,
+        )
+
     reel_url = permalink_url or (f"https://www.facebook.com/reel/{video_id}" if video_id and video_state == "PUBLISHED" else "")
     record_social_upload(
         project,
@@ -457,6 +502,8 @@ def facebook_upload_video(payload: dict) -> dict:
             f"Uploaded to Facebook Reels as {video_state}. Use Comment source after publish to add the source link." if video_state == "PUBLISHED" else
             f"Uploaded to Facebook Reels as {video_state}. Review in Meta Business Suite/Page before publishing if needed."
         )
+    if affiliate_comment_error:
+        message += f" Affiliate link đã tạo nhưng chưa comment được: {affiliate_comment_error[:240]}"
     return {
         "ok": True,
         "platform": "facebook",
@@ -470,6 +517,7 @@ def facebook_upload_video(payload: dict) -> dict:
         "source_comment_target_id": comment_target_id if video_state == "PUBLISHED" else "",
         "source_comment_id": "",
         "source_comment_error": "",
+        "affiliate": affiliate_result,
         "video_state": video_state,
         "scheduledPublishAt": scheduled_publish_at or "",
         "message": message,

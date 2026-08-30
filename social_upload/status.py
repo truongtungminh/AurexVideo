@@ -47,6 +47,7 @@ from .binance import (
     binance_is_configured,
     disconnect_binance,
 )
+from .shopee import shopee_config, shopee_status
 from .facebook import (
     facebook_active_page_id,
     facebook_config,
@@ -82,6 +83,7 @@ def social_status() -> dict:
     threads = threads_config(config)
     tiktok = zernio_config(config)
     r2 = r2_config(config)
+    shopee = shopee_config(config)
     youtube_channels = youtube_channels_status(config, youtube)
     youtube_channel = next((channel for channel in youtube_channels if channel.get("active")), None)
     facebook_configured = facebook_is_configured(facebook)
@@ -92,6 +94,8 @@ def social_status() -> dict:
     instagram_accounts = _account_statuses(config, "instagram", lambda value: instagram_status(value, r2))
     tiktok_accounts = _account_statuses(config, "tiktok", zernio_status)
     threads_accounts = _account_statuses(config, "threads", threads_status)
+    shopee_accounts = _account_statuses(config, "shopee", shopee_status)
+    shopee_platform = _with_accounts(shopee_status(shopee), shopee_accounts)
     return {
         "config_path": str(SOCIAL_UPLOAD_CONFIG),
         "brand_routes": social_brand_routes(config),
@@ -130,5 +134,6 @@ def social_status() -> dict:
                 "masked": "",
                 "message": "" if binance_is_configured(binance) else binance_config_hint(),
             },
+            "shopee": shopee_platform,
         },
     }

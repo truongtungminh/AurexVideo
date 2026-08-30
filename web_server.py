@@ -29,6 +29,15 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from social_upload import (
+    affiliate_brand_context,
+    affiliate_overview,
+    create_affiliate_link,
+    discover_products,
+    ingest_conversion_rows,
+    save_affiliate_settings,
+    shopee_status,
+    update_shopee_config,
+    disconnect_shopee,
     binance_config,
     binance_upload_video,
     build_upload_metadata,
@@ -781,6 +790,7 @@ def list_projects() -> list[dict]:
 def upload_brand_context(project: str = "") -> dict:
     """Build the non-secret Brand + social destination context for Upload."""
     status = social_status()
+    config = read_social_config()
     routes = status.get("brand_route_records") or {}
     brand_display: dict[str, str] = {}
     project_counts: dict[str, int] = {}
@@ -822,7 +832,7 @@ def upload_brand_context(project: str = "") -> dict:
                 "configured", "connected", "available", "ready", "message",
                 "display_name", "name", "ig_user_id", "threads_user_id",
                 "account_id", "active_channel_id", "active_page_id", "channel", "page",
-                "channels", "pages", "masked_api_key",
+                "channels", "pages", "masked_api_key", "masked_secret", "app_id", "api_base_url",
                 "accounts",
             )
             if key in value
@@ -835,6 +845,7 @@ def upload_brand_context(project: str = "") -> dict:
             "name": brand_display.get(brand) or brand,
             "project_count": project_counts.get(brand, 0),
             "routes": routes.get(brand, {}),
+            "affiliate": affiliate_brand_context(config, brand),
         }
         for brand in brand_display
     ]
@@ -848,6 +859,7 @@ def upload_brand_context(project: str = "") -> dict:
         "brand_routes": routes,
         "platforms": safe_platforms,
         "brand_routes_version": status.get("brand_routes_version", 1),
+        "affiliate": affiliate_brand_context(config, project_brand) if project_brand else {},
     }
 
 
@@ -9371,6 +9383,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_html(200, render_upload_html(selected))
             return
 
+        if path in {"/affiliate", "/affiliate/"}:
+            self.send_html(200, (REPO_ROOT / "webui" / "affiliate.html").read_bytes())
+            return
+
         if path in {"/upload-guide/youtube", "/upload-guide/youtube/"}:
             self.send_html(200, render_social_upload_guide_html("youtube"))
             return
@@ -9445,6 +9461,58 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, upload_brand_context(project))
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/affiliate/context":
+            project = (parse_qs(parsed.query).get("project") or [""])[0]
+            brand = (parse_qs(parsed.query).get("brand") or [""])[0]
+            try:
+                if project:
+                    require_project(project)
+                context = upload_brand_context(project)
+                selected_brand = canonical_brand(brand or context.get("project_brand") or "")
+                context["selected_brand"] = selected_brand
+                context["affiliate"] = affiliate_brand_context(read_social_config(), selected_brand) if selected_brand else {}
+                self.send_json(200, context)
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/affiliate/products":
+            query_values = parse_qs(parsed.query)
+            project = (query_values.get("project") or [""])[0]
+            brand = canonical_brand((query_values.get("brand") or [""])[0])
+            query = (query_values.get("query") or [""])[0].strip()
+            try:
+                if project:
+                    require_project(project)
+                    if not query:
+                        query = " ".join(social_metadata.read_script_lines(social_metadata.require_project(project))[:4])[:500]
+                if not brand:
+                    raise ValueError("Cần chọn Brand để tìm sản phẩm Shopee.")
+                if not query:
+                    raise ValueError("Cần nhập từ khoá sản phẩm Shopee.")
+                limit = int((query_values.get("limit") or [10])[0])
+                self.send_json(200, discover_products(brand, query, limit=limit))
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/affiliate/overview":
+            query_values = parse_qs(parsed.query)
+            try:
+                self.send_json(200, affiliate_overview(
+                    canonical_brand((query_values.get("brand") or [""])[0]),
+                    (query_values.get("contentId") or query_values.get("content_id") or [""])[0],
+                    start_date=(query_values.get("startDate") or query_values.get("start_date") or [""])[0],
+                    end_date=(query_values.get("endDate") or query_values.get("end_date") or [""])[0],
+                ))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -9704,6 +9772,84 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, {"ok": True, "project": project, "publish": publish})
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/social/shopee/config":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("Shopee Affiliate config cần Brand.")
+                result = update_shopee_config(
+                    str(payload.get("appId") or payload.get("app_id") or ""),
+                    str(payload.get("secret") or payload.get("appSecret") or payload.get("app_secret") or ""),
+                    api_base_url=str(payload.get("apiBaseUrl") or payload.get("api_base_url") or ""),
+                    brand=brand,
+                    connection_id=str(payload.get("connectionId") or payload.get("connection_id") or ""),
+                    display_name=str(payload.get("displayName") or payload.get("display_name") or ""),
+                )
+                settings_payload = payload.get("settings") if isinstance(payload.get("settings"), dict) else payload
+                settings = save_affiliate_settings(brand, settings_payload)
+                self.send_json(200, {"ok": True, "brand": brand, "shopee": result, "settings": settings})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/social/shopee/disconnect":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("Cần chỉ định Brand cần gỡ Shopee Affiliate.")
+                self.send_json(200, disconnect_shopee(brand))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/affiliate/settings":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("Affiliate settings cần Brand.")
+                self.send_json(200, {"ok": True, "brand": brand, "settings": save_affiliate_settings(brand, payload)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/affiliate/link":
+            try:
+                payload = self.read_json_body()
+                project = str(payload.get("project") or payload.get("contentId") or payload.get("content_id") or "").strip()
+                if payload.get("project"):
+                    require_project(project)
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("Affiliate link cần Brand.")
+                result = create_affiliate_link(
+                    brand=brand,
+                    content_id=project,
+                    product_id=str(payload.get("productId") or payload.get("product_id") or ""),
+                    origin_url=str(payload.get("originUrl") or payload.get("origin_url") or ""),
+                    affiliate_url=str(payload.get("affiliateUrl") or payload.get("affiliate_url") or ""),
+                    placement=str(payload.get("placement") or "first_comment"),
+                    page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
+                )
+                self.send_json(200, result)
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/affiliate/conversions/import":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+                self.send_json(200, ingest_conversion_rows(rows, brand=brand))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
