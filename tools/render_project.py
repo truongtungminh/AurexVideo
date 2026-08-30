@@ -64,26 +64,26 @@ _NATIVE_CHARACTER_STYLESHEET_CONTRACTS = {
 }
 
 
-def _native_inter_font(value: object) -> bool:
-    """Whether a browser label stack resolves to the bundled Inter font.
+def _native_supported_font(value: object) -> bool:
+    """Whether a browser label stack resolves to a bundled Native font.
 
-    Scene IR v2 currently stages Inter-Bold for labels and karaoke.  Color is
-    represented natively, but silently replacing a selected non-Inter font
+    Scene IR v2 stages Inter-Bold and Saira for labels and karaoke. Color is
+    represented natively, but silently replacing any other selected font
     would be a preview-parity regression, so leave that project on Browser.
     """
     family = str(value or "").strip().lstrip('"\'').split(",", 1)[0].strip().strip('"\'').lower()
-    return not family or family == "inter"
+    return not family or family in {"inter", "saira"}
 
 
 def native_unsupported_text_styles(topic: dict[str, object]) -> tuple[str, ...]:
     """List per-project text choices that Scene IR v2 cannot yet preserve."""
     unsupported: list[str] = []
-    if not _native_inter_font(topic.get("labelFontFamily")):
+    if not _native_supported_font(topic.get("labelFontFamily")):
         unsupported.append("labelFontFamily")
     comparisons = topic.get("comparisons")
     if isinstance(comparisons, list):
         for index, comparison in enumerate(comparisons, start=1):
-            if isinstance(comparison, dict) and not _native_inter_font(comparison.get("labelFontFamily")):
+            if isinstance(comparison, dict) and not _native_supported_font(comparison.get("labelFontFamily")):
                 unsupported.append(f"comparisons[{index}].labelFontFamily")
     return tuple(unsupported)
 
@@ -95,7 +95,7 @@ def requires_text_style_compatibility(backend: str, topic: dict[str, object]) ->
         return False
     if backend == "native":
         raise NativeRenderUnavailable(
-            "Aurex Render Core hiện chỉ bảo toàn font Inter cho nhãn/karaoke "
+            "Aurex Render Core hiện chỉ bảo toàn font Inter hoặc Saira cho nhãn/karaoke "
             f"({', '.join(unsupported)}). Dùng --render-backend auto để Browser giữ đúng font.",
             reason="native_text_style_parity_required",
         )

@@ -170,6 +170,16 @@ class NativeRenderBridgeTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.reason, "native_text_style_parity_required")
 
+    def test_saira_label_font_is_supported_by_native_core(self) -> None:
+        topic = {
+            "characterId": "bietchichomet",
+            "labelFontFamily": '"Saira", "Inter", sans-serif',
+        }
+
+        self.assertEqual(native_unsupported_text_styles(topic), ())
+        self.assertFalse(requires_text_style_compatibility("auto", topic))
+        self.assertFalse(requires_text_style_compatibility("native", topic))
+
     def test_character_css_guard_routes_auto_and_rejects_explicit_native(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
             stylesheet = Path(temp) / "style.css"
@@ -294,7 +304,7 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(rect["x"], 0.030)
         self.assertAlmostEqual(rect["width"], 0.444)
         self.assertAlmostEqual(rect["y"] + rect["height"], 0.240)
-        self.assertAlmostEqual(rect["height"], 54 * 0.98 / 1920)
+        self.assertAlmostEqual(rect["height"], 54 * profile["label_line_height"] / 1920)
 
     def test_bietchichomet_default_text_style_compiles_to_native_ir(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
@@ -325,9 +335,15 @@ class NativeRenderBridgeTests(unittest.TestCase):
 
         labels = [layer for layer in document["layers"] if layer["id"].endswith("-label")]
         karaoke = [layer for layer in document["layers"] if layer["id"].startswith("karaoke-")]
-        self.assertEqual([layer["fontFamily"] for layer in labels], ["Inter", "Inter"])
+        self.assertEqual([layer["fontFamily"] for layer in labels], ["Saira", "Saira"])
+        self.assertTrue(all(
+            layer["fontSource"].endswith(
+                "Saira-memjYa2wxmKQyPMrZX79wwYZQMhsyuSLiIvSdyqOvg.woff2"
+            )
+            for layer in labels
+        ))
         self.assertEqual([layer["textColor"] for layer in labels], ["#090909", "#090909"])
-        self.assertEqual(karaoke[0]["textColor"], "#1B2E35")
+        self.assertEqual(karaoke[0]["textColor"], _STYLE_PROFILES["bietchichomet"]["karaoke_color"])
 
     def test_single_image_scene_uses_one_centered_native_slot(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
