@@ -683,6 +683,66 @@ def record_conversion(conversion: dict) -> dict:
     return _row_dict(row)
 
 
+def rebuild_daily_stats_from_conversions(keys: Iterable[tuple[str, str, str, str]]) -> int:
+    """Rebuild affected day/Brand/content/product stats idempotently."""
+    unique_keys = list(dict.fromkeys(
+        (str(stat_date or ""), str(brand_id or ""), str(content_id or ""), str(product_id or ""))
+        for stat_date, brand_id, content_id, product_id in keys
+    ))
+    if not unique_keys:
+        return 0
+    aggregates: list[tuple[str, str, str, str, int, int, float, float]] = []
+    with _connect() as connection:
+        for stat_date, brand_id, content_id, product_id in unique_keys:
+            rows = connection.execute(
+                """
+                SELECT raw_json, order_value, commission
+                FROM affiliate_conversions
+                WHERE brand_id = ? AND content_id = ? AND product_id = ?
+                  AND substr(COALESCE(NULLIF(order_time, ''), NULLIF(click_time, ''), created_at), 1, 10) = ?
+                """,
+                (brand_id, content_id, product_id, stat_date),
+            ).fetchall()
+            clicks = 0
+            orders = 0
+            gmv = 0.0
+            commission = 0.0
+            for row in rows:
+                try:
+                    raw = json.loads(row["raw_json"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    raw = {}
+                try:
+                    clicks += max(0, int(float(raw.get("clicks") or 0)))
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    orders += max(0, int(float(raw.get("orders") or 1)))
+                except (TypeError, ValueError):
+                    orders += 1
+                try:
+                    gmv += float(row["order_value"] or 0)
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    commission += float(row["commission"] or 0)
+                except (TypeError, ValueError):
+                    pass
+            aggregates.append((stat_date, brand_id, content_id, product_id, clicks, orders, gmv, commission))
+    for stat_date, brand_id, content_id, product_id, clicks, orders, gmv, commission in aggregates:
+        upsert_daily_stats(
+            stat_date,
+            brand_id=brand_id,
+            content_id=content_id,
+            product_id=product_id,
+            clicks=clicks,
+            orders=orders,
+            gmv=gmv,
+            commission=commission,
+        )
+    return len(aggregates)
+
+
 def overview(
     *,
     brand_id: str = "",
