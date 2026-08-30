@@ -29,9 +29,27 @@ SCENE_FPS = 30
 WORD_EDGE_EPSILON = 0.035
 WORD_TAIL_EPSILON = 0.08
 
+_FONT_ASSETS: dict[str, Path] = {
+    "inter": Path("assets/fonts/Inter-Bold.ttf"),
+    # This is the bundled Latin Saira variable subset. Core Text can register
+    # the WOFF2 directly, and it contains the Vietnamese glyphs used by the
+    # editor's labels/subtitles.
+    "saira": Path("assets/fonts/Saira-memjYa2wxmKQyPMrZX79wwYZQMhsyuSLiIvSdyqOvg.woff2"),
+}
+
+
+def _font_family(value: object, default: str = "Inter") -> str:
+    """Resolve the first family in a CSS font stack to a supported name."""
+    raw = str(value or "").strip()
+    first = raw.split(",", 1)[0].strip().strip("\"'") if raw else ""
+    if not first:
+        return default
+    return {"inter": "Inter", "saira": "Saira"}.get(first.casefold(), first)
+
 
 _STYLE_PROFILES: dict[str, dict[str, Any]] = {
     "bietchichomet": {
+        "font_family": "Saira",
         "presenter_full_stage": True,
         "media_rects": {
             "left": {"x": 0.030, "y": 0.240, "width": 0.420, "height": 0.230},
@@ -56,8 +74,8 @@ _STYLE_PROFILES: dict[str, dict[str, Any]] = {
         # topic colors still win, and both label and karaoke colors are Scene
         # IR properties rather than a reason to rasterize through Browser.
         "label_color": "#090909",
-        "karaoke_color": "#1B2E35",
-        "karaoke_active_color": "#A83220",
+        "karaoke_color": "#090909",
+        "karaoke_active_color": "#ff2200",
         "border_color": "#8b5a2b",
         "border_inset": 0.006,
         "border": True,
@@ -173,13 +191,25 @@ def _stage_asset(
     return value
 
 
-def _stage_font(resource_root: Path, stage_dir: Path, cache: dict[Path, str]) -> str:
+def _stage_font(
+    resource_root: Path,
+    stage_dir: Path,
+    cache: dict[Path, str],
+    font_family: str = "Inter",
+) -> str:
+    family = _font_family(font_family)
+    asset = _FONT_ASSETS.get(family.casefold())
+    if asset is None:
+        raise SceneCompileError(
+            f"Native Core chưa bundle font '{family}'.",
+            reason="native_font_unsupported",
+        )
     return _stage_asset(
         resource_root,
-        Path("assets/fonts/Inter-Bold.ttf"),
+        asset,
         stage_dir,
         cache,
-        label="font Inter-Bold",
+        label=f"font {family}",
     )
 
 
@@ -275,6 +305,7 @@ def _text_layer(
     end_frame: int,
     rect: dict[str, float],
     font_source: str,
+    font_family: str = "Inter",
     text: str | None = None,
     spans: list[dict[str, str]] | None = None,
     color: str = "#111111",
@@ -289,7 +320,7 @@ def _text_layer(
         "startFrame": start_frame,
         "endFrame": max(start_frame + 1, end_frame),
         "rect": rect,
-        "fontFamily": "Inter",
+        "fontFamily": font_family,
         "fontSource": font_source,
         "fontSize": font_size,
         "fontWeight": 800,
@@ -367,12 +398,13 @@ def compile_standard_topic(
     staging_dir = staging_dir.resolve()
     staging_dir.mkdir(parents=True, exist_ok=True)
     asset_cache: dict[Path, str] = {}
-    font_source = _stage_font(resource_root.resolve(), staging_dir, asset_cache)
     duration = max(0.001, _number(topic.get("duration"), 0.001))
     frame_count = max(1, math.ceil(duration * SCENE_FPS))
     width, height = 1080, 1920
     character_id = str(topic.get("characterId") or topic.get("brand") or "").strip().lower()
     profile = _STYLE_PROFILES.get(character_id, _STYLE_PROFILES["default"])
+    font_family = _font_family(topic.get("labelFontFamily"), str(profile.get("font_family", "Inter")))
+    font_source = _stage_font(resource_root.resolve(), staging_dir, asset_cache, font_family)
     background_type = str(topic.get("backgroundType") or "default").strip().lower()
     if background_type == "video":
         raise SceneCompileError(
@@ -485,7 +517,7 @@ def compile_standard_topic(
             "rightLabelColor": topic.get("rightLabelColor") or topic.get("labelColor") or profile["label_color"],
             "leftSubLabelColor": topic.get("leftSubLabelColor") or "#808080",
             "rightSubLabelColor": topic.get("rightSubLabelColor") or "#808080",
-            "labelFontFamily": topic.get("labelFontFamily") or "Inter",
+            "labelFontFamily": topic.get("labelFontFamily") or font_family,
             "showSubLabels": topic.get("showSubLabels") is True,
         })
     extra_comparisons = topic.get("comparisons") if isinstance(topic.get("comparisons"), list) else []
@@ -500,6 +532,10 @@ def compile_standard_topic(
         if end_frame <= start_frame:
             continue
         single = _is_single_image_scene(scene)
+        scene_font_family = _font_family(scene.get("labelFontFamily"), font_family)
+        scene_font_source = _stage_font(
+            resource_root.resolve(), staging_dir, asset_cache, scene_font_family
+        )
         for side in (("left",) if single else ("left", "right")):
             slot = "single" if single else side
             image_value = scene.get(f"{side}Image")
@@ -555,7 +591,8 @@ def compile_standard_topic(
                     start_frame=start_frame,
                     end_frame=end_frame,
                     rect=label_rect,
-                    font_source=font_source,
+                    font_source=scene_font_source,
+                    font_family=scene_font_family,
                     text=label_value,
                     color=str(scene.get(f"{side}LabelColor") or profile["label_color"]),
                     font_size=float(profile.get("label_font_size", 58.0)),
@@ -568,7 +605,8 @@ def compile_standard_topic(
                     start_frame=start_frame,
                     end_frame=end_frame,
                     rect=sub_rect,
-                    font_source=font_source,
+                    font_source=scene_font_source,
+                    font_family=scene_font_family,
                     text=sub_value,
                     color=str(scene.get(f"{side}SubLabelColor") or "#808080"),
                     font_size=28.0,
@@ -605,6 +643,7 @@ def compile_standard_topic(
                 end_frame=end_frame,
                 rect=karaoke_rect,
                 font_source=font_source,
+                font_family=font_family,
                 spans=spans,
                 color=karaoke_color,
                 font_size=float(profile.get("karaoke_font_size", 59.9)) * karaoke_size / 1.2,
