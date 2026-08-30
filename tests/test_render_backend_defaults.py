@@ -32,7 +32,7 @@ class RenderBackendDefaultTests(unittest.TestCase):
         server_source = (ENGINE_ROOT / "web_server.py").read_text(encoding="utf-8")
         client_source = (ENGINE_ROOT / "web" / "render_page.js").read_text(encoding="utf-8")
 
-        self.assertIn('<option value="auto" selected>Auto · Native nhanh', server_source)
+        self.assertIn('<option value="auto" selected>Auto · Aurex Render Core ưu tiên', server_source)
         self.assertIn('<option value="native">Aurex Render Core', server_source)
         self.assertIn("renderBackend: normalizeRenderBackend($('#renderBackend')?.value)", client_source)
 
