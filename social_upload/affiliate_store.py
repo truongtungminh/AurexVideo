@@ -412,6 +412,36 @@ def get_product(product_id: str) -> dict:
     return result
 
 
+def list_products(*, query: str = "", limit: int = 50) -> list[dict]:
+    """Return cached provider products without exposing the raw JSON column."""
+    init_db()
+    limit = max(1, min(int(limit or 50), 100))
+    needle = str(query or "").strip()
+    filters = ["provider = ?"]
+    params: list[object] = ["shopee"]
+    if needle:
+        filters.append("(name LIKE ? OR origin_url LIKE ? OR offer_url LIKE ?)")
+        pattern = f"%{needle}%"
+        params.extend([pattern, pattern, pattern])
+    params.append(limit)
+    with _connect() as connection:
+        rows = connection.execute(
+            f"SELECT * FROM affiliate_products WHERE {' AND '.join(filters)} "
+            "ORDER BY updated_at DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = _row_dict(row)
+        raw_json = item.pop("raw_json", "")
+        try:
+            item["raw"] = json.loads(raw_json) if raw_json else {}
+        except (TypeError, json.JSONDecodeError):
+            item["raw"] = {}
+        result.append(item)
+    return result
+
+
 def record_link(link: dict) -> dict:
     init_db()
     link_id = str(link.get("id") or _new_id("link"))

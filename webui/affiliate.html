@@ -57,6 +57,31 @@
         </label>
       </section>
 
+      <section class="affiliate-settings panel" aria-labelledby="settingsTitle">
+        <div class="section-heading affiliate-settings-heading">
+          <div><p class="eyebrow">Brand connection</p><h2 id="settingsTitle">Kết nối &amp; chính sách Shopee</h2></div>
+          <p id="settingsHint" class="settings-hint">Chọn Brand để cấu hình Shopee Affiliate.</p>
+        </div>
+        <div class="affiliate-settings-grid">
+          <div class="settings-column">
+            <h3>Kết nối Open API</h3>
+            <label>App ID<input id="shopeeAppId" type="text" autocomplete="off" placeholder="Shopee App ID" /></label>
+            <label>App Secret<input id="shopeeSecret" type="password" autocomplete="new-password" placeholder="App Secret (tối thiểu 16 ký tự)" /></label>
+            <label>Tên kết nối<input id="shopeeDisplayName" type="text" autocomplete="off" placeholder="Shopee Affiliate" /></label>
+            <label>API base URL<input id="shopeeApiBaseUrl" type="url" autocomplete="off" placeholder="https://open-api.affiliate.shopee.vn/graphql" /></label>
+            <div class="settings-actions"><button class="button" id="saveShopeeConfigButton" type="button">Lưu kết nối</button><button class="button secondary" id="disconnectShopeeButton" type="button">Gỡ kết nối</button></div>
+          </div>
+          <div class="settings-column">
+            <h3>Policy khi upload</h3>
+            <label class="settings-check"><input id="affiliateEnabled" type="checkbox" /> Bật Affiliate cho Brand này</label>
+            <label>Chế độ<select id="affiliateMode"><option value="off">OFF · không đính link</option><option value="manual">MANUAL · chọn sản phẩm</option><option value="auto">AUTO · tự chọn theo script</option></select></label>
+            <label>Vị trí link<select id="affiliatePlacement"><option value="first_comment">Comment đầu tiên</option><option value="caption">Caption</option><option value="caption_and_comment">Caption + comment</option><option value="shopee_native_tag">Shopee native tag (POC)</option></select></label>
+            <div class="settings-inline"><label>Số sản phẩm/post<input id="affiliateProductsPerPost" type="number" min="1" max="5" step="1" /></label><label>Min relevance<input id="affiliateMinRelevance" type="number" min="0" max="1" step="0.01" /></label><label>Min commission (%)<input id="affiliateMinCommission" type="number" min="0" max="100" step="0.1" /></label></div>
+            <div class="settings-actions"><button class="button secondary" id="saveAffiliateSettingsButton" type="button">Lưu policy</button></div>
+          </div>
+        </div>
+      </section>
+
       <section class="connection-grid" aria-label="Trạng thái nền tảng">
         <article class="connection-card panel" data-platform="shopee">
           <div class="connection-icon shopee-icon" aria-hidden="true">S</div>

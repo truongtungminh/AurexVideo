@@ -34,6 +34,7 @@ from social_upload import (
     create_affiliate_link,
     discover_products,
     ingest_conversion_rows,
+    list_saved_products,
     save_affiliate_settings,
     shopee_status,
     update_shopee_config,
@@ -9487,17 +9488,24 @@ class WebHandler(SimpleHTTPRequestHandler):
             project = (query_values.get("project") or [""])[0]
             brand = canonical_brand((query_values.get("brand") or [""])[0])
             query = (query_values.get("query") or [""])[0].strip()
+            saved_query = (query_values.get("q") or [""])[0].strip()
             try:
                 if project:
                     require_project(project)
-                    if not query:
+                    if "query" in query_values and not query:
                         query = " ".join(social_metadata.read_script_lines(social_metadata.require_project(project))[:4])[:500]
                 if not brand:
                     raise ValueError("Cần chọn Brand để tìm sản phẩm Shopee.")
-                if not query:
-                    raise ValueError("Cần nhập từ khoá sản phẩm Shopee.")
                 limit = int((query_values.get("limit") or [10])[0])
-                self.send_json(200, discover_products(brand, query, limit=limit))
+                if query:
+                    self.send_json(200, discover_products(brand, query, limit=limit))
+                else:
+                    cached = list_saved_products(saved_query, limit=limit)
+                    cached.update({
+                        "brand": brand,
+                        "settings": affiliate_brand_context(read_social_config(), brand).get("settings", {}),
+                    })
+                    self.send_json(200, cached)
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
             except Exception as exc:
@@ -9830,12 +9838,13 @@ class WebHandler(SimpleHTTPRequestHandler):
                     raise ValueError("Affiliate link cần Brand.")
                 result = create_affiliate_link(
                     brand=brand,
-                    content_id=project,
+                    content_id=project or "affiliate-dashboard",
                     product_id=str(payload.get("productId") or payload.get("product_id") or ""),
                     origin_url=str(payload.get("originUrl") or payload.get("origin_url") or ""),
                     affiliate_url=str(payload.get("affiliateUrl") or payload.get("affiliate_url") or ""),
                     placement=str(payload.get("placement") or "first_comment"),
                     page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
+                    product_payload=payload.get("product") if isinstance(payload.get("product"), dict) else None,
                 )
                 self.send_json(200, result)
             except FileNotFoundError as exc:

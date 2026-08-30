@@ -9,6 +9,22 @@
 .affiliate-toolbar { display: grid; grid-template-columns: 190px 190px minmax(220px, 1fr) 160px; gap: 14px; margin-top: 20px; padding: 16px; }
 .affiliate-toolbar label { display: grid; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
 .affiliate-toolbar input, .affiliate-toolbar select { min-height: 44px; padding: 0 12px; font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.affiliate-settings { margin-top: 20px; padding: 24px 26px; }
+.affiliate-settings-heading { align-items: start; margin-bottom: 18px; }
+.affiliate-settings-heading h2 { margin: 0; font-size: 23px; letter-spacing: -.035em; }
+.settings-hint { max-width: 430px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: right; }
+.affiliate-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px; }
+.settings-column { display: grid; gap: 12px; align-content: start; }
+.settings-column + .settings-column { padding-left: 26px; border-left: 1px solid var(--line); }
+.settings-column h3 { margin: 0 0 2px; font-size: 15px; }
+.settings-column label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.settings-column input, .settings-column select { min-height: 42px; padding: 0 11px; color: var(--ink); border: 1px solid var(--line); border-radius: 11px; background: var(--paper); font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.settings-column input:disabled, .settings-column select:disabled { cursor: not-allowed; opacity: .55; }
+.settings-check { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 9px !important; min-height: 42px; color: var(--ink) !important; letter-spacing: 0 !important; text-transform: none !important; }
+.settings-check input { min-height: auto; width: 17px; height: 17px; }
+.settings-inline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.settings-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 2px; }
+.settings-actions .button:disabled { cursor: not-allowed; opacity: .5; }
 .connection-grid, .kpi-grid { display: grid; gap: 16px; margin-top: 20px; }
 .connection-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .connection-card { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 17px 18px; }
@@ -37,6 +53,6 @@
 .type-tag { display: inline-flex; padding: 5px 8px; border-radius: 8px; color: var(--accent-dark); background: rgba(243,107,33,.12); font-size: 10px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }.type-tag.product { color: #166a46; background: rgba(30,139,92,.12); }.type-tag.campaign { color: #575149; background: var(--soft); }
 .record-status { display: inline-flex; padding: 5px 8px; border-radius: 8px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 850; }.record-status.active { color: #166a46; background: rgba(30,139,92,.12); }.record-status.paused { color: #8a4c10; background: rgba(243,107,33,.13); }
 .metric-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }.table-empty { padding: 54px 20px !important; color: var(--muted); text-align: center; }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-@media (max-width: 900px) { .affiliate-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }.affiliate-search { grid-column: span 2; }.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 620px) { .affiliate-shell { width: min(100% - 24px, 1380px); margin-top: 18px; }.affiliate-topbar { align-items: flex-start; }.affiliate-topbar .top-actions { justify-content: flex-end; }.affiliate-hero { display: grid; padding: 26px; }.affiliate-context { min-width: 0; }.affiliate-toolbar, .connection-grid { grid-template-columns: 1fr; }.affiliate-search { grid-column: auto; }.kpi-grid { gap: 12px; }.kpi-card { min-height: 132px; padding: 18px; }.connection-card { grid-template-columns: 42px minmax(0, 1fr); }.connection-card .status-pill { grid-column: 2; justify-self: start; }.affiliate-table-heading { padding: 21px 18px 17px; } }
+@media (max-width: 900px) { .affiliate-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }.affiliate-search { grid-column: span 2; }.affiliate-settings-grid { grid-template-columns: 1fr; }.settings-column + .settings-column { padding-left: 0; border-top: 1px solid var(--line); border-left: 0; padding-top: 22px; }.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .affiliate-shell { width: min(100% - 24px, 1380px); margin-top: 18px; }.affiliate-topbar { align-items: flex-start; }.affiliate-topbar .top-actions { justify-content: flex-end; }.affiliate-hero { display: grid; padding: 26px; }.affiliate-context { min-width: 0; }.affiliate-toolbar, .connection-grid { grid-template-columns: 1fr; }.affiliate-search { grid-column: auto; }.affiliate-settings { padding: 21px 18px; }.affiliate-settings-heading { display: grid; }.settings-hint { text-align: left; }.settings-inline { grid-template-columns: 1fr; }.kpi-grid { gap: 12px; }.kpi-card { min-height: 132px; padding: 18px; }.connection-card { grid-template-columns: 42px minmax(0, 1fr); }.connection-card .status-pill { grid-column: 2; justify-self: start; }.affiliate-table-heading { padding: 21px 18px 17px; } }
 html[data-theme="dark"] .affiliate-context { background: rgba(255,255,255,.035); }.affiliate-page .affiliate-toolbar input, .affiliate-page .affiliate-toolbar select { color: var(--ink); background: var(--paper); }
