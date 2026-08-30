@@ -6794,7 +6794,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-      <script src="/web/render_page.js?v=20260830-render-progress-v1"></script>
+      <script src="/web/render_page.js?v=20260830-affiliate-v1"></script>
 """,
     )
 
@@ -8865,7 +8865,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-      <script src="/web/render_page.js?v=20260830-render-progress-v1"></script>
+      <script src="/web/render_page.js?v=20260830-affiliate-v1"></script>
 """,
     )
 

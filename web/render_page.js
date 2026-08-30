@@ -87,6 +87,14 @@
     socialStatusSnapshot: {},
     uploadTargets: new Set(),
     uploadTargetsBrand: '',
+    affiliateContext: {},
+    affiliateProducts: [],
+    affiliateProduct: null,
+    affiliateLink: '',
+    affiliateMode: 'off',
+    affiliatePlacement: 'first_comment',
+    affiliateAutoComment: true,
+    affiliateUiBrand: '',
     brandConnectionTarget: null,
     composerDraftTimer: null,
     socialReady: { youtube: false, facebook: false, instagram: false, threads: false },
@@ -773,6 +781,208 @@
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   }
 
+  function affiliateComposerContext() {
+    return state.affiliateContext && typeof state.affiliateContext === 'object' ? state.affiliateContext : {};
+  }
+
+  function affiliateComposerConnection() {
+    const context = affiliateComposerContext();
+    return context.connection && typeof context.connection === 'object' ? context.connection : {};
+  }
+
+  function affiliateComposerSettings() {
+    const context = affiliateComposerContext();
+    return context.settings && typeof context.settings === 'object' ? context.settings : {};
+  }
+
+  function affiliateComposerProductId(product) {
+    return String(product?.id || product?.product_id || product?.provider_product_id || '').trim();
+  }
+
+  function affiliateComposerPercent(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return '0%';
+    const percent = number <= 1 ? number * 100 : number;
+    return `${percent.toFixed(1).replace(/\.0$/, '')}%`;
+  }
+
+  function renderAffiliateProducts() {
+    const list = $('#affiliateProducts');
+    if (!list) return;
+    list.textContent = '';
+    if (!state.affiliateProducts.length) {
+      const empty = document.createElement('p');
+      empty.className = 'affiliate-product-empty';
+      empty.textContent = state.affiliateMode === 'auto'
+        ? 'AUTO sẽ tự chọn sản phẩm phù hợp từ từ khoá/caption khi đăng.'
+        : 'Tìm sản phẩm rồi chọn một sản phẩm để gắn link.';
+      list.appendChild(empty);
+      return;
+    }
+    state.affiliateProducts.slice(0, 10).forEach((product) => {
+      const productId = affiliateComposerProductId(product);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `affiliate-product-option ${state.affiliateProduct && affiliateComposerProductId(state.affiliateProduct) === productId ? 'is-selected' : ''}`.trim();
+      button.dataset.affiliateProductId = productId;
+      const name = String(product.name || 'Shopee product');
+      const commission = affiliateComposerPercent(product.commission_rate ?? product.commissionRate);
+      const relevance = affiliateComposerPercent(product.relevance_score ?? product.relevanceScore);
+      const score = affiliateComposerPercent(product.ranking_score ?? product.rankingScore);
+      button.innerHTML = '<span class="affiliate-product-copy"><span class="affiliate-product-name">'
+        + composerEscape(name)
+        + '</span><span class="affiliate-product-meta">Hoa hồng '
+        + composerEscape(commission)
+        + ' · relevance '
+        + composerEscape(relevance)
+        + '</span></span><span class="affiliate-product-score">'
+        + composerEscape(score)
+        + '</span>';
+      list.appendChild(button);
+    });
+  }
+
+  function renderAffiliateComposer() {
+    const mode = $('#affiliateMode');
+    const placement = $('#affiliatePlacement');
+    const query = $('#affiliateQuery');
+    const searchButton = $('#affiliateSearchProducts');
+    const createButton = $('#affiliateCreateLink');
+    const badge = $('#affiliateComposerBadge');
+    const status = $('#affiliateComposerStatus');
+    const linkPreview = $('#affiliateLinkPreview');
+    const autoComment = $('#affiliateAutoComment');
+    if (!mode || !placement) return;
+
+    const connection = affiliateComposerConnection();
+    const settings = affiliateComposerSettings();
+    const connected = Boolean(connection.connected);
+    if (state.affiliateUiBrand !== state.uploadBrand) {
+      state.affiliateUiBrand = state.uploadBrand;
+      state.affiliateMode = settings.enabled && settings.mode !== 'off' ? String(settings.mode) : 'off';
+      state.affiliatePlacement = String(settings.placement || 'first_comment');
+      state.affiliateAutoComment = ['first_comment', 'caption_and_comment'].includes(state.affiliatePlacement);
+      state.affiliateProducts = [];
+      state.affiliateProduct = null;
+      state.affiliateLink = '';
+    }
+    if (!['off', 'manual', 'auto'].includes(state.affiliateMode)) state.affiliateMode = 'off';
+    if (!['first_comment', 'caption', 'caption_and_comment', 'shopee_native_tag'].includes(state.affiliatePlacement)) state.affiliatePlacement = 'first_comment';
+    mode.value = state.affiliateMode;
+    placement.value = state.affiliatePlacement;
+    if (query && document.activeElement !== query && !query.value) query.value = '';
+    if (autoComment) {
+      autoComment.checked = state.affiliateAutoComment;
+      autoComment.disabled = state.affiliateMode === 'off' || !['first_comment', 'caption_and_comment'].includes(state.affiliatePlacement);
+    }
+    const enabled = state.affiliateMode !== 'off';
+    if (badge) {
+      badge.textContent = enabled ? (connected ? state.affiliateMode.toUpperCase() : 'CHƯA KẾT NỐI') : 'OFF';
+      badge.classList.toggle('is-on', enabled && connected);
+    }
+    if (status) {
+      if (!state.uploadBrand) status.textContent = 'Chọn Brand để xem cấu hình Affiliate.';
+      else if (!connected) status.textContent = connection.message || 'Shopee Affiliate chưa kết nối cho Brand này. Mở cài đặt để kết nối.';
+      else if (!enabled) status.textContent = 'Affiliate đang tắt cho lần đăng này. Chính sách mặc định có thể đổi ở Affiliate Dashboard.';
+      else if (state.affiliateMode === 'auto') status.textContent = 'AUTO: AurexVideo sẽ tìm, xếp hạng và tạo link theo caption/từ khoá.';
+      else status.textContent = 'MANUAL: chọn sản phẩm, tạo link rồi mới đăng Facebook Reels.';
+    }
+    if (searchButton) searchButton.disabled = !connected || !enabled;
+    if (createButton) createButton.disabled = !connected || !enabled || !state.affiliateProduct;
+    if (linkPreview) {
+      linkPreview.hidden = !state.affiliateLink;
+      linkPreview.textContent = state.affiliateLink ? `Link affiliate: ${state.affiliateLink}` : '';
+    }
+    renderAffiliateProducts();
+  }
+
+  async function searchAffiliateProducts() {
+    const queryField = $('#affiliateQuery');
+    const query = String(queryField?.value || '').trim();
+    const connection = affiliateComposerConnection();
+    if (!state.uploadBrand) return setUploadStatus('Chọn Brand trước khi tìm sản phẩm Shopee.', 'bad');
+    if (!connection.connected) return setUploadStatus('Kết nối Shopee Affiliate cho Brand trước.', 'bad');
+    if (query.length < 2) return setUploadStatus('Nhập ít nhất 2 ký tự để tìm sản phẩm Shopee.', 'warn');
+    const button = $('#affiliateSearchProducts');
+    if (button) button.disabled = true;
+    if (queryField) queryField.disabled = true;
+    setUploadStatus('Đang tìm và xếp hạng sản phẩm Shopee...', 'warn');
+    try {
+      const params = new URLSearchParams({
+        brand: state.uploadBrand,
+        project: state.uploadProject || state.project || '',
+        query,
+        limit: '10',
+      });
+      const response = await fetch(`/api/affiliate/products?${params.toString()}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      state.affiliateProducts = Array.isArray(data.products) ? data.products : [];
+      state.affiliateProduct = state.affiliateProducts[0] || null;
+      state.affiliateLink = '';
+      renderAffiliateComposer();
+      setUploadStatus(state.affiliateProducts.length ? `Đã tìm thấy ${state.affiliateProducts.length} sản phẩm phù hợp.` : 'Không có sản phẩm đạt ngưỡng relevance/hoa hồng của Brand.', state.affiliateProducts.length ? 'good' : 'warn');
+    } catch (error) {
+      setUploadStatus(error.message || String(error), 'bad');
+    } finally {
+      if (queryField) queryField.disabled = false;
+      renderAffiliateComposer();
+    }
+  }
+
+  async function createAffiliateComposerLink() {
+    const product = state.affiliateProduct;
+    const connection = affiliateComposerConnection();
+    if (!product) return setUploadStatus('Chọn sản phẩm Shopee trước khi tạo link.', 'warn');
+    if (!connection.connected) return setUploadStatus('Kết nối Shopee Affiliate cho Brand trước.', 'bad');
+    const button = $('#affiliateCreateLink');
+    if (button) button.disabled = true;
+    setUploadStatus('Đang tạo link Affiliate có SubID...', 'warn');
+    try {
+      const response = await fetch('/api/affiliate/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: state.uploadProject || state.project || 'affiliate-composer',
+          brand: state.uploadBrand,
+          productId: affiliateComposerProductId(product),
+          originUrl: product.origin_url || product.original_url || product.productLink || '',
+          placement: state.affiliatePlacement,
+          product,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      state.affiliateLink = String(data.link?.affiliate_url || data.link?.affiliateUrl || data.affiliate_url || '').trim();
+      if (!state.affiliateLink) throw new Error('Shopee không trả về affiliate URL.');
+      renderAffiliateComposer();
+      setUploadStatus('Đã tạo link Affiliate. Có thể đăng Facebook Reels.', 'good');
+    } catch (error) {
+      setUploadStatus(error.message || String(error), 'bad');
+    } finally {
+      renderAffiliateComposer();
+    }
+  }
+
+  function affiliatePayload() {
+    const mode = String(state.affiliateMode || $('#affiliateMode')?.value || 'off').trim().toLowerCase();
+    const placement = String(state.affiliatePlacement || $('#affiliatePlacement')?.value || 'first_comment').trim().toLowerCase();
+    const product = state.affiliateProduct || {};
+    if (mode === 'off') return { enabled: false, mode: 'off', placement: 'first_comment', autoComment: false };
+    return {
+      enabled: true,
+      mode,
+      placement,
+      query: String($('#affiliateQuery')?.value || '').trim(),
+      productId: affiliateComposerProductId(product),
+      originUrl: String(product.origin_url || product.original_url || product.productLink || '').trim(),
+      affiliateUrl: state.affiliateLink,
+      relevanceScore: product.relevance_score ?? product.relevanceScore,
+      rankingScore: product.ranking_score ?? product.rankingScore,
+      autoComment: Boolean(state.affiliateAutoComment),
+    };
+  }
+
   function composerPlatformSpec(platform) {
     return COMPOSER_PLATFORMS.find((item) => item.id === platform) || null;
   }
@@ -907,6 +1117,30 @@
       '.upload-advanced-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 900; }',
       '.upload-advanced-grid label.wide { grid-column: 1 / -1; }',
       '.upload-advanced-grid input, .upload-advanced-grid select { width: 100%; min-height: 40px; border: 1px solid var(--control-line); border-radius: 11px; padding: 9px 11px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 12px; }',
+      '.affiliate-composer { margin-top: 18px; border-top: 1px solid var(--control-line-soft); padding-top: 14px; }',
+      '.affiliate-composer summary { display: flex; justify-content: space-between; gap: 10px; align-items: center; color: var(--text-soft); font-size: 12px; font-weight: 950; cursor: pointer; }',
+      '.affiliate-composer summary span { border: 1px solid var(--control-line); border-radius: 999px; padding: 3px 7px; color: var(--muted); background: var(--surface-strong); font-size: 9px; letter-spacing: .08em; }',
+      '.affiliate-composer summary span.is-on { border-color: rgba(85,184,121,.4); color: var(--good-text); background: rgba(85,184,121,.1); }',
+      '.affiliate-composer-status { margin: 8px 0 0; color: var(--muted); font-size: 11px; font-weight: 750; line-height: 1.45; }',
+      '.affiliate-composer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 13px; }',
+      '.affiliate-composer-grid label { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 10px; font-weight: 900; }',
+      '.affiliate-composer-grid label.wide { grid-column: 1 / -1; }',
+      '.affiliate-composer-grid input, .affiliate-composer-grid select { width: 100%; min-height: 38px; box-sizing: border-box; border: 1px solid var(--control-line); border-radius: 10px; padding: 8px 10px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 11px; }',
+      '.affiliate-composer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 11px; }',
+      '.affiliate-composer-action { min-height: 34px; border: 1px solid var(--accent); border-radius: 9px; padding: 7px 10px; color: var(--accent-contrast); background: var(--accent); font: inherit; font-size: 10px; font-weight: 950; cursor: pointer; }',
+      '.affiliate-composer-action.secondary { border-color: var(--control-line); color: var(--text-soft); background: transparent; }',
+      '.affiliate-composer-action:disabled { opacity: .45; cursor: not-allowed; }',
+      '.affiliate-composer-link { min-width: 0; overflow: hidden; margin: 9px 0 0; color: var(--accent); font-size: 10px; font-weight: 850; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }',
+      '.affiliate-product-list { display: grid; gap: 7px; margin-top: 10px; }',
+      '.affiliate-product-empty { margin: 0; color: var(--muted); font-size: 10px; font-weight: 750; line-height: 1.4; }',
+      '.affiliate-product-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; border: 1px solid var(--control-line-soft); border-radius: 10px; padding: 8px 9px; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; }',
+      '.affiliate-product-option:hover, .affiliate-product-option.is-selected { border-color: rgba(232,160,96,.55); background: rgba(242,178,101,.09); }',
+      '.affiliate-product-copy { min-width: 0; display: grid; gap: 3px; }',
+      '.affiliate-product-name { overflow: hidden; color: var(--text); font-size: 11px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }',
+      '.affiliate-product-meta { color: var(--muted); font-size: 9px; font-weight: 750; }',
+      '.affiliate-product-score { color: var(--accent); font-size: 10px; font-weight: 950; white-space: nowrap; }',
+      '.affiliate-comment-toggle { display: flex !important; grid-template-columns: none !important; align-items: center; gap: 7px !important; margin-top: 10px; color: var(--muted); font-size: 10px; font-weight: 800; }',
+      '.affiliate-comment-toggle input { width: 15px; min-height: 15px; accent-color: var(--accent); }',
       '.upload-destination-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 14px; }',
       '.upload-destination-head h2 { font-size: 21px; }',
       '.upload-destination-count { color: var(--accent); font-size: 12px; font-weight: 950; white-space: nowrap; }',
@@ -969,7 +1203,7 @@
       '.brand-route-save.secondary { border-color: var(--control-line); color: var(--text-soft); background: var(--field-bg); }',
       '.brand-route-save:disabled { opacity: .45; cursor: not-allowed; }',
       '@media (max-width: 1050px) { .upload-composer-layout { grid-template-columns: 1fr; } .upload-context-cluster { grid-template-columns: 1fr; } .upload-brand-context { min-width: 180px; } }',
-      '@media (max-width: 720px) { .upload-redesigned { width: 100% !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide { grid-column: auto; } .upload-destination-row { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 9px; padding: 11px; } .destination-icon { width: 38px; height: 38px; } .destination-switch { width: 58px; height: 32px; } .destination-switch-track::after { width: 24px; height: 24px; } .destination-switch input:checked + .destination-switch-track::after { transform: translateX(26px); } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
+      '@media (max-width: 720px) { .upload-redesigned { width: 100% !important; } .upload-brand-context { width: 100%; } .upload-composer-card { padding: 15px; border-radius: 18px; } .upload-composer-card-head { flex-direction: column; } .upload-copy-input { min-height: 230px; } .upload-advanced-grid { grid-template-columns: 1fr; } .upload-advanced-grid label.wide, .affiliate-composer-grid label.wide { grid-column: auto; } .affiliate-composer-grid { grid-template-columns: 1fr; } .upload-destination-row { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 9px; padding: 11px; } .destination-icon { width: 38px; height: 38px; } .destination-switch { width: 58px; height: 32px; } .destination-switch-track::after { width: 24px; height: 24px; } .destination-switch input:checked + .destination-switch-track::after { transform: translateX(26px); } .composer-actions { grid-template-columns: 1fr; } .brand-route-item { grid-template-columns: 1fr; } .brand-route-save { width: 100%; } }',
     ].join('\n');
     document.head.appendChild(style);
   }
@@ -1373,9 +1607,37 @@
       if (target.id === 'uploadBrandSelect') {
         state.uploadBrand = target.value;
         state.uploadTargetsBrand = '';
+        state.affiliateUiBrand = '';
+        state.affiliateContext = state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.affiliate || {};
+        state.affiliateProducts = [];
+        state.affiliateProduct = null;
+        state.affiliateLink = '';
         renderComposerBrandPicker();
         renderComposerDestinations();
+        renderAffiliateComposer();
         queueComposerDraftSave();
+        return;
+      }
+      if (target.id === 'affiliateMode') {
+        state.affiliateMode = String(target.value || 'off').toLowerCase();
+        state.affiliateLink = '';
+        if (state.affiliateMode === 'off') {
+          state.affiliateProducts = [];
+          state.affiliateProduct = null;
+        }
+        renderAffiliateComposer();
+        return;
+      }
+      if (target.id === 'affiliatePlacement') {
+        state.affiliatePlacement = String(target.value || 'first_comment').toLowerCase();
+        state.affiliateLink = '';
+        state.affiliateAutoComment = ['first_comment', 'caption_and_comment'].includes(state.affiliatePlacement);
+        renderAffiliateComposer();
+        return;
+      }
+      if (target.id === 'affiliateAutoComment') {
+        state.affiliateAutoComment = Boolean(target.checked);
+        renderAffiliateComposer();
         return;
       }
       if (target.id === 'commonYoutubePrivacy') {
@@ -1417,6 +1679,22 @@
       const publishModeButton = event.target.closest('[data-publish-mode]');
       if (publishModeButton) {
         setComposerPublishMode(publishModeButton.dataset.publishMode || 'now');
+        return;
+      }
+      if (event.target.closest('#affiliateSearchProducts')) {
+        await searchAffiliateProducts();
+        return;
+      }
+      if (event.target.closest('#affiliateCreateLink')) {
+        await createAffiliateComposerLink();
+        return;
+      }
+      const productButton = event.target.closest('[data-affiliate-product-id]');
+      if (productButton) {
+        const productId = String(productButton.dataset.affiliateProductId || '');
+        state.affiliateProduct = state.affiliateProducts.find((product) => affiliateComposerProductId(product) === productId) || null;
+        state.affiliateLink = '';
+        renderAffiliateComposer();
         return;
       }
       const copyButton = event.target.closest('#copyCommonCaption');
@@ -1580,6 +1858,23 @@
             </div>
             <p class="upload-composer-subtitle">Hẹn giờ dùng một thời điểm chung cho các kênh đang bật.</p>
           </details>
+          <details class="affiliate-composer" open>
+            <summary>Shopee Affiliate <span id="affiliateComposerBadge">OFF</span></summary>
+            <p class="affiliate-composer-status" id="affiliateComposerStatus">Đang tải cấu hình Affiliate...</p>
+            <div class="affiliate-composer-grid">
+              <label><span>Chế độ</span><select id="affiliateMode"><option value="off">OFF - không gắn link</option><option value="manual">MANUAL - chọn sản phẩm</option><option value="auto">AUTO - tự chọn theo caption</option></select></label>
+              <label><span>Vị trí link</span><select id="affiliatePlacement"><option value="first_comment">Comment đầu tiên</option><option value="caption">Caption</option><option value="caption_and_comment">Caption + comment</option><option value="shopee_native_tag">Shopee native tag (POC)</option></select></label>
+              <label class="wide"><span>Từ khoá sản phẩm Shopee</span><input id="affiliateQuery" type="search" maxlength="500" placeholder="Ví dụ: serum vitamin C cho da dầu" /></label>
+            </div>
+            <div class="affiliate-composer-actions">
+              <button class="affiliate-composer-action secondary" id="affiliateSearchProducts" type="button">Tìm sản phẩm</button>
+              <button class="affiliate-composer-action" id="affiliateCreateLink" type="button" disabled>Tạo link</button>
+              <a class="affiliate-composer-action secondary" id="affiliateDashboardLink" href="/affiliate">Mở cài đặt</a>
+            </div>
+            <div class="affiliate-product-list" id="affiliateProducts"><p class="affiliate-product-empty">Chọn MANUAL/AUTO và tìm sản phẩm nếu cần.</p></div>
+            <p class="affiliate-composer-link" id="affiliateLinkPreview" hidden></p>
+            <label class="affiliate-comment-toggle"><input id="affiliateAutoComment" type="checkbox" checked /> Tự comment link lên Facebook Page sau khi Reel publish</label>
+          </details>
         </section>
         <section class="upload-composer-card">
           <div class="upload-destination-head">
@@ -1616,8 +1911,14 @@
       brandSelect.addEventListener('change', () => {
         state.uploadBrand = brandSelect.value;
         state.uploadTargetsBrand = '';
+        state.affiliateUiBrand = '';
+        state.affiliateContext = state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.affiliate || {};
+        state.affiliateProducts = [];
+        state.affiliateProduct = null;
+        state.affiliateLink = '';
         renderComposerBrandPicker();
         renderComposerDestinations();
+        renderAffiliateComposer();
         queueComposerDraftSave();
       });
     }
@@ -1625,6 +1926,7 @@
     if (manageBrandSocial) manageBrandSocial.addEventListener('click', () => openBrandSocialModal());
     renderComposerBrandPicker();
     renderComposerDestinations();
+    renderAffiliateComposer();
   }
 
   function hideUploadPanel() {
@@ -2446,10 +2748,13 @@
       state.uploadBrands = Array.isArray(data.brands) ? data.brands : [];
       state.brandRoutes = data.brand_routes && typeof data.brand_routes === 'object' ? data.brand_routes : {};
       const brandIds = state.uploadBrands.map((brand) => brand.id).filter(Boolean);
+      const previousUploadBrand = state.uploadBrand;
       if (!state.uploadBrand || !brandIds.includes(state.uploadBrand)) {
         state.uploadBrand = data.project_brand || brandIds[0] || '';
         state.uploadTargetsBrand = '';
       }
+      state.affiliateContext = state.uploadBrands.find((brand) => brand.id === state.uploadBrand)?.affiliate || data.affiliate || {};
+      if (previousUploadBrand !== state.uploadBrand) state.affiliateUiBrand = '';
       const youtube = data.platforms?.youtube || {};
       const facebook = data.platforms?.facebook || {};
       const instagram = data.platforms?.instagram || {};
@@ -2538,6 +2843,7 @@
       updateMetaAllButton();
       renderComposerBrandPicker();
       renderComposerDestinations();
+      renderAffiliateComposer();
       if ($('#brandSocialModal') && !$('#brandSocialModal').hidden) renderBrandSocialModal();
     } catch (error) {
       state.socialReady = { youtube: false, facebook: false, instagram: false, threads: false };
@@ -2549,6 +2855,11 @@
       state.socialStatus = {};
       state.uploadBrands = [];
       state.brandRoutes = {};
+      state.affiliateContext = {};
+      state.affiliateProducts = [];
+      state.affiliateProduct = null;
+      state.affiliateLink = '';
+      state.affiliateUiBrand = '';
       state.uploadTargets.clear();
       state.uploadTargetsBrand = '';
       syncYoutubeConfigUi({ configured: false });
@@ -2566,6 +2877,7 @@
       updateFacebookCommentButton();
       renderComposerBrandPicker();
       renderComposerDestinations();
+      renderAffiliateComposer();
       if ($('#brandSocialModal') && !$('#brandSocialModal').hidden) renderBrandSocialModal();
       setUploadStatus(error.message || String(error), 'bad');
     }
@@ -2582,6 +2894,14 @@
     state.uploadBrands = [];
     state.brandRoutes = {};
     state.socialStatus = {};
+    state.affiliateContext = {};
+    state.affiliateProducts = [];
+    state.affiliateProduct = null;
+    state.affiliateLink = '';
+    state.affiliateMode = 'off';
+    state.affiliatePlacement = 'first_comment';
+    state.affiliateAutoComment = true;
+    state.affiliateUiBrand = '';
     state.r2Config = {};
     state.uploadTargets.clear();
     state.uploadTargetsBrand = '';
@@ -4354,6 +4674,7 @@
         brand: state.uploadBrand || undefined,
         facebookCaption: $('#facebookCaption')?.value || '',
         facebookVideoState,
+        affiliate: affiliatePayload(),
         ...(scheduledPublishAt ? { scheduledPublishAt } : {}),
       }),
     });
