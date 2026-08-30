@@ -442,6 +442,36 @@ def list_products(*, query: str = "", limit: int = 50) -> list[dict]:
     return result
 
 
+def product_conversion_rates(provider: str = "shopee") -> dict[str, float]:
+    """Return observed order/click rates keyed by provider id and origin URL."""
+    init_db()
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT p.id, p.provider_product_id, p.origin_url,
+                   COALESCE(SUM(s.orders), 0) AS orders,
+                   COALESCE(SUM(s.clicks), 0) AS clicks
+            FROM affiliate_products p
+            LEFT JOIN affiliate_daily_stats s
+              ON s.product_id = p.id OR s.product_id = p.provider_product_id
+            WHERE p.provider = ?
+            GROUP BY p.id, p.provider_product_id, p.origin_url
+            """,
+            (str(provider or "shopee"),),
+        ).fetchall()
+    rates: dict[str, float] = {}
+    for row in rows:
+        clicks = float(row["clicks"] or 0)
+        if clicks <= 0:
+            continue
+        rate = max(0.0, min(1.0, float(row["orders"] or 0) / clicks))
+        for key in (row["id"], row["provider_product_id"], row["origin_url"]):
+            key = str(key or "").strip()
+            if key:
+                rates[key] = rate
+    return rates
+
+
 def record_link(link: dict) -> dict:
     init_db()
     link_id = str(link.get("id") or _new_id("link"))

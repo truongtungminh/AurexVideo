@@ -94,6 +94,12 @@ def normalize_product(raw: dict, query: str = "") -> dict:
     ).strip()
     explicit_relevance = raw.get("relevance_score", raw.get("relevanceScore", raw.get("relevance")))
     relevance = _fraction(explicit_relevance) if explicit_relevance is not None else _token_relevance(query, name)
+    historical_conversion = _fraction(
+        raw.get(
+            "historical_conversion",
+            raw.get("historicalConversion", raw.get("historical_conversion_rate", raw.get("conversionRate", 0))),
+        )
+    )
     return {
         "provider": "shopee",
         "provider_product_id": provider_product_id,
@@ -110,6 +116,7 @@ def normalize_product(raw: dict, query: str = "") -> dict:
         "discount_rate": max(0.0, min(100.0, _float(raw.get("discount_rate", raw.get("priceDiscountRate"))))),
         "shop_quality": _fraction(raw.get("shop_quality", raw.get("shopQuality"))),
         "relevance_score": relevance,
+        "historical_conversion": historical_conversion,
         "raw": raw,
     }
 
@@ -129,13 +136,15 @@ def rank_products(products: list[dict], query: str = "") -> list[dict]:
         )
         rating_score = product["rating"] / 5 if product["rating"] else 0.0
         discount_score = product["discount_rate"] / 100 if product["discount_rate"] else 0.0
+        historical_conversion_score = product["historical_conversion"]
         product["ranking_score"] = round(
             relevance * 0.40
             + commission_score * 0.20
             + sales_score * 0.15
             + rating_score * 0.10
             + discount_score * 0.05
-            + product["shop_quality"] * 0.05,
+            + product["shop_quality"] * 0.05
+            + historical_conversion_score * 0.05,
             6,
         )
     return sorted(normalized, key=lambda product: (-product["ranking_score"], -product["relevance_score"], product["name"].casefold()))
@@ -176,7 +185,7 @@ def brand_context(config: dict | None, brand: str) -> dict:
     config = read_social_config() if config is None else config
     brand = canonical_brand(brand)
     status = shopee_status_for_brand(config, brand)
-    settings = normalize_settings(status.get("settings"), status.get("settings"))
+    settings = normalize_settings(status.get("settings"))
     return {
         "brand": brand,
         "provider": "shopee",
@@ -213,7 +222,20 @@ def discover_products(brand: str, query: str, *, limit: int = 10) -> dict:
         raise ValueError(context["connection"]["message"] or "Shopee Affiliate chưa kết nối cho Brand.")
     _, connection = resolve_social_brand_connection(config, brand, "shopee")
     raw_products = search_product_offers(connection, query, limit=limit)
-    ranked = rank_products(raw_products, query)
+    historical_rates = affiliate_store.product_conversion_rates("shopee")
+    enriched_products = []
+    for raw_product in raw_products:
+        if not isinstance(raw_product, dict):
+            continue
+        provider_id = str(raw_product.get("provider_product_id") or raw_product.get("itemId") or raw_product.get("item_id") or "").strip()
+        origin_url = str(raw_product.get("origin_url") or raw_product.get("productLink") or raw_product.get("product_link") or "").strip()
+        if "historical_conversion" not in raw_product and "historicalConversion" not in raw_product:
+            raw_product = {
+                **raw_product,
+                "historical_conversion": historical_rates.get(provider_id) or historical_rates.get(origin_url) or 0.0,
+            }
+        enriched_products.append(raw_product)
+    ranked = rank_products(enriched_products, query)
     settings = context["settings"]
     filtered = [
         product for product in ranked
@@ -285,6 +307,8 @@ def create_affiliate_link(
         ).strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
+    if origin_url and not _valid_shopee_link(origin_url):
+        raise ValueError("Origin URL phải là link Shopee HTTPS hợp lệ.")
     if affiliate_url and not _valid_shopee_link(affiliate_url):
         raise ValueError("Affiliate URL phải là link Shopee HTTPS hợp lệ.")
     sub_ids = build_sub_ids(brand, page_id, content_id, product_id or product.get("provider_product_id"), placement)
@@ -320,6 +344,8 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     placement = str(raw.get("placement") or settings.get("placement") or "first_comment").strip().lower()
     if placement not in AFFILIATE_PLACEMENTS:
         raise ValueError("Affiliate placement không hợp lệ.")
+    if placement == "shopee_native_tag":
+        raise ValueError("Shopee native tag mới là POC; hãy dùng comment hoặc caption cho lần đăng này.")
     query = str(raw.get("query") or raw.get("affiliateQuery") or "").strip() or _project_query(project)
     product_id = str(raw.get("productId") or raw.get("product_id") or raw.get("affiliateProductId") or "").strip()
     product = affiliate_store.get_product(product_id) if product_id else {}
