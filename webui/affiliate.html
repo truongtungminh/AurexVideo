@@ -50,9 +50,11 @@
         <label>Trạng thái
           <select id="statusSelect" aria-label="Lọc trạng thái">
             <option value="all">Tất cả</option>
-            <option value="active">Đang chạy</option>
-            <option value="paused">Tạm dừng</option>
-            <option value="ended">Đã kết thúc</option>
+            <option value="prepared">Đã chuẩn bị</option>
+            <option value="published">Đã đăng</option>
+            <option value="scheduled">Đã hẹn giờ</option>
+            <option value="draft">Bản nháp</option>
+            <option value="comment_failed">Comment lỗi</option>
           </select>
         </label>
       </section>
@@ -100,6 +102,8 @@
         <article class="kpi-card panel"><span>Orders</span><strong id="kpiOrders">—</strong><small id="kpiOrdersDetail">Chưa có dữ liệu</small></article>
         <article class="kpi-card panel"><span>GMV</span><strong id="kpiGmv">—</strong><small id="kpiGmvDetail">Chưa có dữ liệu</small></article>
         <article class="kpi-card panel commission"><span>Commission</span><strong id="kpiCommission">—</strong><small id="kpiCommissionDetail">Chưa có dữ liệu</small></article>
+        <article class="kpi-card panel"><span>CTR</span><strong id="kpiCtr">—</strong><small id="kpiCtrDetail">Chưa ingest views</small></article>
+        <article class="kpi-card panel"><span>Conversion rate</span><strong id="kpiConversionRate">—</strong><small id="kpiConversionRateDetail">Chưa có clicks</small></article>
       </section>
 
       <section class="affiliate-table-panel panel" aria-labelledby="recordsTitle">

@@ -24,7 +24,7 @@ import urllib.request
 import uuid
 import webbrowser
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -9515,11 +9515,25 @@ class WebHandler(SimpleHTTPRequestHandler):
         if path == "/api/affiliate/overview":
             query_values = parse_qs(parsed.query)
             try:
+                start_date = (query_values.get("startDate") or query_values.get("start_date") or [""])[0]
+                end_date = (query_values.get("endDate") or query_values.get("end_date") or [""])[0]
+                period = str((query_values.get("period") or [""])[0] or "").strip().lower()
+                if period and not (start_date or end_date):
+                    today = datetime.now(timezone.utc).date()
+                    end_date = today.isoformat()
+                    if period == "today":
+                        start_date = end_date
+                    elif period == "7d":
+                        start_date = (today - timedelta(days=6)).isoformat()
+                    elif period == "30d":
+                        start_date = (today - timedelta(days=29)).isoformat()
+                    elif period == "month":
+                        start_date = today.replace(day=1).isoformat()
                 self.send_json(200, affiliate_overview(
                     canonical_brand((query_values.get("brand") or [""])[0]),
                     (query_values.get("contentId") or query_values.get("content_id") or [""])[0],
-                    start_date=(query_values.get("startDate") or query_values.get("start_date") or [""])[0],
-                    end_date=(query_values.get("endDate") or query_values.get("end_date") or [""])[0],
+                    start_date=start_date,
+                    end_date=end_date,
                 ))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
