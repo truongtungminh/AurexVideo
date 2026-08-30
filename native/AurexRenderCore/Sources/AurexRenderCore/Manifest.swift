@@ -130,6 +130,10 @@ public struct SceneLayer: Decodable, Sendable {
     public let endFrame: Int?
     public let rect: NormalizedRect
     public let endRect: NormalizedRect?
+    /// Rounded-corner radius as a fraction of the canvas height.  Zero keeps
+    /// the legacy square clip; positive values are applied by the compositor
+    /// in physical pixels so the radius stays circular on vertical canvases.
+    public let cornerRadius: Double
     public let opacity: Double
     public let endOpacity: Double?
     public let color: RGBAColor?
@@ -154,6 +158,7 @@ public struct SceneLayer: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, type, zIndex, startFrame, endFrame, rect, endRect
+        case cornerRadius
         case opacity, endOpacity, color, source, contentMode, zoom, panX, panY
         case videoSyncMode, videoLoop, videoLoopStart, videoLoopEnd
         case text, spans, textColor, fontFamily, fontSource, fontSize, fontWeight
@@ -169,6 +174,7 @@ public struct SceneLayer: Decodable, Sendable {
         endFrame = try container.decodeIfPresent(Int.self, forKey: .endFrame)
         rect = try container.decode(NormalizedRect.self, forKey: .rect)
         endRect = try container.decodeIfPresent(NormalizedRect.self, forKey: .endRect)
+        cornerRadius = try container.decodeIfPresent(Double.self, forKey: .cornerRadius) ?? 0
         opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1
         endOpacity = try container.decodeIfPresent(Double.self, forKey: .endOpacity)
         color = try container.decodeIfPresent(RGBAColor.self, forKey: .color)
@@ -344,6 +350,11 @@ public enum ManifestValidator {
             try validate(rect: layer.rect, layerID: layer.id)
             if let endRect = layer.endRect {
                 try validate(rect: endRect, layerID: layer.id)
+            }
+            guard layer.cornerRadius.isFinite, (0...0.5).contains(layer.cornerRadius) else {
+                throw AurexRenderError.invalidManifest(
+                    "layer '\(layer.id)' cornerRadius must be between 0 and 0.5"
+                )
             }
             guard (0...1).contains(layer.opacity),
                   layer.endOpacity.map({ (0...1).contains($0) }) ?? true else {
