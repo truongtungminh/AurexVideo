@@ -1961,6 +1961,32 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         or payload.get("rebuild_audio_cache", False)
     )
 
+    if engine in {"upload"}:
+        audio_payload = payload.get("audio")
+        if not isinstance(audio_payload, dict):
+            raise ValueError("Hãy chọn file MP3 trước khi render.")
+        audio_name = str(audio_payload.get("name") or "")
+        if Path(audio_name).suffix.casefold() != ".mp3":
+            raise ValueError("Chỉ hỗ trợ file MP3.")
+        uploaded = m3.decode_upload(
+            project,
+            {
+                "kind": "voiceover",
+                "name": audio_name,
+                "data": audio_payload.get("data"),
+            },
+        )
+        audio_path = (project_dir / str(uploaded.get("path") or "")).resolve()
+        try:
+            audio_path.relative_to(project_dir.resolve())
+        except ValueError as exc:
+            raise ValueError("Đường dẫn audio upload không hợp lệ.") from exc
+        if not audio_path.is_file():
+            raise FileNotFoundError("Không tìm thấy file MP3 vừa tải lên.")
+        cmd.extend(["--engine", "upload", "--audio", str(audio_path)])
+        append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
+        return cmd, "upload"
+
     if engine in {"elevenlabs"}:
         mode = str(payload.get("mode") or "tts").strip().lower()
         if mode == "upload":
@@ -2046,7 +2072,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "project"
 
-    raise ValueError("Engine must be elevenlabs, edgetts or project.")
+    raise ValueError("Engine must be upload, vieneu, maziao, edgetts, elevenlabs or project.")
 
 
 def has_running_job(project: str) -> bool:
@@ -3715,6 +3741,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <button class="tab active" data-engine="vieneu" type="button">{ui_icon("mic", "tab-icon")}<span>VieNeu TTS</span></button>
         <button class="tab" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
         <button class="tab" data-engine="edgetts" type="button">{ui_icon("audio-lines", "tab-icon")}<span>Edge TTS</span></button>
+        <button class="tab" data-engine="upload" type="button">{ui_icon("upload", "tab-icon")}<span>Upload File</span></button>
       </div>
 
       <div data-pane="vieneu">
@@ -3769,6 +3796,18 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
 
       <div data-pane="edgetts" hidden>
+      </div>
+
+      <div data-pane="upload" hidden>
+        <label class="field upload-audio-field">
+          <span class="field-label">{ui_icon("upload", "field-icon")}<span>File audio MP3</span></span>
+          <span class="file-picker">
+            <input id="uploadAudioFile" type="file" accept=".mp3,audio/mpeg,audio/mp3" />
+            <span class="file-picker-button">Chọn file</span>
+            <span class="file-picker-name" id="uploadAudioFileName">Chưa chọn file MP3</span>
+          </span>
+        </label>
+        <p class="engine-note">Dùng file MP3 có sẵn của AurexVideo; không cần tải model TTS.</p>
       </div>
 
       <div class="form-actions render-primary-actions">

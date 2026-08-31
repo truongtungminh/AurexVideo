@@ -1,11 +1,12 @@
 (() => {
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
+  const MAX_UPLOAD_AUDIO_BYTES = 80 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
   // Auto is the default: Aurex Render Core first, Browser fallback for compatibility.
   const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v3';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
   const RENDER_ENGINE_STORAGE_KEY = 'aurexvideo-render-engine-v1';
-  const RENDER_ENGINES = new Set(['vieneu', 'maziao', 'edgetts']);
+  const RENDER_ENGINES = new Set(['vieneu', 'maziao', 'edgetts', 'upload']);
   const RENDER_BACKENDS = new Set(['auto', 'browser', 'native']);
   const RENDER_BACKEND_POLICY_VERSION = 2;
 
@@ -115,6 +116,7 @@
       brandLogoName: '',
       brandName: 'aurexvideo.app',
     },
+    uploadAudioFile: null,
   };
 
   let youtubeConfigSaving = false;
@@ -3930,6 +3932,19 @@
     }
   }
 
+  function selectedUploadAudioFile() {
+    return state.uploadAudioFile || $('#uploadAudioFile')?.files?.[0] || null;
+  }
+
+  function validateUploadAudioFile(file) {
+    if (!file) throw new Error(tr('Vui lòng chọn file MP3 trước khi render.', 'Choose an MP3 file before rendering.'));
+    if (!/\.mp3$/i.test(String(file.name || ''))) {
+      throw new Error(tr('Chỉ hỗ trợ file MP3.', 'Only MP3 files are supported.'));
+    }
+    assertFileSize(file, MAX_UPLOAD_AUDIO_BYTES, tr('File MP3', 'MP3 file'));
+    return file;
+  }
+
   function openBrandConfigModal() {
     if ($('#openBrandConfig')?.disabled || $('#renderBranding')?.disabled) return;
     const modal = $('#brandConfigModal');
@@ -4137,7 +4152,20 @@
         }
       }
 
-      if (state.engine === 'maziao') {
+      if (state.engine === 'upload') {
+        const file = validateUploadAudioFile(selectedUploadAudioFile());
+        payload.audio = {
+          name: file.name,
+          data: await fileToBase64(file),
+        };
+        setRenderState(
+          tr('Đang chuẩn bị render', 'Preparing to render'),
+          [tr(
+            `Dùng file MP3 có sẵn: ${file.name}. Hệ thống sẽ dùng trực tiếp audio này, không tải model TTS.`,
+            `Using the selected MP3: ${file.name}. The audio will be used directly without loading a TTS model.`,
+          )],
+        );
+      } else if (state.engine === 'maziao') {
         payload.voice = currentMaziaoVoice();
         payload.ttsMode = currentMaziaoTtsMode();
         const ttsConfig = currentMaziaoTtsConfig();
@@ -4453,6 +4481,23 @@
     brandLogoInput.addEventListener('change', () => {
       const file = brandLogoInput.files?.[0] || null;
       brandLogoFileName.textContent = file ? file.name : (state.renderOptions.brandLogoName || 'Logo AurexVideo mặc định');
+    });
+  }
+
+  const uploadAudioInput = $('#uploadAudioFile');
+  const uploadAudioFileName = $('#uploadAudioFileName');
+  if (uploadAudioInput && uploadAudioFileName) {
+    uploadAudioInput.addEventListener('change', () => {
+      const file = uploadAudioInput.files?.[0] || null;
+      state.uploadAudioFile = file;
+      uploadAudioFileName.textContent = file ? file.name : 'Chưa chọn file MP3';
+      if (!file) return;
+      try {
+        validateUploadAudioFile(file);
+        setStatus(`Đã chọn file MP3: ${file.name}`, 'good');
+      } catch (error) {
+        setStatus(error.message || String(error), 'bad');
+      }
     });
   }
 
