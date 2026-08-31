@@ -408,7 +408,7 @@ def threads_upload_video(payload: dict) -> dict:
             r2_key=object_key,
             r2_url=public_url,
         )
-        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "r2_url": public_url, "message": "Đã upload video lên R2 và chuyển lịch Threads lên VPS; worker chỉ publish đúng giờ."}
+        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "media_sha256": media_sha256, "r2_key": object_key, "r2_url": public_url, "message": "Đã upload video lên R2 và chuyển lịch Threads lên VPS; worker chỉ publish đúng giờ."}
 
     supplied_url = (
         payload.get("publicUrl")
