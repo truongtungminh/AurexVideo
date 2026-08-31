@@ -3719,10 +3719,13 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
 
       <div data-pane="vieneu">
         <div class="vieneu-runtime-control">
-          <label class="check">
-            <input id="vieneuRuntimeToggle" type="checkbox" checked />
-            <span>Bật VieNeu-TTS</span>
-          </label>
+          <div class="vieneu-runtime-info">
+            <label class="check">
+              <input id="vieneuRuntimeToggle" type="checkbox" checked />
+              <span>Bật VieNeu-TTS</span>
+            </label>
+            <a class="vieneu-web-ui-link" href="http://127.0.0.1:7860/" target="_blank" rel="noopener">Mở VieNeu Web UI ↗</a>
+          </div>
           <span class="vieneu-runtime-state" id="vieneuRuntimeState" aria-live="polite">Đang kiểm tra…</span>
         </div>
         <div class="field">
@@ -4731,7 +4734,30 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       border-radius: 12px;
       background: rgba(242, 178, 101, 0.08);
     }
+    .vieneu-runtime-info { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
     .vieneu-runtime-control .check { margin: 0; }
+    .vieneu-web-ui-link {
+      display: inline;
+      align-self: flex-start;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      color: var(--accent);
+      background: transparent;
+      font-size: 11px;
+      font-weight: 850;
+      line-height: 1.2;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color 150ms ease;
+    }
+    .vieneu-web-ui-link:hover {
+      color: var(--text);
+      background: transparent;
+      box-shadow: none;
+      transform: none;
+    }
     .vieneu-runtime-state {
       color: var(--muted);
       font-size: 11px;
