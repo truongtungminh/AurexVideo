@@ -116,6 +116,59 @@ class InstagramUploadTests(unittest.TestCase):
             },
         )
 
+    def test_scheduled_instagram_uses_vps_context_without_desktop_r2(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            video_path = project_dir / "final_video.mp4"
+            video_path.write_bytes(b"fake video")
+            scheduled_at = "2099-01-01T00:00:00Z"
+            queued = {
+                "id": "vps-job-1",
+                "scheduledPublishAt": scheduled_at,
+                "worker_id": "vps-job-1",
+            }
+            with patch.object(
+                instagram,
+                "read_social_config",
+                return_value={"social_worker": {"url": "https://worker.example"}},
+            ), patch.object(instagram, "require_project", return_value=project_dir), \
+                patch.object(
+                    instagram,
+                    "resolve_social_brand_connection",
+                    return_value=("connection-1", {"ig_user_id": "1784", "access_token": "x" * 30}),
+                ), patch.object(instagram, "final_video_path_for_project", return_value=video_path), \
+                patch.object(instagram, "validate_upload_video", return_value={}), \
+                patch.object(instagram, "instagram_caption_for_project", return_value="Caption"), \
+                patch.object(instagram, "schedule_on_vps", return_value=queued) as schedule, \
+                patch.object(instagram, "record_scheduled_social_upload") as record:
+                result = instagram.instagram_upload_video(
+                    {
+                        "project": "demo",
+                        "brand": "popsy",
+                        "scheduledPublishAt": scheduled_at,
+                    }
+                )
+
+        schedule.assert_called_once_with(
+            "instagram",
+            video_path,
+            "Caption",
+            scheduled_at,
+            project="demo",
+            brand="popsy",
+            account_id="connection-1",
+        )
+        record.assert_called_once_with(
+            project_dir,
+            "instagram",
+            scheduled_at,
+            brand="popsy",
+            connection_id="connection-1",
+            worker_id="vps-job-1",
+        )
+        self.assertEqual(result["state"], "SCHEDULED")
+        self.assertEqual(result["worker_id"], "vps-job-1")
+
 
 if __name__ == "__main__":
     unittest.main()

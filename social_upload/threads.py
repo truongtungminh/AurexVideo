@@ -368,13 +368,23 @@ def threads_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
         video_path = Path(final_video_path_for_project(project))
         validate_upload_video(video_path)
-        queued = schedule_on_vps("threads", video_path, text, scheduled)
+        queued = schedule_on_vps(
+            "threads",
+            video_path,
+            text,
+            scheduled,
+            project=project,
+            brand=brand,
+            account_id=connection_id,
+        )
+        worker_id = str(queued.get("id") or queued.get("worker_id") or "").strip()
         record_scheduled_social_upload(
             project_dir,
             "threads",
             queued["scheduledPublishAt"],
             brand=brand,
             connection_id=connection_id,
+            worker_id=worker_id,
         )
         return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Threads lên VPS; worker sẽ publish đúng giờ."}
 

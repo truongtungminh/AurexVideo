@@ -28,6 +28,8 @@ TIKTOK_RETRY_SECONDS = max(60, int(os.environ.get("TIKTOK_RETRY_SECONDS", "300")
 TIKTOK_POLL_SECONDS = max(30, int(os.environ.get("TIKTOK_POLL_SECONDS", "60")))
 TIKTOK_MAX_ATTEMPTS = max(1, int(os.environ.get("TIKTOK_MAX_ATTEMPTS", "3")))
 TIKTOK_SCHEDULE_GRACE_SECONDS = max(0, int(os.environ.get("TIKTOK_SCHEDULE_GRACE_SECONDS", "5")))
+SOCIAL_MEDIA_RETRY_SECONDS = max(60, int(os.environ.get("SOCIAL_MEDIA_RETRY_SECONDS", "300")))
+SOCIAL_MAX_ATTEMPTS = max(1, int(os.environ.get("SOCIAL_MAX_ATTEMPTS", "3")))
 ZERNIO_BASE_URL = os.environ.get("ZERNIO_BASE_URL", "https://zernio.com/api/v1").rstrip("/")
 ZERNIO_CONNECTIONS_FILE = Path(
     os.environ.get("ZERNIO_CONNECTIONS_FILE", "/etc/aurex-social-worker-zernio.json")
@@ -838,7 +840,10 @@ def graph_create_publish(platform: str, caption: str, video_url: str) -> Dict[st
                 raise RuntimeError("Instagram container failed: {}".format(status))
             time.sleep(5)
         published = json_request(base + "/media_publish", {"creation_id": container}, token)
-        return {"platform": platform, "container_id": container, "media_id": published.get("id"), "state": "PUBLISHED"}
+        media_id = str(published.get("id") or "").strip()
+        if not media_id:
+            raise RuntimeError("Instagram publish returned no media id: {}".format(published))
+        return {"platform": platform, "container_id": container, "media_id": media_id, "state": "PUBLISHED"}
     if platform == "threads":
         user_id = os.environ["THREADS_USER_ID"]
         token = os.environ["THREADS_ACCESS_TOKEN"]
@@ -859,7 +864,10 @@ def graph_create_publish(platform: str, caption: str, video_url: str) -> Dict[st
                 raise RuntimeError("Threads container failed: {}".format(status))
             time.sleep(5)
         published = json_request(base + "/me/threads_publish", {"creation_id": container}, token)
-        return {"platform": platform, "container_id": container, "media_id": published.get("id"), "state": "PUBLISHED"}
+        media_id = str(published.get("id") or "").strip()
+        if not media_id:
+            raise RuntimeError("Threads publish returned no media id: {}".format(published))
+        return {"platform": platform, "container_id": container, "media_id": media_id, "state": "PUBLISHED"}
     raise ValueError("Unsupported scheduled platform: {}".format(platform))
 
 
@@ -867,7 +875,13 @@ def execute(job: Dict[str, Any]) -> Dict[str, Any]:
     path = _validate_media(job)
     if job["platform"] == "tiktok":
         return _create_tiktok_post(job)
+    # R2 upload is the only pre-provider phase. If it fails, the job can be
+    # retried safely because no Instagram/Threads POST has started yet.
+    job["phase"] = "media"
+    _set_job_phase(job["id"], "media")
     url = upload_r2(path, job["id"])
+    job["phase"] = "provider"
+    _set_job_phase(job["id"], "provider")
     return {**graph_create_publish(job["platform"], job["caption"], url), "video_url": url}
 
 
@@ -885,11 +899,16 @@ def _claim_due_jobs() -> List[Dict[str, Any]]:
         ).fetchall()
         for row in rows:
             job = dict(row)
-            conn.execute(
-                "UPDATE jobs SET status='running', phase='running', updated_at=? WHERE id=? AND status IN ('queued','retry_wait')",
-                (current, job["id"]),
+            attempts = int(job.get("attempts") or 0) + 1
+            updated = conn.execute(
+                """UPDATE jobs SET status='running', phase='running', attempts=?,
+                   updated_at=? WHERE id=? AND status IN ('queued','retry_wait')""",
+                (attempts, current, job["id"]),
             )
-            due.append(job)
+            if updated.rowcount == 1:
+                job["attempts"] = attempts
+                job["phase"] = "running"
+                due.append(job)
     return due
 
 
@@ -1067,8 +1086,16 @@ def _job_succeeded(job: Dict[str, Any], result: Dict[str, Any]) -> None:
         return
     with db() as conn:
         conn.execute(
-            "UPDATE jobs SET status='published', phase='published', result=?, error=NULL, updated_at=? WHERE id=?",
-            (json.dumps(result, ensure_ascii=False), now(), job["id"]),
+            """UPDATE jobs SET status='published', phase='published', result=?,
+               provider_post_id=?, provider_status=?, error=NULL, updated_at=?
+               WHERE id=?""",
+            (
+                json.dumps(result, ensure_ascii=False),
+                str(result.get("media_id") or result.get("post_id") or "").strip(),
+                str(result.get("state") or "").strip(),
+                now(),
+                job["id"],
+            ),
         )
 
 
@@ -1085,6 +1112,16 @@ def _job_failed(job: Dict[str, Any], exc: Exception) -> None:
                 (error, retry_at, now(), job["id"]),
             )
         print("job {} {} retry scheduled at {}: {}".format(job["id"], job["platform"], retry_at, error), flush=True)
+        return
+    if job["platform"] in {"instagram", "threads"} and job.get("phase") == "media" and attempts < SOCIAL_MAX_ATTEMPTS:
+        retry_at = iso_at(utc_now() + timedelta(seconds=SOCIAL_MEDIA_RETRY_SECONDS))
+        with db() as conn:
+            conn.execute(
+                """UPDATE jobs SET status='retry_wait', phase='media', error=?,
+                   next_attempt_at=?, updated_at=? WHERE id=?""",
+                (error, retry_at, now(), job["id"]),
+            )
+        print("job {} {} R2 retry scheduled at {}: {}".format(job["id"], job["platform"], retry_at, error), flush=True)
         return
     if job["platform"] == "tiktok" and bool(getattr(exc, "ambiguous", False)):
         error = "Zernio không xác định request đã tạo post hay chưa; không tự retry để tránh đăng trùng. " + error
@@ -1463,6 +1500,7 @@ def _public_job(row: Dict[str, Any]) -> Dict[str, Any]:
         "platform": row["platform"],
         "project": row.get("project") or "",
         "brand": row.get("brand") or "",
+        "accountId": row.get("account_id") or "",
         "scheduledPublishAt": row["scheduled_at"],
         "status": row["status"],
         "phase": row.get("phase") or "",
