@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import socket
 import sqlite3
 import threading
@@ -30,6 +31,9 @@ TIKTOK_MAX_ATTEMPTS = max(1, int(os.environ.get("TIKTOK_MAX_ATTEMPTS", "3")))
 TIKTOK_SCHEDULE_GRACE_SECONDS = max(0, int(os.environ.get("TIKTOK_SCHEDULE_GRACE_SECONDS", "5")))
 SOCIAL_MEDIA_RETRY_SECONDS = max(60, int(os.environ.get("SOCIAL_MEDIA_RETRY_SECONDS", "300")))
 SOCIAL_MAX_ATTEMPTS = max(1, int(os.environ.get("SOCIAL_MAX_ATTEMPTS", "3")))
+SOCIAL_CONNECTIONS_FILE = Path(
+    os.environ.get("SOCIAL_CONNECTIONS_FILE", "/etc/aurex-social-worker-social.json")
+)
 ZERNIO_BASE_URL = os.environ.get("ZERNIO_BASE_URL", "https://zernio.com/api/v1").rstrip("/")
 ZERNIO_CONNECTIONS_FILE = Path(
     os.environ.get("ZERNIO_CONNECTIONS_FILE", "/etc/aurex-social-worker-zernio.json")
@@ -110,6 +114,7 @@ def init_db() -> None:
               scheduled_at TEXT NOT NULL,
               caption TEXT NOT NULL,
               video_path TEXT NOT NULL,
+              video_url TEXT NOT NULL DEFAULT '',
               status TEXT NOT NULL,
               result TEXT,
               error TEXT,
@@ -125,13 +130,15 @@ def init_db() -> None:
               provider_post_id TEXT NOT NULL DEFAULT '',
               provider_status TEXT NOT NULL DEFAULT '',
               delivery_status TEXT NOT NULL DEFAULT '',
-              phase TEXT NOT NULL DEFAULT 'queued'
+              phase TEXT NOT NULL DEFAULT 'queued',
+              idempotency_key TEXT NOT NULL DEFAULT ''
             )"""
         )
         for name, definition in (
             ("project", "TEXT NOT NULL DEFAULT ''"),
             ("brand", "TEXT NOT NULL DEFAULT ''"),
             ("account_id", "TEXT NOT NULL DEFAULT ''"),
+            ("video_url", "TEXT NOT NULL DEFAULT ''"),
             ("tiktok_settings", "TEXT NOT NULL DEFAULT ''"),
             ("expected_media_sha256", "TEXT NOT NULL DEFAULT ''"),
             ("attempts", "INTEGER NOT NULL DEFAULT 0"),
@@ -140,6 +147,7 @@ def init_db() -> None:
             ("provider_status", "TEXT NOT NULL DEFAULT ''"),
             ("delivery_status", "TEXT NOT NULL DEFAULT ''"),
             ("phase", "TEXT NOT NULL DEFAULT 'queued'"),
+            ("idempotency_key", "TEXT NOT NULL DEFAULT ''"),
         ):
             _ensure_column(conn, name, definition)
         conn.execute(
@@ -166,6 +174,10 @@ def init_db() -> None:
         _ensure_watch_column(conn, "retry_attempts", "INTEGER NOT NULL DEFAULT 0")
         _ensure_watch_column(conn, "next_retry_at", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_due ON jobs(status, scheduled_at, next_attempt_at)")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idempotency "
+            "ON jobs(idempotency_key) WHERE idempotency_key <> ''"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tiktok_watches_due ON tiktok_watches(state, next_check_at)")
     _recover_interrupted_jobs()
     _retire_legacy_tiktok_jobs()
@@ -728,6 +740,163 @@ def _set_job_phase(job_id: str, phase: str) -> None:
         conn.execute("UPDATE jobs SET phase=?, updated_at=? WHERE id=?", (phase, now(), job_id))
 
 
+def _validated_public_video_url(value: Any) -> str:
+    video_url = str(value or "").strip()
+    if not video_url or "\\" in video_url or any(character.isspace() or ord(character) < 32 for character in video_url):
+        raise ValueError("Scheduled social job cần public video URL từ R2.")
+    try:
+        parsed = urlparse(video_url)
+        hostname = parsed.hostname or ""
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("Public video URL không hợp lệ.") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or not hostname:
+        raise ValueError("Public video URL phải là HTTP hoặc HTTPS URL.")
+    if parsed.username or parsed.password:
+        raise ValueError("Public video URL không được chứa thông tin đăng nhập.")
+    return video_url
+
+
+def _load_social_connections() -> Dict[str, List[Dict[str, str]]]:
+    try:
+        raw = json.loads(SOCIAL_CONNECTIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    result: Dict[str, List[Dict[str, str]]] = {}
+    for platform in ("instagram", "threads"):
+        values = raw.get(platform)
+        if isinstance(values, dict):
+            values = list(values.values())
+        if not isinstance(values, list):
+            continue
+        result[platform] = [
+            {str(key): str(item.get(key) or "").strip() for key in item}
+            for item in values
+            if isinstance(item, dict)
+        ]
+    return result
+
+
+def _social_connection(
+    platform: str,
+    account_id: str = "",
+    brand: str = "",
+) -> Dict[str, str]:
+    requested = str(account_id or "").strip()
+    brand_key = str(brand or "").strip().casefold()
+    entries = _load_social_connections().get(platform, [])
+    account_matches = [
+        item for item in entries
+        if str(item.get("user_id") or item.get("account_id") or "").strip() == requested
+    ] if requested else []
+    selected: Dict[str, str] = {}
+    if requested:
+        for item in account_matches:
+            item_brand = str(item.get("brand") or "").strip().casefold()
+            if not brand_key or not item_brand or item_brand == brand_key:
+                selected = item
+                break
+        if account_matches and not selected:
+            raise RuntimeError(
+                "{} accountId không được bind với Brand {} trên VPS.".format(platform, brand or "đã yêu cầu")
+            )
+    elif brand_key:
+        selected = next(
+            (
+                item for item in entries
+                if str(item.get("brand") or "").strip().casefold() == brand_key
+            ),
+            {},
+        )
+    if entries and (brand_key or requested) and not selected:
+        raise RuntimeError(
+            "{} connection cho Brand {} / account {} chưa được cấu hình trên VPS.".format(
+                platform,
+                brand or "<trống>",
+                requested or "<trống>",
+            )
+        )
+    if selected:
+        user_id = str(selected.get("user_id") or selected.get("account_id") or "").strip()
+        token = str(selected.get("access_token") or "").strip()
+        if not user_id or not token:
+            raise RuntimeError("{} connection trên VPS chưa có user id hoặc access token.".format(platform))
+        return {
+            "user_id": user_id,
+            "access_token": token,
+            "brand": str(selected.get("brand") or "").strip(),
+            "api_mode": str(selected.get("api_mode") or "instagram_login").strip().lower(),
+            "graph_version": str(selected.get("graph_version") or "").strip(),
+        }
+    if platform == "instagram":
+        user_id = os.environ.get("INSTAGRAM_USER_ID", "").strip()
+        token = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "").strip()
+        api_mode = os.environ.get("INSTAGRAM_API_MODE", "instagram_login").strip().lower()
+        graph_version = os.environ.get("INSTAGRAM_GRAPH_VERSION", INSTAGRAM_GRAPH_VERSION).strip()
+    else:
+        user_id = os.environ.get("THREADS_USER_ID", "").strip()
+        token = os.environ.get("THREADS_ACCESS_TOKEN", "").strip()
+        api_mode = "threads"
+        graph_version = os.environ.get("THREADS_GRAPH_VERSION", THREADS_GRAPH_VERSION).strip()
+    if requested and user_id and requested != user_id:
+        raise RuntimeError(
+            "{} accountId không khớp tài khoản được cấu hình trên VPS.".format(platform)
+        )
+    if not user_id or not token:
+        raise RuntimeError("VPS chưa cấu hình {} user id và access token.".format(platform))
+    return {
+        "user_id": user_id,
+        "access_token": token,
+        "brand": "",
+        "api_mode": api_mode,
+        "graph_version": graph_version,
+    }
+
+
+def _validate_social_account(platform: str, account_id: str, brand: str = "") -> None:
+    # Blank accountId is retained as a backwards-compatible path for old rows.
+    # New callers resolve a Brand-scoped connection and fail closed if the VPS
+    # has no matching credentials.
+    if str(account_id or "").strip() or str(brand or "").strip():
+        _social_connection(platform, account_id, brand)
+
+
+def _verify_public_video_url(video_url: str) -> None:
+    """Prove R2 is readable before any provider POST can begin."""
+    request = Request(
+        video_url,
+        headers={"Accept": "video/mp4", "Range": "bytes=0-0", "User-Agent": "AurexSocialWorker/1"},
+        method="HEAD",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            if response.status >= 400:
+                raise RuntimeError("R2 public video URL returned HTTP {}.".format(response.status))
+    except HTTPError as exc:
+        if exc.code != 405:
+            raise RuntimeError("R2 public video URL returned HTTP {}.".format(exc.code)) from exc
+        # A few public gateways disable HEAD; a one-byte ranged GET is still a
+        # bounded read and keeps the check before the non-idempotent provider POST.
+        fallback = Request(
+            video_url,
+            headers={"Accept": "video/mp4", "Range": "bytes=0-0", "User-Agent": "AurexSocialWorker/1"},
+            method="GET",
+        )
+        try:
+            with urlopen(fallback, timeout=30) as response:
+                if response.status >= 400:
+                    raise RuntimeError("R2 public video URL returned HTTP {}.".format(response.status))
+                response.read(1)
+        except HTTPError as fallback_exc:
+            raise RuntimeError("R2 public video URL returned HTTP {}.".format(fallback_exc.code)) from fallback_exc
+        except URLError as fallback_exc:
+            raise RuntimeError("R2 public video URL is not reachable: {}".format(fallback_exc.reason)) from fallback_exc
+    except URLError as exc:
+        raise RuntimeError("R2 public video URL is not reachable: {}".format(exc.reason)) from exc
+
+
 def _create_tiktok_post(job: Dict[str, Any]) -> Dict[str, Any]:
     path = Path(job["video_path"])
     connection = _tiktok_connection(job.get("brand", ""), job.get("account_id", ""))
@@ -815,11 +984,23 @@ def _validate_media(job: Dict[str, Any]) -> Path:
     return path
 
 
-def graph_create_publish(platform: str, caption: str, video_url: str) -> Dict[str, Any]:
+def graph_create_publish(
+    platform: str,
+    caption: str,
+    video_url: str,
+    *,
+    account_id: str = "",
+    brand: str = "",
+) -> Dict[str, Any]:
+    connection = _social_connection(platform, account_id, brand)
+    user_id = connection["user_id"]
+    token = connection["access_token"]
     if platform == "instagram":
-        user_id = os.environ["INSTAGRAM_USER_ID"]
-        token = os.environ["INSTAGRAM_ACCESS_TOKEN"]
-        base = "https://graph.instagram.com/{}/{}".format(INSTAGRAM_GRAPH_VERSION, user_id)
+        graph_version = connection["graph_version"] or INSTAGRAM_GRAPH_VERSION
+        if not graph_version.startswith("v"):
+            graph_version = "v" + graph_version
+        graph_host = "https://graph.facebook.com" if connection["api_mode"] == "facebook_login" else "https://graph.instagram.com"
+        base = "{}/{}/{}".format(graph_host, graph_version, user_id)
         created = json_request(
             base + "/media",
             {"media_type": "REELS", "video_url": video_url, "caption": caption, "share_to_feed": "true"},
@@ -845,8 +1026,6 @@ def graph_create_publish(platform: str, caption: str, video_url: str) -> Dict[st
             raise RuntimeError("Instagram publish returned no media id: {}".format(published))
         return {"platform": platform, "container_id": container, "media_id": media_id, "state": "PUBLISHED"}
     if platform == "threads":
-        user_id = os.environ["THREADS_USER_ID"]
-        token = os.environ["THREADS_ACCESS_TOKEN"]
         base = "https://graph.threads.net"
         created = json_request(
             base + "/me/threads",
@@ -872,17 +1051,35 @@ def graph_create_publish(platform: str, caption: str, video_url: str) -> Dict[st
 
 
 def execute(job: Dict[str, Any]) -> Dict[str, Any]:
-    path = _validate_media(job)
     if job["platform"] == "tiktok":
+        path = _validate_media(job)
         return _create_tiktok_post(job)
-    # R2 upload is the only pre-provider phase. If it fails, the job can be
-    # retried safely because no Instagram/Threads POST has started yet.
+    if job["platform"] not in {"instagram", "threads"}:
+        raise ValueError("Unsupported scheduled platform: {}".format(job["platform"]))
+    # New schedules already contain a public R2 URL. The worker only verifies
+    # that URL and calls the provider; the legacy path remains solely for old
+    # rows created before the R2-at-schedule contract.
     job["phase"] = "media"
     _set_job_phase(job["id"], "media")
-    url = upload_r2(path, job["id"])
+    url = str(job.get("video_url") or "").strip()
+    if url:
+        url = _validated_public_video_url(url)
+        _verify_public_video_url(url)
+    else:
+        path = _validate_media(job)
+        url = upload_r2(path, job["id"])
     job["phase"] = "provider"
     _set_job_phase(job["id"], "provider")
-    return {**graph_create_publish(job["platform"], job["caption"], url), "video_url": url}
+    return {
+        **graph_create_publish(
+            job["platform"],
+            job["caption"],
+            url,
+            account_id=str(job.get("account_id") or ""),
+            brand=str(job.get("brand") or ""),
+        ),
+        "video_url": url,
+    }
 
 
 def _claim_due_jobs() -> List[Dict[str, Any]]:
@@ -1121,7 +1318,7 @@ def _job_failed(job: Dict[str, Any], exc: Exception) -> None:
                    next_attempt_at=?, updated_at=? WHERE id=?""",
                 (error, retry_at, now(), job["id"]),
             )
-        print("job {} {} R2 retry scheduled at {}: {}".format(job["id"], job["platform"], retry_at, error), flush=True)
+        print("job {} {} media URL retry scheduled at {}: {}".format(job["id"], job["platform"], retry_at, error), flush=True)
         return
     if job["platform"] == "tiktok" and bool(getattr(exc, "ambiguous", False)):
         error = "Zernio không xác định request đã tạo post hay chưa; không tự retry để tránh đăng trùng. " + error
@@ -1501,6 +1698,7 @@ def _public_job(row: Dict[str, Any]) -> Dict[str, Any]:
         "project": row.get("project") or "",
         "brand": row.get("brand") or "",
         "accountId": row.get("account_id") or "",
+        "videoUrl": row.get("video_url") or "",
         "scheduledPublishAt": row["scheduled_at"],
         "status": row["status"],
         "phase": row.get("phase") or "",
@@ -1509,6 +1707,7 @@ def _public_job(row: Dict[str, Any]) -> Dict[str, Any]:
         "providerPostId": row.get("provider_post_id") or "",
         "providerStatus": row.get("provider_status") or "",
         "deliveryStatus": row.get("delivery_status") or "",
+        "idempotencyKey": row.get("idempotency_key") or "",
         "result": result if isinstance(result, dict) else {},
         "error": row.get("error") or "",
         "createdAt": row["created_at"],
@@ -1554,6 +1753,32 @@ def _upsert_watch_from_request(value: Dict[str, Any]) -> Dict[str, Any]:
     with db() as conn:
         row = conn.execute("SELECT * FROM tiktok_watches WHERE post_id=?", (post_id,)).fetchone()
     return _public_watch(dict(row)) if row else {}
+
+
+def _schedule_request_matches(
+    row: Dict[str, Any],
+    *,
+    platform: str,
+    scheduled_at: str,
+    caption: str,
+    video_url: str,
+    project: str,
+    brand: str,
+    account_id: str,
+    expected_media_sha256: str,
+) -> bool:
+    return all(
+        (
+            row.get("platform") == platform,
+            row.get("scheduled_at") == scheduled_at,
+            row.get("caption") == caption,
+            (row.get("video_url") or "") == video_url,
+            (row.get("project") or "") == project,
+            (row.get("brand") or "") == brand,
+            (row.get("account_id") or "") == account_id,
+            (row.get("expected_media_sha256") or "") == expected_media_sha256,
+        )
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1616,47 +1841,90 @@ class Handler(BaseHTTPRequestHandler):
             scheduled = str(value.get("scheduledPublishAt") or "")
             caption = str(value.get("caption") or "").strip()
             video_path = str(value.get("videoPath") or "").strip()
-            if platform not in {"instagram", "threads", "tiktok"} or not caption or not video_path:
-                raise ValueError("platform, caption and videoPath are required")
+            video_url = str(value.get("videoUrl") or value.get("video_url") or "").strip()
+            if platform not in {"instagram", "threads", "tiktok"} or not caption:
+                raise ValueError("platform and caption are required")
             if platform == "tiktok":
                 raise ValueError("TikTok scheduled posts must be created on Zernio; VPS only watches and retries them.")
+            if not video_url:
+                raise ValueError("Instagram/Threads scheduled jobs must provide videoUrl from R2.")
+            video_url = _validated_public_video_url(video_url)
             if parse_time(scheduled) <= utc_now():
                 raise ValueError("scheduledPublishAt must be in the future")
+            project = str(value.get("project") or "").strip()
+            brand = str(value.get("brand") or "").strip()
+            account_id = str(value.get("accountId") or value.get("account_id") or "").strip()
+            _validate_social_account(platform, account_id, brand)
+            expected_media_sha256 = str(
+                value.get("expectedMediaSha256") or value.get("expected_media_sha256") or ""
+            ).strip().lower()
+            if expected_media_sha256 and not re.fullmatch(r"[0-9a-f]{64}", expected_media_sha256):
+                raise ValueError("expectedMediaSha256 must be a SHA-256 hex digest.")
+            idempotency_key = str(
+                value.get("idempotencyKey") or value.get("idempotency_key") or ""
+            ).strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", idempotency_key):
+                raise ValueError("idempotencyKey must be a SHA-256 hex digest.")
             tiktok_settings = value.get("tiktokSettings")
             if tiktok_settings is not None and not isinstance(tiktok_settings, dict):
                 raise ValueError("tiktokSettings must be an object")
             job_id = "vps_" + uuid.uuid4().hex[:16]
             normalized_scheduled = iso_at(parse_time(scheduled))
             with db() as conn:
+                existing = conn.execute(
+                    "SELECT * FROM jobs WHERE idempotency_key=?",
+                    (idempotency_key,),
+                ).fetchone()
+                if existing:
+                    existing_dict = dict(existing)
+                    if not _schedule_request_matches(
+                        existing_dict,
+                        platform=platform,
+                        scheduled_at=normalized_scheduled,
+                        caption=caption,
+                        video_url=video_url,
+                        project=project,
+                        brand=brand,
+                        account_id=account_id,
+                        expected_media_sha256=expected_media_sha256,
+                    ):
+                        raise ValueError("idempotencyKey đã được dùng cho payload khác.")
+                    self.send(
+                        200,
+                        {"ok": True, "worker_id": existing_dict["id"], **_public_job(existing_dict)},
+                    )
+                    return
                 conn.execute(
                     """INSERT INTO jobs
-                       (id, platform, scheduled_at, caption, video_path, status,
+                       (id, platform, scheduled_at, caption, video_path, video_url, status,
                         result, error, created_at, updated_at, project, brand,
                         account_id, tiktok_settings, expected_media_sha256,
                         attempts, next_attempt_at, provider_post_id,
-                        provider_status, delivery_status)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        provider_status, delivery_status, idempotency_key)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         job_id,
                         platform,
                         normalized_scheduled,
                         caption,
                         video_path,
+                        video_url,
                         "queued",
                         None,
                         None,
                         now(),
                         now(),
-                        str(value.get("project") or "").strip(),
-                        str(value.get("brand") or "").strip(),
-                        str(value.get("accountId") or value.get("account_id") or "").strip(),
+                        project,
+                        brand,
+                        account_id,
                         json.dumps(tiktok_settings or {}, ensure_ascii=False) if platform == "tiktok" else "",
-                        str(value.get("expectedMediaSha256") or value.get("expected_media_sha256") or "").strip().lower(),
+                        expected_media_sha256,
                         0,
                         None,
                         "",
                         "",
                         "",
+                        idempotency_key,
                     ),
                 )
             self.send(
@@ -1667,6 +1935,8 @@ class Handler(BaseHTTPRequestHandler):
                     "worker_id": job_id,
                     "status": "queued",
                     "scheduledPublishAt": normalized_scheduled,
+                    "idempotencyKey": idempotency_key,
+                    "videoUrl": video_url,
                 },
             )
         except Exception as exc:

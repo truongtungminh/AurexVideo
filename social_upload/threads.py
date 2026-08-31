@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 import re
@@ -234,6 +235,15 @@ def threads_object_key(project: str) -> str:
     return f"threads/{safe_project}/{secrets.token_hex(8)}.mp4"
 
 
+def threads_scheduled_object_key(project: str, media_sha256: str) -> str:
+    """Use one stable R2 object for retries of the same scheduled media."""
+    safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", str(project or "")).strip("-") or "project"
+    digest = str(media_sha256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Không tạo được R2 key ổn định vì media SHA-256 không hợp lệ.")
+    return f"threads/{safe_project}/scheduled-{digest}.mp4"
+
+
 def _validated_public_url(value: object) -> str:
     public_url = str(value or "").strip()
     if not public_url:
@@ -368,14 +378,23 @@ def threads_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Threads")
         video_path = Path(final_video_path_for_project(project))
         validate_upload_video(video_path)
+        r2 = r2_config(config)
+        if not r2_is_configured(r2):
+            raise ValueError(r2_config_hint())
+        with video_path.open("rb") as stream:
+            media_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+        object_key = threads_scheduled_object_key(project, media_sha256)
+        public_url = upload_file(video_path, object_key, "video/mp4", r2)
         queued = schedule_on_vps(
             "threads",
-            video_path,
+            public_url,
             text,
             scheduled,
             project=project,
             brand=brand,
-            account_id=connection_id,
+            account_id=threads_user_id(threads),
+            media_sha256=media_sha256,
+            r2_key=object_key,
         )
         worker_id = str(queued.get("id") or queued.get("worker_id") or "").strip()
         record_scheduled_social_upload(
@@ -385,8 +404,11 @@ def threads_upload_video(payload: dict) -> dict:
             brand=brand,
             connection_id=connection_id,
             worker_id=worker_id,
+            media_sha256=media_sha256,
+            r2_key=object_key,
+            r2_url=public_url,
         )
-        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Threads lên VPS; worker sẽ publish đúng giờ."}
+        return {"ok": True, "platform": "threads", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "r2_url": public_url, "message": "Đã upload video lên R2 và chuyển lịch Threads lên VPS; worker chỉ publish đúng giờ."}
 
     supplied_url = (
         payload.get("publicUrl")

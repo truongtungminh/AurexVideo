@@ -479,6 +479,15 @@ def _record_social_upload(project_dir: Path, platform: str, details: dict) -> di
     worker_id = str(details.get("worker_id") or details.get("workerId") or "").strip()
     if worker_id:
         entry["workerId"] = worker_id
+    media_sha256 = str(details.get("media_sha256") or details.get("mediaSha256") or "").strip().lower()
+    if media_sha256:
+        entry["mediaSha256"] = media_sha256
+    r2_key = str(details.get("r2_key") or details.get("r2Key") or "").strip()
+    if r2_key:
+        entry["r2Key"] = r2_key[:500]
+    r2_url = str(details.get("r2_url") or details.get("r2Url") or "").strip()
+    if r2_url:
+        entry["r2Url"] = r2_url[:2000]
     error = str(details.get("error") or "").strip()
     if error:
         entry["error"] = error[:1000]
@@ -501,12 +510,15 @@ def record_scheduled_social_upload(
     connection_id: str = "",
     post_id: str = "",
     worker_id: str = "",
+    media_sha256: str = "",
+    r2_key: str = "",
+    r2_url: str = "",
 ) -> dict:
     """Persist the dashboard-safe part of a queued social upload.
 
     Queued workers must not write their job payloads to project metadata: those can
-    contain credentials or temporary media URLs.  This record intentionally keeps
-    only state needed by the dashboard.
+    contain credentials.  A public R2 URL and checksum are safe scheduling
+    metadata because the media must already exist before the VPS job is created.
     """
     project_dir = Path(project_dir)
     if not project_dir.is_dir():
@@ -519,6 +531,12 @@ def record_scheduled_social_upload(
         details["post_id"] = post_id
     if worker_id:
         details["worker_id"] = worker_id
+    if media_sha256:
+        details["media_sha256"] = media_sha256
+    if r2_key:
+        details["r2_key"] = r2_key
+    if r2_url:
+        details["r2_url"] = r2_url
     return _record_social_upload(project_dir, platform, details)
 
 

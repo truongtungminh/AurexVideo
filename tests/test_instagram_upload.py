@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import sys
 import unittest
@@ -116,12 +117,25 @@ class InstagramUploadTests(unittest.TestCase):
             },
         )
 
-    def test_scheduled_instagram_uses_vps_context_without_desktop_r2(self) -> None:
+    def test_scheduled_instagram_uploads_to_r2_before_vps_schedule(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_dir = Path(temp_dir)
             video_path = project_dir / "final_video.mp4"
             video_path.write_bytes(b"fake video")
             scheduled_at = "2099-01-01T00:00:00Z"
+            r2_config = {
+                "account_id": "account",
+                "bucket": "media",
+                "access_key_id": "key",
+                "secret_access_key": "secret",
+                "public_base_url": "https://media.example.com",
+                "object_prefix": "instagram",
+            }
+            instagram_config = {
+                "ig_user_id": "1784",
+                "access_token": "x" * 30,
+                "_brand_connection": True,
+            }
             queued = {
                 "id": "vps-job-1",
                 "scheduledPublishAt": scheduled_at,
@@ -130,15 +144,16 @@ class InstagramUploadTests(unittest.TestCase):
             with patch.object(
                 instagram,
                 "read_social_config",
-                return_value={"social_worker": {"url": "https://worker.example"}},
+                return_value={"instagram": instagram_config, "r2": r2_config},
             ), patch.object(instagram, "require_project", return_value=project_dir), \
                 patch.object(
                     instagram,
                     "resolve_social_brand_connection",
-                    return_value=("connection-1", {"ig_user_id": "1784", "access_token": "x" * 30}),
+                    return_value=("connection-1", instagram_config),
                 ), patch.object(instagram, "final_video_path_for_project", return_value=video_path), \
                 patch.object(instagram, "validate_upload_video", return_value={}), \
                 patch.object(instagram, "instagram_caption_for_project", return_value="Caption"), \
+                patch.object(instagram, "upload_file", return_value="https://media.example.com/instagram/scheduled.mp4") as upload, \
                 patch.object(instagram, "schedule_on_vps", return_value=queued) as schedule, \
                 patch.object(instagram, "record_scheduled_social_upload") as record:
                 result = instagram.instagram_upload_video(
@@ -151,12 +166,20 @@ class InstagramUploadTests(unittest.TestCase):
 
         schedule.assert_called_once_with(
             "instagram",
-            video_path,
+            "https://media.example.com/instagram/scheduled.mp4",
             "Caption",
             scheduled_at,
             project="demo",
             brand="popsy",
-            account_id="connection-1",
+            account_id="1784",
+            media_sha256=hashlib.sha256(b"fake video").hexdigest(),
+            r2_key=f"instagram/demo/scheduled-{hashlib.sha256(b'fake video').hexdigest()}.mp4",
+        )
+        upload.assert_called_once_with(
+            video_path,
+            f"instagram/demo/scheduled-{hashlib.sha256(b'fake video').hexdigest()}.mp4",
+            "video/mp4",
+            r2_config,
         )
         record.assert_called_once_with(
             project_dir,
@@ -165,9 +188,13 @@ class InstagramUploadTests(unittest.TestCase):
             brand="popsy",
             connection_id="connection-1",
             worker_id="vps-job-1",
+            media_sha256=hashlib.sha256(b"fake video").hexdigest(),
+            r2_key=f"instagram/demo/scheduled-{hashlib.sha256(b'fake video').hexdigest()}.mp4",
+            r2_url="https://media.example.com/instagram/scheduled.mp4",
         )
         self.assertEqual(result["state"], "SCHEDULED")
         self.assertEqual(result["worker_id"], "vps-job-1")
+        self.assertEqual(result["r2_url"], "https://media.example.com/instagram/scheduled.mp4")
 
 
 if __name__ == "__main__":
