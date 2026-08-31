@@ -2,6 +2,7 @@
   const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
   const MAX_UPLOAD_AUDIO_BYTES = 80 * 1024 * 1024;
   const MAX_BRAND_LOGO_BYTES = 20 * 1024 * 1024;
+  const UPLOAD_AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.mav']);
   // Auto is the default: Aurex Render Core first, Browser fallback for compatibility.
   const RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v3';
   const LEGACY_RENDER_PREFERENCES_KEY = 'aurexvideo-render-preferences-v1';
@@ -3937,11 +3938,13 @@
   }
 
   function validateUploadAudioFile(file) {
-    if (!file) throw new Error(tr('Vui lòng chọn file MP3 trước khi render.', 'Choose an MP3 file before rendering.'));
-    if (!/\.mp3$/i.test(String(file.name || ''))) {
-      throw new Error(tr('Chỉ hỗ trợ file MP3.', 'Only MP3 files are supported.'));
+    if (!file) throw new Error(tr('Vui lòng chọn file audio trước khi render.', 'Choose an audio file before rendering.'));
+    const fileName = String(file.name || '').trim().toLowerCase();
+    const extension = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
+    if (!UPLOAD_AUDIO_EXTENSIONS.has(extension)) {
+      throw new Error(tr('Chỉ hỗ trợ file MP3, WAV hoặc MAV.', 'Only MP3, WAV, or MAV files are supported.'));
     }
-    assertFileSize(file, MAX_UPLOAD_AUDIO_BYTES, tr('File MP3', 'MP3 file'));
+    assertFileSize(file, MAX_UPLOAD_AUDIO_BYTES, tr('File audio', 'Audio file'));
     return file;
   }
 
@@ -4161,8 +4164,8 @@
         setRenderState(
           tr('Đang chuẩn bị render', 'Preparing to render'),
           [tr(
-            `Dùng file MP3 có sẵn: ${file.name}. Hệ thống sẽ dùng trực tiếp audio này, không tải model TTS.`,
-            `Using the selected MP3: ${file.name}. The audio will be used directly without loading a TTS model.`,
+            `Dùng file audio có sẵn: ${file.name}. Hệ thống sẽ dùng trực tiếp audio này, không tải model TTS.`,
+            `Using the selected audio file: ${file.name}. The audio will be used directly without loading a TTS model.`,
           )],
         );
       } else if (state.engine === 'maziao') {
@@ -4490,11 +4493,11 @@
     uploadAudioInput.addEventListener('change', () => {
       const file = uploadAudioInput.files?.[0] || null;
       state.uploadAudioFile = file;
-      uploadAudioFileName.textContent = file ? file.name : 'Chưa chọn file MP3';
+      uploadAudioFileName.textContent = file ? file.name : 'Chưa chọn file audio';
       if (!file) return;
       try {
         validateUploadAudioFile(file);
-        setStatus(`Đã chọn file MP3: ${file.name}`, 'good');
+        setStatus(`Đã chọn file audio: ${file.name}`, 'good');
       } catch (error) {
         setStatus(error.message || String(error), 'bad');
       }

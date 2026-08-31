@@ -136,6 +136,7 @@ EMBEDDED_DESKTOP_ENV = "AUREXVIDEO_EMBEDDED_DESKTOP"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_LOG_CHARS = 240_000
 AUDIO_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm", ".flac"}
+VOICEOVER_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".mav"}
 OUTRO_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 BRAND_LOGO_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
 MAX_LOGO_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -1964,10 +1965,10 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     if engine in {"upload"}:
         audio_payload = payload.get("audio")
         if not isinstance(audio_payload, dict):
-            raise ValueError("Hãy chọn file MP3 trước khi render.")
+            raise ValueError("Hãy chọn file audio trước khi render.")
         audio_name = str(audio_payload.get("name") or "")
-        if Path(audio_name).suffix.casefold() != ".mp3":
-            raise ValueError("Chỉ hỗ trợ file MP3.")
+        if Path(audio_name).suffix.casefold() not in VOICEOVER_UPLOAD_EXTENSIONS:
+            raise ValueError("Chỉ hỗ trợ file MP3, WAV hoặc MAV.")
         uploaded = m3.decode_upload(
             project,
             {
@@ -1982,7 +1983,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         except ValueError as exc:
             raise ValueError("Đường dẫn audio upload không hợp lệ.") from exc
         if not audio_path.is_file():
-            raise FileNotFoundError("Không tìm thấy file MP3 vừa tải lên.")
+            raise FileNotFoundError("Không tìm thấy file audio vừa tải lên.")
         cmd.extend(["--engine", "upload", "--audio", str(audio_path)])
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "upload"
@@ -3800,14 +3801,14 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
 
       <div data-pane="upload" hidden>
         <label class="field upload-audio-field">
-          <span class="field-label">{ui_icon("upload", "field-icon")}<span>File audio MP3</span></span>
+          <span class="field-label">{ui_icon("upload", "field-icon")}<span>File audio</span></span>
           <span class="file-picker">
-            <input id="uploadAudioFile" type="file" accept=".mp3,audio/mpeg,audio/mp3" />
+            <input id="uploadAudioFile" type="file" accept=".mp3,.wav,.mav,audio/mpeg,audio/wav,audio/x-wav" />
             <span class="file-picker-button">Chọn file</span>
-            <span class="file-picker-name" id="uploadAudioFileName">Chưa chọn file MP3</span>
+            <span class="file-picker-name" id="uploadAudioFileName">Chưa chọn file audio</span>
           </span>
         </label>
-        <p class="engine-note">Dùng file MP3 có sẵn của AurexVideo; không cần tải model TTS.</p>
+        <p class="engine-note">Dùng file MP3, WAV hoặc MAV có sẵn của AurexVideo; không cần tải model TTS.</p>
       </div>
 
       <div class="form-actions render-primary-actions">
