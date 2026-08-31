@@ -14,51 +14,60 @@ from social_upload import remote_worker
 
 
 class RemoteWorkerTests(unittest.TestCase):
-    def test_schedule_on_vps_forwards_tiktok_context_without_secrets(self) -> None:
-        video = Path("/tmp/remote-worker-test.mp4")
-        video.write_bytes(b"video")
-        try:
-            with patch.object(
-                remote_worker,
-                "read_social_config",
-                return_value={
-                    "social_worker": {
-                        "url": "https://worker.example",
-                        "api_key": "worker-secret",
-                        "ssh": "root@example",
-                        "ssh_key": "/tmp/key",
-                        "ssh_port": "54321",
-                        "media_root": "/opt/media",
-                    }
-                },
-            ), patch.object(remote_worker.subprocess, "run", return_value=type("Result", (), {"returncode": 0, "stderr": "", "stdout": ""})()), patch.object(
-                remote_worker,
-                "_worker_request",
-                return_value={"id": "vps_1", "status": "queued"},
-            ) as request:
-                result = remote_worker.schedule_on_vps(
-                    "tiktok",
-                    video,
-                    "caption",
-                    "2030-01-01T00:00:00Z",
-                    project="demo",
-                    brand="bietchichomet",
-                    account_id="acct_1",
-                    tiktok_settings={"draft": False},
-                )
+    def test_schedule_on_vps_sends_r2_url_without_scp_or_secrets(self) -> None:
+        video_url = "https://media.example.com/instagram/scheduled.mp4"
+        digest = hashlib.sha256(b"video").hexdigest()
+        with patch.object(
+            remote_worker,
+            "read_social_config",
+            return_value={
+                "social_worker": {
+                    "url": "https://worker.example",
+                    "api_key": "worker-secret",
+                }
+            },
+        ), patch.object(
+            remote_worker,
+            "_worker_request",
+            return_value={"id": "vps_1", "status": "queued"},
+        ) as request:
+            result = remote_worker.schedule_on_vps(
+                "instagram",
+                video_url,
+                "caption",
+                "2030-01-01T00:00:00Z",
+                project="demo",
+                brand="bietchichomet",
+                account_id="acct_1",
+                media_sha256=digest,
+                r2_key="instagram/demo/scheduled-video.mp4",
+            )
 
-            payload = request.call_args.args[2]
-            self.assertEqual(request.call_args.args[:2], ("/schedule", "POST"))
-            self.assertEqual(payload["platform"], "tiktok")
-            self.assertEqual(payload["project"], "demo")
-            self.assertEqual(payload["brand"], "bietchichomet")
-            self.assertEqual(payload["accountId"], "acct_1")
-            self.assertEqual(payload["tiktokSettings"], {"draft": False})
-            self.assertEqual(payload["expectedMediaSha256"], hashlib.sha256(b"video").hexdigest())
-            self.assertNotIn("api_key", payload)
-            self.assertEqual(result["id"], "vps_1")
-        finally:
-            video.unlink(missing_ok=True)
+        payload = request.call_args.args[2]
+        self.assertEqual(request.call_args.args[:2], ("/schedule", "POST"))
+        self.assertEqual(payload["platform"], "instagram")
+        self.assertEqual(payload["project"], "demo")
+        self.assertEqual(payload["brand"], "bietchichomet")
+        self.assertEqual(payload["accountId"], "acct_1")
+        self.assertEqual(payload["videoUrl"], video_url)
+        self.assertEqual(payload["r2Key"], "instagram/demo/scheduled-video.mp4")
+        self.assertEqual(payload["expectedMediaSha256"], digest)
+        self.assertEqual(
+            payload["idempotencyKey"],
+            remote_worker.schedule_idempotency_key(
+                "instagram",
+                video_url,
+                "caption",
+                "2030-01-01T00:00:00Z",
+                project="demo",
+                brand="bietchichomet",
+                account_id="acct_1",
+                media_sha256=digest,
+            ),
+        )
+        self.assertNotIn("videoPath", payload)
+        self.assertNotIn("api_key", payload)
+        self.assertEqual(result["id"], "vps_1")
 
     def test_worker_job_status_uses_authenticated_jobs_endpoint(self) -> None:
         with patch.object(remote_worker, "_worker_request", return_value={"id": "vps-job-1", "status": "queued"}) as request:

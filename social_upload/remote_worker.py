@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
+import re
 import threading
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .config import read_social_config
 
@@ -29,6 +30,49 @@ def _worker_config() -> tuple[str, str, str, str, str, str]:
     ssh_port = str(cfg.get("ssh_port") or os.environ.get("AUREX_SOCIAL_WORKER_SSH_PORT") or "54321")
     media_root = str(cfg.get("media_root") or os.environ.get("AUREX_SOCIAL_WORKER_MEDIA_ROOT") or "/opt/aurex-social-worker/media").rstrip("/")
     return url, api_key, ssh_target, ssh_key, ssh_port, media_root
+
+
+def _validated_public_video_url(value: object) -> str:
+    video_url = str(value or "").strip()
+    if not video_url or "\\" in video_url or any(character.isspace() or ord(character) < 32 for character in video_url):
+        raise ValueError("VPS social worker cần public video URL từ R2.")
+    try:
+        parsed = urlsplit(video_url)
+        hostname = parsed.hostname or ""
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("Public video URL không hợp lệ.") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or not hostname:
+        raise ValueError("Public video URL phải là HTTP hoặc HTTPS URL.")
+    if parsed.username or parsed.password:
+        raise ValueError("Public video URL không được chứa thông tin đăng nhập.")
+    return video_url
+
+
+def schedule_idempotency_key(
+    platform: str,
+    video_url: str,
+    caption: str,
+    scheduled_at: str,
+    *,
+    project: str = "",
+    brand: str = "",
+    account_id: str = "",
+    media_sha256: str = "",
+) -> str:
+    material = "\n".join(
+        (
+            str(platform or "").strip().lower(),
+            str(project or "").strip(),
+            str(brand or "").strip().lower(),
+            str(account_id or "").strip(),
+            str(scheduled_at or "").strip(),
+            str(media_sha256 or "").strip().lower(),
+            str(video_url or "").strip(),
+            str(caption or "").strip(),
+        )
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def _worker_request(path: str, method: str = "GET", payload: dict | None = None) -> dict:
@@ -59,37 +103,46 @@ def _worker_request(path: str, method: str = "GET", payload: dict | None = None)
 
 def schedule_on_vps(
     platform: str,
-    video_path: Path,
+    video_url: str,
     caption: str,
     scheduled_at: str,
     *,
     project: str = "",
     brand: str = "",
     account_id: str = "",
+    media_sha256: str = "",
+    r2_key: str = "",
     tiktok_settings: dict | None = None,
 ) -> dict:
-    url, api_key, ssh_target, ssh_key, ssh_port, media_root = _worker_config()
-    if not all((url, api_key, ssh_target, ssh_key)):
+    url, api_key, _, _, _, _ = _worker_config()
+    if not url or not api_key:
         raise RuntimeError("VPS social worker chưa được cấu hình trong social-upload.json.")
-    video_path = Path(video_path).resolve()
-    if not video_path.is_file():
-        raise FileNotFoundError(f"Không tìm thấy video: {video_path}")
+    video_url = _validated_public_video_url(video_url)
     scheduled_at = _future(scheduled_at)
-    digest = hashlib.sha256(video_path.read_bytes()).hexdigest()
-    remote_path = f"{media_root}/{digest}{video_path.suffix.lower() or '.mp4'}"
-    copy = subprocess.run(
-        ["scp", "-q", "-o", "IdentitiesOnly=yes", "-i", ssh_key, "-P", ssh_port, str(video_path), f"{ssh_target}:{remote_path}"],
-        capture_output=True, text=True, timeout=300,
+    digest = str(media_sha256 or "").strip().lower()
+    if digest and not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("media_sha256 phải là SHA-256 hex digest.")
+    idempotency_key = schedule_idempotency_key(
+        platform,
+        video_url,
+        caption,
+        scheduled_at,
+        project=project,
+        brand=brand,
+        account_id=account_id,
+        media_sha256=digest,
     )
-    if copy.returncode:
-        raise RuntimeError(f"Không copy được video lên VPS: {(copy.stderr or copy.stdout).strip()[:500]}")
     payload = {
         "platform": platform,
         "scheduledPublishAt": scheduled_at,
         "caption": caption,
-        "videoPath": remote_path,
-        "expectedMediaSha256": digest,
+        "videoUrl": video_url,
+        "idempotencyKey": idempotency_key,
     }
+    if digest:
+        payload["expectedMediaSha256"] = digest
+    if r2_key:
+        payload["r2Key"] = str(r2_key).strip()[:500]
     if project:
         payload["project"] = project
     if brand:
@@ -99,7 +152,13 @@ def schedule_on_vps(
     if tiktok_settings is not None:
         payload["tiktokSettings"] = dict(tiktok_settings)
     body = _worker_request("/schedule", "POST", payload)
-    return {**body, "scheduledPublishAt": scheduled_at, "expectedMediaSha256": digest}
+    return {
+        **body,
+        "scheduledPublishAt": scheduled_at,
+        "expectedMediaSha256": digest,
+        "idempotencyKey": idempotency_key,
+        "videoUrl": video_url,
+    }
 
 
 def watch_tiktok_post(

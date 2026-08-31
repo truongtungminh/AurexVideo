@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import secrets
@@ -211,6 +212,16 @@ def instagram_object_key(project: str, r2: dict) -> str:
     return f"{prefix}/{safe_project}/{secrets.token_hex(8)}.mp4"
 
 
+def instagram_scheduled_object_key(project: str, r2: dict, media_sha256: str) -> str:
+    """Use one stable R2 object for retries of the same scheduled media."""
+    safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", str(project or "")).strip("-") or "project"
+    prefix = str(resolve_r2_config(r2).get("object_prefix") or "instagram").strip("/")
+    digest = str(media_sha256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Không tạo được R2 key ổn định vì media SHA-256 không hợp lệ.")
+    return f"{prefix}/{safe_project}/scheduled-{digest}.mp4"
+
+
 def instagram_container_status(instagram: dict, container_id: str, access_token: str) -> dict:
     return http_get_request(
         instagram_api_url(instagram, container_id),
@@ -263,10 +274,6 @@ def instagram_upload_video(payload: dict) -> dict:
     config = read_social_config()
     connection_id, instagram = resolve_social_brand_connection(config, brand, "instagram")
     r2 = r2_config(config)
-    # A scheduled Reel is handed to the VPS worker, which uploads the media to
-    # its own R2 bucket at publish time.  Requiring the desktop R2 credentials
-    # here makes a valid VPS schedule fail before it can be queued.  R2 remains
-    # required for the immediate/local Graph API path below.
     if not instagram_is_configured(instagram):
         raise ValueError(instagram_config_hint(instagram, r2))
     scheduled = parse_scheduled_publish_at(payload)
@@ -279,14 +286,22 @@ def instagram_upload_video(payload: dict) -> dict:
         raise ValueError("Instagram caption tối đa 2.200 ký tự.")
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
+        if not r2_is_configured(r2):
+            raise ValueError(r2_config_hint())
+        with video_path.open("rb") as stream:
+            media_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+        object_key = instagram_scheduled_object_key(project, r2, media_sha256)
+        public_url = upload_file(video_path, object_key, "video/mp4", r2)
         queued = schedule_on_vps(
             "instagram",
-            video_path,
+            public_url,
             caption,
             scheduled,
             project=project,
             brand=brand,
-            account_id=connection_id,
+            account_id=instagram_user_id(instagram),
+            media_sha256=media_sha256,
+            r2_key=object_key,
         )
         worker_id = str(queued.get("id") or queued.get("worker_id") or "").strip()
         record_scheduled_social_upload(
@@ -296,8 +311,11 @@ def instagram_upload_video(payload: dict) -> dict:
             brand=brand,
             connection_id=connection_id,
             worker_id=worker_id,
+            media_sha256=media_sha256,
+            r2_key=object_key,
+            r2_url=public_url,
         )
-        return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Instagram lên VPS; worker sẽ publish đúng giờ."}
+        return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "r2_url": public_url, "message": "Đã upload video lên R2 và chuyển lịch Instagram lên VPS; worker chỉ publish đúng giờ."}
 
     if not r2_is_configured(r2):
         raise ValueError(r2_config_hint())
