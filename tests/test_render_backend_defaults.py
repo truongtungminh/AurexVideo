@@ -37,6 +37,7 @@ class RenderBackendDefaultTests(unittest.TestCase):
         self.assertIn('<option value="native">Aurex Render Core', server_source)
         self.assertIn('data-engine="upload"', server_source)
         self.assertIn('id="uploadAudioFile"', server_source)
+        self.assertIn('accept=".mp3,.wav,.mav', server_source)
         self.assertIn("'upload'", client_source)
         self.assertIn("renderBackend: normalizeRenderBackend($('#renderBackend')?.value)", client_source)
 
@@ -50,7 +51,7 @@ class RenderBackendDefaultTests(unittest.TestCase):
             payload = {
                 "project": "demo",
                 "engine": "upload",
-                "audio": {"name": "narration.mp3", "data": encoded},
+                "audio": {"name": "narration.mav", "data": encoded},
                 "branding": False,
             }
             with patch.object(web_server, "PROJECT_ROOT", root), patch.object(
@@ -65,7 +66,7 @@ class RenderBackendDefaultTests(unittest.TestCase):
             audio_path = Path(command[command.index("--audio") + 1])
             self.assertEqual(audio_path.parent.resolve(), (project / "audio").resolve())
             self.assertTrue(audio_path.name.startswith("voiceover-"))
-            self.assertEqual(audio_path.suffix, ".mp3")
+            self.assertEqual(audio_path.suffix, ".mav")
             self.assertTrue(audio_path.is_file())
             self.assertIn("--no-branding", command)
 

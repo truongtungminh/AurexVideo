@@ -2432,7 +2432,7 @@ def decode_upload(slug: str, payload: dict) -> dict:
         "introMedia": ("assets", CUSTOM_INTRO_MEDIA_EXTENSIONS),
         "introLogo": ("assets", CUSTOM_INTRO_LOGO_EXTENSIONS),
         "backgroundMusic": ("audio", {".wav", ".mp3", ".m4a", ".aac", ".ogg"}),
-        "voiceover": ("audio", {".wav", ".mp3", ".m4a", ".aac", ".ogg"}),
+        "voiceover": ("audio", {".wav", ".mp3", ".mav", ".m4a", ".aac", ".ogg"}),
         "customSfx": ("sfx", {".wav", ".mp3", ".m4a", ".aac", ".ogg"}),
     }
     if kind not in rules:
