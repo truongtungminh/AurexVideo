@@ -263,7 +263,11 @@ def instagram_upload_video(payload: dict) -> dict:
     config = read_social_config()
     connection_id, instagram = resolve_social_brand_connection(config, brand, "instagram")
     r2 = r2_config(config)
-    if not instagram_is_configured(instagram) or not r2_is_configured(r2):
+    # A scheduled Reel is handed to the VPS worker, which uploads the media to
+    # its own R2 bucket at publish time.  Requiring the desktop R2 credentials
+    # here makes a valid VPS schedule fail before it can be queued.  R2 remains
+    # required for the immediate/local Graph API path below.
+    if not instagram_is_configured(instagram):
         raise ValueError(instagram_config_hint(instagram, r2))
     scheduled = parse_scheduled_publish_at(payload)
     video_path = final_video_path_for_project(project)
@@ -275,15 +279,28 @@ def instagram_upload_video(payload: dict) -> dict:
         raise ValueError("Instagram caption tối đa 2.200 ký tự.")
     if scheduled:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
-        queued = schedule_on_vps("instagram", video_path, caption, scheduled)
+        queued = schedule_on_vps(
+            "instagram",
+            video_path,
+            caption,
+            scheduled,
+            project=project,
+            brand=brand,
+            account_id=connection_id,
+        )
+        worker_id = str(queued.get("id") or queued.get("worker_id") or "").strip()
         record_scheduled_social_upload(
             project_dir,
             "instagram",
             queued["scheduledPublishAt"],
             brand=brand,
             connection_id=connection_id,
+            worker_id=worker_id,
         )
         return {"ok": True, "platform": "instagram", "project": project, "brand": brand, "connection_id": connection_id, "state": "SCHEDULED", "scheduledPublishAt": queued["scheduledPublishAt"], "schedule_id": queued["id"], "worker_id": queued.get("id"), "message": "Đã chuyển lịch Instagram lên VPS; worker sẽ publish đúng giờ."}
+
+    if not r2_is_configured(r2):
+        raise ValueError(r2_config_hint())
 
     access_token = instagram_access_token(instagram)
     object_key = instagram_object_key(project, r2)

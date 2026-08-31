@@ -97,6 +97,7 @@ class DashboardSocialStatusTests(unittest.TestCase):
                 "2030-03-01T00:00:00Z",
                 brand="popsy",
                 connection_id="account-1",
+                worker_id="vps-job-1",
             )
             saved = metadata.read_project_upload_metadata(project_dir)["social"]["instagram"]
         finally:
@@ -106,6 +107,7 @@ class DashboardSocialStatusTests(unittest.TestCase):
         self.assertEqual(saved["scheduledAt"], "2030-03-01T00:00:00Z")
         self.assertEqual(saved["brand"], "popsy")
         self.assertEqual(saved["connectionId"], "account-1")
+        self.assertEqual(saved["workerId"], "vps-job-1")
         self.assertNotIn("access_token", saved)
         self.assertNotIn("schedule_id", saved)
         self.assertNotIn("postedAt", saved)

@@ -60,6 +60,13 @@ class RemoteWorkerTests(unittest.TestCase):
         finally:
             video.unlink(missing_ok=True)
 
+    def test_worker_job_status_uses_authenticated_jobs_endpoint(self) -> None:
+        with patch.object(remote_worker, "_worker_request", return_value={"id": "vps-job-1", "status": "queued"}) as request:
+            result = remote_worker.worker_job_status("vps-job-1")
+
+        self.assertEqual(result["status"], "queued")
+        request.assert_called_once_with("/jobs/vps-job-1")
+
     def test_watch_tiktok_post_is_best_effort_api_registration(self) -> None:
         with patch.object(remote_worker, "_worker_request", return_value={"ok": True, "postId": "post_1"}) as request:
             result = remote_worker.watch_tiktok_post(
