@@ -9,6 +9,7 @@ from .binance import (
 from .affiliate import (
     affiliate_comment_text,
     brand_context as affiliate_brand_context,
+    addlivetag_brand_context,
     build_sub_ids,
     caption_with_affiliate,
     create_affiliate_link,
@@ -18,7 +19,9 @@ from .affiliate import (
     list_saved_products,
     overview as affiliate_overview,
     prepare_affiliate_for_publish,
+    resolve_addlivetag_product,
     rank_products,
+    save_addlivetag_settings,
     save_brand_settings as save_affiliate_settings,
 )
 from .facebook import (
@@ -91,6 +94,7 @@ __all__ = [
     "binance_is_configured",
     "binance_upload_video",
     "affiliate_brand_context",
+    "addlivetag_brand_context",
     "affiliate_comment_text",
     "affiliate_overview",
     "build_sub_ids",
@@ -101,7 +105,9 @@ __all__ = [
     "ingest_conversion_rows",
     "list_saved_products",
     "prepare_affiliate_for_publish",
+    "resolve_addlivetag_product",
     "rank_products",
+    "save_addlivetag_settings",
     "save_affiliate_settings",
     "DEFAULT_SHOPEE_API_BASE_URL",
     "disconnect_shopee",

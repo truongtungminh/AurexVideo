@@ -149,15 +149,18 @@ async function loadAffiliateContext() {
   const affiliate = context.affiliate || {};
   const settings = affiliate.settings || {};
   const connection = affiliate.connection || {};
+  const addLiveTag = affiliate.addlivetag || {};
   elements.affiliateMode.value = settings.enabled ? (settings.mode || "manual") : "off";
   elements.affiliatePlacement.value = settings.placement || "first_comment";
   elements.affiliateQuery.value = "";
   elements.affiliateAutoComment.checked = ["first_comment", "caption_and_comment"].includes(elements.affiliatePlacement.value);
-  elements.affiliateStatus.textContent = connection.connected
-    ? `Đã kết nối ${connection.display_name || "Shopee Affiliate"} · Brand ${context.selected_brand || context.project_brand || "—"}`
-    : (connection.message || "Chưa cấu hình Shopee Affiliate cho Brand này.");
+  elements.affiliateStatus.textContent = addLiveTag.enabled
+    ? `AUTO qua AddLiveTag thử nghiệm${addLiveTag.affiliate_id_configured ? " · đã có Affiliate ID" : " · cần Affiliate ID để tạo link"} · Brand ${context.selected_brand || context.project_brand || "—"}`
+    : connection.connected
+      ? `Đã kết nối ${connection.display_name || "Shopee Affiliate"} · Brand ${context.selected_brand || context.project_brand || "—"}`
+      : (connection.message || "Chưa cấu hình Shopee Affiliate cho Brand này.");
   elements.affiliateDashboardLink.href = `/affiliate${context.selected_brand ? `?brand=${encodeURIComponent(context.selected_brand)}` : ""}`;
-  elements.affiliateSearchButton.disabled = !connection.connected;
+  elements.affiliateSearchButton.disabled = !connection.connected && !addLiveTag.enabled;
   renderAffiliateProduct();
 }
 
@@ -165,15 +168,22 @@ async function searchAffiliateProducts() {
   const brand = affiliateBrand();
   if (!brand) return showToast("Project chưa có Brand để tìm sản phẩm.", true);
   const query = elements.affiliateQuery.value.trim();
-  if (!query) return showToast("Nhập từ khoá sản phẩm trước.", true);
+  const mode = elements.affiliateMode.value || "off";
+  const addLiveTag = state.affiliateContext?.affiliate?.addlivetag || {};
+  if (!query && mode !== "auto") return showToast("Nhập từ khoá sản phẩm trước.", true);
   elements.affiliateSearchButton.disabled = true;
   try {
-    const result = await api(`/api/affiliate/products?brand=${encodeURIComponent(brand)}&project=${encodeURIComponent(state.selected)}&query=${encodeURIComponent(query)}`);
-    state.affiliateProduct = result.products?.[0] || null;
+    const result = mode === "auto" && addLiveTag.enabled
+      ? await api("/api/affiliate/auto-resolve", {
+        method: "POST",
+        body: JSON.stringify({ project: state.selected, brand, reference: query }),
+      })
+      : await api(`/api/affiliate/products?brand=${encodeURIComponent(brand)}&project=${encodeURIComponent(state.selected)}&query=${encodeURIComponent(query)}`);
+    state.affiliateProduct = result.product || result.products?.[0] || null;
     state.affiliateLink = "";
     renderAffiliateProduct();
-    if (!state.affiliateProduct) showToast("Không có sản phẩm đạt ngưỡng relevance/commission.", true);
-    else showToast("Đã chọn sản phẩm có điểm phù hợp nhất.");
+    if (!state.affiliateProduct) showToast("Không có sản phẩm phù hợp.", true);
+    else showToast(mode === "auto" && addLiveTag.enabled ? "Đã lấy sản phẩm qua AddLiveTag." : "Đã chọn sản phẩm có điểm phù hợp nhất.");
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -195,6 +205,7 @@ async function generateAffiliateLink() {
         productId: state.affiliateProduct.id,
         placement: elements.affiliatePlacement.value,
         pageId,
+        linkProvider: state.affiliateProduct.link_provider || "",
       }),
     });
     state.affiliateLink = result.link?.affiliate_url || "";
@@ -217,6 +228,7 @@ function readAffiliatePayload() {
     productId: state.affiliateProduct?.id || "",
     originUrl: state.affiliateProduct?.origin_url || "",
     affiliateUrl: state.affiliateLink || "",
+    linkProvider: state.affiliateProduct?.link_provider || state.affiliateProduct?.raw?._aurex_link_provider || "",
     autoComment: Boolean(elements.affiliateAutoComment?.checked),
   };
 }

@@ -10,6 +10,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import affiliate_store
+from .addlivetag import (
+    DEFAULT_PRODUCT_DATA_URL,
+    DEFAULT_SHORT_LINK_URL,
+    AddLiveTagApiError,
+    extract_shopee_reference,
+    fetch_product_data,
+    generate_short_link as generate_addlivetag_short_link,
+    normalize_product_payload,
+)
 from .config import canonical_brand, read_social_config, resolve_social_brand_connection
 from .shopee import (
     SHOPEE_HOSTS,
@@ -181,6 +190,148 @@ def save_brand_settings(brand: str, values: dict | None = None) -> dict:
     return affiliate_store.upsert_settings(brand, settings)
 
 
+def _mask_affiliate_id(value: object) -> str:
+    affiliate_id = str(value or "").strip()
+    if len(affiliate_id) <= 4:
+        return "đã cấu hình" if affiliate_id else ""
+    return f"{affiliate_id[:2]}…{affiliate_id[-2:]}"
+
+
+def _raw_addlivetag_settings(config: dict | None, brand: str) -> dict:
+    config = config if isinstance(config, dict) else {}
+    affiliate = config.get("affiliate") if isinstance(config.get("affiliate"), dict) else {}
+    brands = affiliate.get("brands") if isinstance(affiliate.get("brands"), dict) else {}
+    value = brands.get(canonical_brand(brand)) if isinstance(brands, dict) else {}
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def addlivetag_brand_context(config: dict | None, brand: str) -> dict:
+    """Return non-secret AddLiveTag settings for one Brand.
+
+    Product Data is public and read-only.  The optional Affiliate ID is kept
+    Brand-scoped so the experimental short-link route cannot silently borrow
+    another Brand's tracking identity.
+    """
+    brand = canonical_brand(brand)
+    raw = _raw_addlivetag_settings(config, brand)
+    affiliate_id = str(raw.get("affiliate_id") or raw.get("affiliateId") or "").strip()
+    enabled = bool(raw.get("enabled")) if "enabled" in raw else bool(affiliate_id)
+    return {
+        "provider": "addlivetag",
+        "enabled": enabled,
+        "configured": bool(affiliate_id),
+        "available": True,
+        "affiliate_id_configured": bool(affiliate_id),
+        "masked_affiliate_id": _mask_affiliate_id(affiliate_id),
+        "product_data_url": DEFAULT_PRODUCT_DATA_URL,
+        "short_link_url": DEFAULT_SHORT_LINK_URL,
+        "message": (
+            "AddLiveTag đã bật cho AUTO; cần Affiliate ID để tạo link."
+            if enabled and not affiliate_id
+            else "AddLiveTag đang bật ở chế độ thử nghiệm."
+            if enabled
+            else "Bật resolver AddLiveTag để AUTO đọc URL/Item ID từ project."
+        ),
+    }
+
+
+def save_addlivetag_settings(brand: str, values: dict | None = None) -> dict:
+    """Persist the experimental Brand-scoped AddLiveTag switch and Affiliate ID."""
+    brand = canonical_brand(brand)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+        raise ValueError("Brand không hợp lệ.")
+    values = values if isinstance(values, dict) else {}
+    config = read_social_config()
+    affiliate = config.get("affiliate") if isinstance(config.get("affiliate"), dict) else {}
+    brands = affiliate.get("brands") if isinstance(affiliate.get("brands"), dict) else {}
+    current = _raw_addlivetag_settings(config, brand)
+    if any(key in values for key in ("affiliate_id", "affiliateId")):
+        affiliate_id = str(values.get("affiliate_id") or values.get("affiliateId") or "").strip()
+        if affiliate_id and (len(affiliate_id) > 128 or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", affiliate_id)):
+            raise ValueError("AddLiveTag Affiliate ID không hợp lệ.")
+    else:
+        affiliate_id = str(current.get("affiliate_id") or current.get("affiliateId") or "").strip()
+    enabled = bool(values.get("enabled")) if "enabled" in values else bool(current.get("enabled", bool(affiliate_id)))
+    brands[brand] = {"enabled": enabled, "affiliate_id": affiliate_id}
+    affiliate["brands"] = brands
+    config["affiliate"] = affiliate
+    from .config import write_social_config
+
+    write_social_config(config)
+    return addlivetag_brand_context(config, brand)
+
+
+def _project_shopee_reference(project: str, explicit_url: str = "", explicit_item_id: str = "") -> dict:
+    """Find an explicit Shopee URL/Item ID without inventing a product search."""
+    explicit_values = [str(explicit_url or "").strip(), str(explicit_item_id or "").strip()]
+    for value in explicit_values:
+        if not value:
+            continue
+        reference = extract_shopee_reference(value)
+        if reference:
+            return reference
+        raise ValueError("AddLiveTag cần Shopee URL hoặc Item ID hợp lệ.")
+
+    from .metadata import require_project
+
+    project_dir = require_project(project)
+    candidates = [
+        project_dir / "source" / "links.txt",
+        project_dir / "source" / "source.md",
+        project_dir / "script.txt",
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        reference = extract_shopee_reference(text)
+        if reference:
+            return reference
+    raise ValueError("AUTO AddLiveTag cần Shopee URL hoặc Item ID trong project/source.")
+
+
+def resolve_addlivetag_product(
+    brand: str,
+    project: str,
+    *,
+    origin_url: str = "",
+    item_id: str = "",
+) -> dict:
+    """Resolve one project-owned Shopee reference through AddLiveTag Product Data."""
+    config = read_social_config()
+    brand = canonical_brand(brand)
+    addlivetag = addlivetag_brand_context(config, brand)
+    if not addlivetag["enabled"]:
+        raise ValueError("AddLiveTag AUTO chưa được bật cho Brand này.")
+    reference = _project_shopee_reference(project, origin_url, item_id)
+    try:
+        payload = fetch_product_data(reference)
+        product = normalize_product_payload(payload, relevance_score=1.0)
+    except AddLiveTagApiError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise AddLiveTagApiError(f"AddLiveTag trả về sản phẩm không hợp lệ: {exc}") from exc
+    product["link_provider"] = "addlivetag"
+    product["ranking_score"] = 1.0
+    raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+    product["raw"] = {**raw, "_aurex_link_provider": "addlivetag"}
+    saved = affiliate_store.upsert_product(product)
+    saved.update({"link_provider": "addlivetag", "relevance_score": 1.0, "ranking_score": 1.0})
+    saved["reference"] = reference
+    return {
+        "provider": "addlivetag",
+        "brand": brand,
+        "project": project,
+        "reference": reference,
+        "product": saved,
+        "can_create_link": bool(addlivetag.get("affiliate_id_configured")),
+        "message": addlivetag["message"],
+    }
+
+
 def brand_context(config: dict | None, brand: str) -> dict:
     config = read_social_config() if config is None else config
     brand = canonical_brand(brand)
@@ -190,6 +341,7 @@ def brand_context(config: dict | None, brand: str) -> dict:
         "brand": brand,
         "provider": "shopee",
         "settings": settings,
+        "addlivetag": addlivetag_brand_context(config, brand),
         "connection": {
             "configured": bool(status.get("configured")),
             "connected": bool(status.get("connected")),
@@ -271,6 +423,7 @@ def create_affiliate_link(
     placement: str = "first_comment",
     page_id: str = "",
     product_payload: dict | None = None,
+    link_provider: str = "",
 ) -> dict:
     config = read_social_config()
     brand = canonical_brand(brand)
@@ -282,7 +435,7 @@ def create_affiliate_link(
         raise ValueError("Affiliate placement không hợp lệ.")
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(origin_url or product.get("origin_url") or "").strip()
-    affiliate_url = str(affiliate_url or "").strip()
+    affiliate_url = str(affiliate_url or product.get("offer_url") or "").strip()
     if not product and isinstance(product_payload, dict):
         candidate = normalize_product(product_payload)
         if candidate.get("origin_url") or candidate.get("offer_url"):
@@ -319,8 +472,22 @@ def create_affiliate_link(
             page_id = str(facebook_route.get("page_id") or facebook_route.get("connection_id") or "").strip()
     sub_ids = build_sub_ids(brand, page_id, content_id, product_id or product.get("provider_product_id"), placement)
     if not affiliate_url:
-        _, connection = resolve_social_brand_connection(config, brand, "shopee")
-        affiliate_url = generate_short_link(connection, origin_url, sub_ids)
+        raw_product = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+        link_provider = str(
+            link_provider
+            or product.get("link_provider")
+            or raw_product.get("_aurex_link_provider")
+            or ""
+        ).strip().lower()
+        if link_provider == "addlivetag":
+            addlivetag = addlivetag_brand_context(config, brand)
+            affiliate_id = str(_raw_addlivetag_settings(config, brand).get("affiliate_id") or "").strip()
+            if not affiliate_id:
+                raise ValueError("AddLiveTag cần Affiliate ID để tạo link; nhập tại Affiliate Dashboard.")
+            affiliate_url = generate_addlivetag_short_link(origin_url, affiliate_id, sub_ids)
+        else:
+            _, connection = resolve_social_brand_connection(config, brand, "shopee")
+            affiliate_url = generate_short_link(connection, origin_url, sub_ids)
     link = affiliate_store.record_link({
         "content_id": content_id,
         "brand_id": brand,
@@ -336,6 +503,7 @@ def create_affiliate_link(
 
 
 def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_id: str = "") -> dict:
+    config = read_social_config()
     has_affiliate_payload = isinstance(payload.get("affiliate"), dict)
     raw = payload.get("affiliate") if has_affiliate_payload else {}
     brand = canonical_brand(brand)
@@ -357,16 +525,33 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     product_id = str(raw.get("productId") or raw.get("product_id") or raw.get("affiliateProductId") or "").strip()
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(raw.get("originUrl") or raw.get("origin_url") or "").strip() or str(product.get("origin_url") or "")
-    affiliate_url = str(raw.get("affiliateUrl") or raw.get("affiliate_url") or "").strip()
+    affiliate_url = str(raw.get("affiliateUrl") or raw.get("affiliate_url") or product.get("offer_url") or "").strip()
+    link_provider = str(raw.get("linkProvider") or raw.get("link_provider") or "").strip().lower()
+    item_id = str(raw.get("itemId") or raw.get("item_id") or "").strip()
     ranking_score = _float(raw.get("rankingScore"))
     relevance_score = _float(raw.get("relevanceScore"))
     if mode == "auto" and not product and not affiliate_url:
-        discovery = discover_products(brand, query, limit=max(5, int(_float(settings.get("products_per_post"), 1))))
-        product = (discovery.get("products") or [None])[0] or {}
-        product_id = str(product.get("id") or "").strip()
-        origin_url = str(product.get("origin_url") or "").strip()
-        ranking_score = _float(product.get("ranking_score"))
-        relevance_score = _float(product.get("relevance_score"))
+        addlivetag = addlivetag_brand_context(config, brand)
+        if addlivetag["enabled"]:
+            resolved = resolve_addlivetag_product(
+                brand,
+                project,
+                origin_url=origin_url or (query if query.startswith("https://") else ""),
+                item_id=item_id,
+            )
+            product = resolved.get("product") or {}
+            product_id = str(product.get("id") or "").strip()
+            origin_url = str(product.get("origin_url") or "").strip()
+            link_provider = "addlivetag"
+            ranking_score = _float(product.get("ranking_score"), 1.0)
+            relevance_score = _float(product.get("relevance_score"), 1.0)
+        else:
+            discovery = discover_products(brand, query, limit=max(5, int(_float(settings.get("products_per_post"), 1))))
+            product = (discovery.get("products") or [None])[0] or {}
+            product_id = str(product.get("id") or "").strip()
+            origin_url = str(product.get("origin_url") or "").strip()
+            ranking_score = _float(product.get("ranking_score"))
+            relevance_score = _float(product.get("relevance_score"))
     if not product_id and product:
         product_id = str(product.get("id") or "").strip()
     if not origin_url and product:
@@ -381,6 +566,8 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         affiliate_url=affiliate_url,
         placement=placement,
         page_id=page_id,
+        product_payload=product if product else None,
+        link_provider=link_provider,
     )
     link_row = link_result["link"]
     record = affiliate_store.record_content_product({
@@ -417,6 +604,7 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         "auto_comment": auto_comment,
         "query": query,
         "product": product,
+        "link_provider": link_provider,
         "link": link_row,
         "record_id": str(record.get("id") or ""),
         "job_id": str(job.get("id") or ""),

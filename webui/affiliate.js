@@ -2,7 +2,7 @@ const state = { context: {}, overview: {}, products: [], records: [], poc: {}, b
 const elements = Object.fromEntries([
   "brandSelect", "periodSelect", "searchInput", "statusSelect", "refreshButton", "syncState", "shopeeState", "shopeeBadge", "facebookState", "facebookBadge",
   "kpiClicks", "kpiClicksDetail", "kpiOrders", "kpiOrdersDetail", "kpiGmv", "kpiGmvDetail", "kpiCommission", "kpiCommissionDetail", "kpiCtr", "kpiCtrDetail", "kpiConversionRate", "kpiConversionRateDetail", "recordsBody", "recordsCount", "toast",
-  "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint",
+  "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint", "addLiveTagEnabled", "addLiveTagAffiliateId", "saveAddLiveTagButton",
   "affiliateEnabled", "affiliateMode", "affiliatePlacement", "affiliateProductsPerPost", "affiliateMinRelevance", "affiliateMinCommission", "saveAffiliateSettingsButton",
   "pocSummary", "pocContentId", "pocPageId", "pocPostId", "pocCommentId", "pocBannerObserved", "pocEvidenceUrl", "pocNotes", "pocCasesBody",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -29,6 +29,7 @@ function renderSettings() {
   const affiliate = state.context.affiliate || {};
   const connection = affiliate.connection || {};
   const settings = affiliate.settings || {};
+  const addLiveTag = affiliate.addlivetag || {};
   const hasBrand = Boolean(state.brand);
   const configured = Boolean(connection.connected || connection.configured);
   elements.shopeeAppId.value = connection.app_id || "";
@@ -36,15 +37,18 @@ function renderSettings() {
   elements.shopeeSecret.placeholder = connection.masked_secret ? `Đã lưu ${connection.masked_secret} · nhập lại để thay đổi` : "App Secret (tối thiểu 16 ký tự)";
   elements.shopeeApiBaseUrl.value = connection.api_base_url || "https://open-api.affiliate.shopee.vn/graphql";
   elements.shopeeDisplayName.value = connection.display_name || "";
+  elements.addLiveTagEnabled.checked = Boolean(addLiveTag.enabled);
+  elements.addLiveTagAffiliateId.value = "";
+  elements.addLiveTagAffiliateId.placeholder = addLiveTag.masked_affiliate_id ? `Đã lưu ${addLiveTag.masked_affiliate_id} · nhập lại để thay đổi` : "Affiliate ID tại affiliate.shopee.vn";
   elements.affiliateEnabled.checked = Boolean(settings.enabled && settings.mode !== "off");
   elements.affiliateMode.value = settings.mode || "manual";
   elements.affiliatePlacement.value = settings.placement || "first_comment";
   elements.affiliateProductsPerPost.value = settings.products_per_post ?? 1;
   elements.affiliateMinRelevance.value = settings.min_relevance ?? 0.75;
   elements.affiliateMinCommission.value = Math.round(Number(settings.min_commission ?? 0.05) * 10000) / 100;
-  [elements.shopeeAppId, elements.shopeeSecret, elements.shopeeApiBaseUrl, elements.shopeeDisplayName, elements.affiliateEnabled, elements.affiliateMode, elements.affiliatePlacement, elements.affiliateProductsPerPost, elements.affiliateMinRelevance, elements.affiliateMinCommission, elements.saveShopeeConfigButton, elements.disconnectShopeeButton, elements.saveAffiliateSettingsButton].forEach((element) => { if (element) element.disabled = !hasBrand; });
+  [elements.shopeeAppId, elements.shopeeSecret, elements.shopeeApiBaseUrl, elements.shopeeDisplayName, elements.addLiveTagEnabled, elements.addLiveTagAffiliateId, elements.affiliateEnabled, elements.affiliateMode, elements.affiliatePlacement, elements.affiliateProductsPerPost, elements.affiliateMinRelevance, elements.affiliateMinCommission, elements.saveShopeeConfigButton, elements.disconnectShopeeButton, elements.saveAddLiveTagButton, elements.saveAffiliateSettingsButton].forEach((element) => { if (element) element.disabled = !hasBrand; });
   elements.disconnectShopeeButton.disabled = !hasBrand || !configured;
-  elements.settingsHint.textContent = hasBrand ? (connection.message || (configured ? "Secret không được đọc ngược từ máy chủ; nhập lại nếu cần đổi kết nối." : "Nhập App ID và App Secret để bật tìm sản phẩm và tạo link.")) : "Chọn Brand để cấu hình Shopee Affiliate.";
+  elements.settingsHint.textContent = hasBrand ? (addLiveTag.enabled ? `AddLiveTag: ${addLiveTag.message || "đang bật thử nghiệm"}` : (connection.message || (configured ? "Secret không được đọc ngược từ máy chủ; nhập lại nếu cần đổi kết nối." : "Nhập App ID và App Secret để bật tìm sản phẩm và tạo link."))) : "Chọn Brand để cấu hình Shopee Affiliate.";
 }
 function percent(value) { const numeric = number(value); return `${(numeric <= 1 ? numeric * 100 : numeric).toFixed(1)}%`; }
 function renderKpis() { const values = { clicks: metric(state.overview, ["clicks", "totalClicks"]), orders: metric(state.overview, ["orders", "totalOrders"]), gmv: metric(state.overview, ["gmv", "totalGmv", "revenue"]), commission: metric(state.overview, ["commission", "totalCommission", "earnings"]), ctr: metric(state.overview, ["ctr", "clickThroughRate"]), conversionRate: metric(state.overview, ["conversion_rate", "conversionRate", "cvr"]) }; const details = state.overview?.changes || state.overview?.comparison || {}; elements.kpiClicks.textContent = count(values.clicks); elements.kpiOrders.textContent = count(values.orders); elements.kpiGmv.textContent = money(values.gmv); elements.kpiCommission.textContent = money(values.commission); elements.kpiCtr.textContent = values.ctr ? percent(values.ctr) : "—"; elements.kpiConversionRate.textContent = values.clicks ? percent(values.conversionRate) : "—"; elements.kpiCtrDetail.textContent = values.ctr ? "Theo views đã ingest" : "Chưa ingest views"; elements.kpiConversionRateDetail.textContent = values.clicks ? "Orders / clicks" : "Chưa có clicks"; ["Clicks", "Orders", "Gmv", "Commission"].forEach((name) => { const key = name.toLowerCase(); const change = pick(details, [key, `${key}Change`], ""); elements[`kpi${name}Detail`].textContent = change ? String(change) : "Trong khoảng đã chọn"; }); }
@@ -85,6 +89,7 @@ async function createLink(productId) { const record = state.records.find((item) 
 
 function settingsPayload() { const enabled = Boolean(elements.affiliateEnabled.checked); return { brand: state.brand, enabled, mode: enabled ? elements.affiliateMode.value : "off", placement: elements.affiliatePlacement.value, productsPerPost: Number(elements.affiliateProductsPerPost.value || 1), minRelevance: Number(elements.affiliateMinRelevance.value || 0.75), minCommission: Number(elements.affiliateMinCommission.value || 5) }; }
 async function saveAffiliateSettings() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); elements.saveAffiliateSettingsButton.disabled = true; try { await request("/api/affiliate/settings", { method: "POST", body: JSON.stringify(settingsPayload()) }); showToast("Đã lưu chính sách Affiliate cho Brand."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
+async function saveAddLiveTagConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); elements.saveAddLiveTagButton.disabled = true; try { const affiliateId = elements.addLiveTagAffiliateId.value.trim(); const payload = { brand: state.brand, enabled: Boolean(elements.addLiveTagEnabled.checked) }; if (affiliateId) payload.affiliateId = affiliateId; await request("/api/affiliate/addlivetag/config", { method: "POST", body: JSON.stringify(payload) }); showToast("Đã lưu cấu hình AddLiveTag thử nghiệm."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function saveShopeeConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); const secret = elements.shopeeSecret.value.trim(); if (!secret) return showToast("Nhập lại App Secret để lưu kết nối.", true); elements.saveShopeeConfigButton.disabled = true; try { await request("/api/social/shopee/config", { method: "POST", body: JSON.stringify({ brand: state.brand, appId: elements.shopeeAppId.value.trim(), secret, apiBaseUrl: elements.shopeeApiBaseUrl.value.trim(), displayName: elements.shopeeDisplayName.value.trim(), settings: settingsPayload() }) }); showToast("Đã lưu kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function disconnectShopee() { if (!state.brand || !confirm(`Gỡ kết nối Shopee Affiliate của Brand “${state.brand}”?`)) return; elements.disconnectShopeeButton.disabled = true; try { await request("/api/social/shopee/disconnect", { method: "POST", body: JSON.stringify({ brand: state.brand }) }); showToast("Đã gỡ kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 
@@ -98,6 +103,7 @@ elements.pocCasesBody?.addEventListener("click", (event) => { const button = eve
 elements.pocContentId?.addEventListener("change", loadPoc);
 elements.pocPageId?.addEventListener("change", loadPoc);
 elements.saveAffiliateSettingsButton?.addEventListener("click", saveAffiliateSettings);
+elements.saveAddLiveTagButton?.addEventListener("click", saveAddLiveTagConfig);
 elements.saveShopeeConfigButton?.addEventListener("click", saveShopeeConfig);
 elements.disconnectShopeeButton?.addEventListener("click", disconnectShopee);
 refresh();
