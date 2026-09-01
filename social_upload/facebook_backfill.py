@@ -52,7 +52,7 @@ _COMMENT_MARKER = "sản phẩm liên quan"
 _SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*['\"]?\s*(?:=|:|%3d)\s*(?:bearer\s+)?['\"]?[^\s&,'\"]+")
 _MATCH_STOPWORDS = frozenset({
     "a", "an", "and", "cho", "click", "co", "có", "cua", "của", "de", "đã", "đang", "đây", "để",
-    "duoc", "được", "gia", "giá", "giam", "giảm", "hãy", "hot", "khi", "la", "là", "link", "moi", "mới",
+    "duoc", "được", "gia", "giá", "giam", "giảm", "hãy", "hot", "khi", "là", "link", "moi", "mới",
     "mua", "ngay", "nhé", "nha", "nhất", "phẩm", "product", "reel", "review", "sale", "san", "sản", "shop",
     "siêu", "tai", "tại", "the", "thật", "trong", "và", "video", "voi", "với", "xem", "you", "đẹp", "tốt",
     "vs", "khác", "nhau", "đâu", "ở", "giữa", "này", "nào", "như", "thế", "sao", "một", "hai", "thì",
@@ -157,14 +157,29 @@ def _post_product_relevance(post_text: str, product_name: str) -> float:
 
 def _search_product_relevance(search_query: str, product_name: str) -> float:
     """Score catalog results by how much of the short search phrase matched."""
-    query_tokens = set(_match_tokens(search_query))
-    product_tokens = set(_match_tokens(product_name))
-    overlap = query_tokens & product_tokens
+    query_tokens = list(dict.fromkeys(_match_tokens(search_query)))
+    product_tokens = _match_tokens(product_name)
+    overlap = set(query_tokens) & set(product_tokens)
     if not overlap or not query_tokens:
         return 0.0
     query_coverage = len(overlap) / len(query_tokens)
-    overlap_signal = min(1.0, len(overlap) / 2.0)
-    return round(max(0.0, min(1.0, query_coverage * 0.7 + overlap_signal * 0.3)), 6)
+    if query_coverage < 0.75:
+        return 0.0
+    longest_phrase = 0
+    for query_index in range(len(query_tokens)):
+        for product_index in range(len(product_tokens)):
+            length = 0
+            while (
+                query_index + length < len(query_tokens)
+                and product_index + length < len(product_tokens)
+                and query_tokens[query_index + length] == product_tokens[product_index + length]
+            ):
+                length += 1
+            longest_phrase = max(longest_phrase, length)
+    if longest_phrase < 2:
+        return 0.0
+    phrase_signal = min(1.0, longest_phrase / 2.0)
+    return round(max(0.0, min(1.0, query_coverage * 0.7 + phrase_signal * 0.3)), 6)
 
 
 def _annotate_relevance(products: Iterable[object], post_text: str) -> list[dict]:
@@ -536,10 +551,11 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
     if not addlivetag.get("affiliate_id_configured"):
         return {}, "AddLiveTag cần Affiliate ID để tự tìm sản phẩm và tạo link cho bài này."
 
+    search_queries = _product_search_queries(query)
     searched: list[dict] = []
     search_errors: list[str] = []
     seen: set[tuple[str, str]] = set()
-    for keyword in _product_search_queries(query):
+    for keyword in search_queries:
         try:
             candidates = search_addlivetag_products(keyword, limit=20)
         except (AddLiveTagApiError, TypeError, ValueError) as exc:
@@ -562,7 +578,7 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
         if selected:
             return _prepare_product_for_link(selected, context)
         return {}, "AddLiveTag keyword search found products, but none met Brand relevance or commission policy."
-    if search_errors and len(search_errors) >= len(_product_search_queries(query)):
+    if search_errors and len(search_errors) >= len(search_queries):
         return {}, f"AddLiveTag keyword search unavailable: {search_errors[0]}"
     return {}, "AddLiveTag keyword search returned no usable products."
 

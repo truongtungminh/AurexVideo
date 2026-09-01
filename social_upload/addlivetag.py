@@ -183,7 +183,7 @@ def _search_product_from_row(row: list[dict[str, object]], query: str) -> dict |
         return None
     if not name:
         name = str(cells[2].get("text") or "") if len(cells) > 2 else ""
-    name = _clean_html_text(name)
+    name = re.sub(r"^xtra\s+", "", _clean_html_text(name), flags=re.IGNORECASE)
     if not name:
         return None
 
