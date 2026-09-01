@@ -77,6 +77,14 @@ from social_upload.config import (
 )
 from social_upload.r2 import merge_r2_config_values, resolve_r2_config
 from social_upload.scheduler import start_scheduler
+from social_upload.affiliate_poc import (
+    CASES as AFFILIATE_POC_CASE_CODES,
+    STATUSES as AFFILIATE_POC_STATUSES,
+    case_definitions as affiliate_poc_case_definitions,
+    poc_summary as affiliate_poc_summary,
+    record_result as record_affiliate_poc_result,
+    start_run as start_affiliate_poc_run,
+)
 import m3_backend as m3
 from tts.elevenlabs import (
     elevenlabs_api_key,
@@ -863,6 +871,119 @@ def upload_brand_context(project: str = "") -> dict:
         "brand_routes_version": status.get("brand_routes_version", 1),
         "affiliate": affiliate_brand_context(config, project_brand) if project_brand else {},
     }
+
+
+def _affiliate_poc_default_page_id(config: dict, brand: str) -> str:
+    routes = config.get("brand_routes") if isinstance(config, dict) else {}
+    brand_route = routes.get(brand) if isinstance(routes, dict) else {}
+    facebook_route = brand_route.get("facebook") if isinstance(brand_route, dict) else {}
+    if not isinstance(facebook_route, dict):
+        return ""
+    return str(
+        facebook_route.get("page_id")
+        or facebook_route.get("connection_id")
+        or ""
+    ).strip()
+
+
+def _affiliate_poc_idempotency_key(content_id: str, page_id: str) -> str:
+    # Keep raw project/Page identifiers out of the POC key while making one
+    # content/Page pair idempotent. UUID5 is deterministic and matches the
+    # scalar key contract enforced by affiliate_poc.
+    seed = f"aurexvideo-affiliate-poc\x00{content_id}\x00{page_id}"
+    return f"poc-{uuid.uuid5(uuid.NAMESPACE_URL, seed).hex}"
+
+
+def _affiliate_poc_cases() -> list[dict]:
+    titles = {
+        "A": "Manual Reel + manual comment",
+        "B": "API Reel + manual comment",
+        "C": "Manual Reel + API comment",
+        "D": "API Reel + API comment",
+    }
+    descriptions = {
+        "A": "Đăng Reel thủ công · comment thủ công",
+        "B": "Đăng Reel qua API · comment thủ công",
+        "C": "Đăng Reel thủ công · comment qua API",
+        "D": "Đăng Reel và comment đều qua API",
+    }
+    return [
+        {
+            "key": definition["caseKey"],
+            "case": definition["caseKey"],
+            "title": titles[definition["caseKey"]],
+            "description": descriptions[definition["caseKey"]],
+            "publish_mode": definition["publishMode"],
+            "comment_mode": definition["commentMode"],
+            **definition,
+        }
+        for definition in affiliate_poc_case_definitions()
+    ]
+
+
+def _affiliate_poc_case_records(summary: dict, content_id: str, page_id: str) -> list[dict]:
+    records = []
+    for case in summary.get("cases") or []:
+        if not isinstance(case, dict):
+            continue
+        banner_observed = case.get("bannerObserved")
+        records.append({
+            **case,
+            "id": summary.get("runId"),
+            "run_id": summary.get("runId"),
+            "brand": summary.get("brand"),
+            "content_id": summary.get("contentId") or content_id,
+            "page_id": str(case.get("pageId") or page_id or ""),
+            "post_id": str(case.get("postId") or ""),
+            "comment_id": str(case.get("commentId") or ""),
+            "banner_observed": "yes" if banner_observed is True else "no" if banner_observed is False else "",
+            "evidence_url": str(case.get("evidenceUrl") or ""),
+            "case_key": str(case.get("caseKey") or "").upper(),
+            "updated_at": case.get("updatedAt") or summary.get("updatedAt") or "",
+        })
+    return records
+
+
+def _affiliate_poc_summary(summary: dict | None = None) -> dict:
+    summary = summary if isinstance(summary, dict) else {}
+    counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+    normalized = {status: int(counts.get(status) or 0) for status in AFFILIATE_POC_STATUSES}
+    return {
+        "total": sum(normalized.values()),
+        **normalized,
+        "status": str(summary.get("status") or "pending"),
+    }
+
+
+def _affiliate_poc_response(brand: str, content_id: str, page_id: str, summary: dict | None = None) -> dict:
+    return {
+        "ok": True,
+        "brand": brand,
+        "content_id": content_id,
+        "page_id": page_id,
+        "cases": _affiliate_poc_cases(),
+        "runs": _affiliate_poc_case_records(summary or {}, content_id, page_id),
+        "summary": _affiliate_poc_summary(summary),
+        "context": {"page_id": page_id, "brand": brand},
+    }
+
+
+def _affiliate_poc_find_summary(brand: str, content_id: str, page_id: str) -> dict:
+    if not brand or not content_id:
+        return {}
+    summary = affiliate_poc_summary(brand, content_id)
+    return summary if summary.get("started") else {}
+
+
+def _affiliate_poc_text(payload: dict, *keys: str, limit: int) -> str:
+    value = ""
+    for key in keys:
+        if payload.get(key) is not None:
+            value = str(payload.get(key) or "").strip()
+            break
+    if len(value) > limit:
+        raise ValueError(f"POC field {keys[0]} tối đa {limit} ký tự.")
+    return value
 
 
 def require_project(project: str) -> Path:
@@ -9605,6 +9726,24 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if path == "/api/affiliate/poc":
+            query_values = parse_qs(parsed.query)
+            try:
+                brand = canonical_brand((query_values.get("brand") or [""])[0])
+                content_id = str((query_values.get("contentId") or query_values.get("content_id") or [""])[0] or "").strip()
+                if len(content_id) > 128:
+                    raise ValueError("POC Content / project ID tối đa 128 ký tự.")
+                config = read_social_config()
+                page_id = str((query_values.get("pageId") or query_values.get("page_id") or [""])[0] or "").strip()
+                page_id = page_id or _affiliate_poc_default_page_id(config, brand)
+                if len(page_id) > 128:
+                    raise ValueError("POC Page ID tối đa 128 ký tự.")
+                summary = _affiliate_poc_find_summary(brand, content_id, page_id)
+                self.send_json(200, _affiliate_poc_response(brand, content_id, page_id, summary))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if path == "/api/social/status":
             try:
                 self.send_json(200, social_status())
@@ -9929,6 +10068,54 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, result)
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/affiliate/poc":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("POC cần Brand.")
+                content_id = _affiliate_poc_text(payload, "contentId", "content_id", limit=128)
+                if not content_id:
+                    raise ValueError("POC cần Content / project ID.")
+                config = read_social_config()
+                page_id = _affiliate_poc_text(payload, "pageId", "page_id", limit=128)
+                page_id = page_id or _affiliate_poc_default_page_id(config, brand)
+                case_code = str(payload.get("caseKey") or payload.get("case_key") or payload.get("case") or "").strip().upper()
+                if case_code not in AFFILIATE_POC_CASE_CODES:
+                    raise ValueError("POC case phải là A, B, C hoặc D.")
+                status = str(payload.get("status") or "").strip().lower()
+                if status not in AFFILIATE_POC_STATUSES or status == "pending":
+                    raise ValueError("POC status phải là running, passed, failed hoặc blocked.")
+                post_id = _affiliate_poc_text(payload, "postId", "post_id", limit=96)
+                comment_id = _affiliate_poc_text(payload, "commentId", "comment_id", limit=96)
+                evidence_url = _affiliate_poc_text(payload, "evidenceUrl", "evidence_url", "evidence", limit=500)
+                notes = _affiliate_poc_text(payload, "notes", "note", limit=1000)
+                banner_observed = str(payload.get("bannerObserved") or payload.get("banner_observed") or "").strip().lower()
+                if banner_observed not in {"", "yes", "no"}:
+                    raise ValueError("Banner Affiliate chỉ nhận yes, no hoặc để trống.")
+                run = start_affiliate_poc_run(
+                    brand,
+                    content_id,
+                    idempotency_key=_affiliate_poc_idempotency_key(content_id, page_id),
+                )
+                result = record_affiliate_poc_result(
+                    brand,
+                    case_code,
+                    status,
+                    run_id=run["runId"],
+                    content_id=content_id,
+                    page_id=page_id,
+                    post_id=post_id,
+                    comment_id=comment_id,
+                    banner_observed=None if not banner_observed else banner_observed == "yes",
+                    evidence_url=evidence_url,
+                    notes=notes,
+                )
+                self.send_json(200, _affiliate_poc_response(brand, content_id, page_id, result))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
