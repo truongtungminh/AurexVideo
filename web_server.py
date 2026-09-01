@@ -971,7 +971,11 @@ def _affiliate_poc_response(brand: str, content_id: str, page_id: str, summary: 
 def _affiliate_poc_find_summary(brand: str, content_id: str, page_id: str) -> dict:
     if not brand or not content_id:
         return {}
-    summary = affiliate_poc_summary(brand, content_id)
+    summary = affiliate_poc_summary(
+        brand,
+        content_id,
+        idempotency_key=_affiliate_poc_idempotency_key(content_id, page_id),
+    )
     return summary if summary.get("started") else {}
 
 

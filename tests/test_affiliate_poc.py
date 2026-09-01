@@ -1,3 +1,5 @@
+import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -105,6 +107,79 @@ class AffiliatePocTests(unittest.TestCase):
         self.assertEqual(case["commentId"], "comment-1")
         self.assertTrue(case["bannerObserved"])
 
+    def test_legacy_schema_migrates_without_losing_owned_evidence(self):
+        run_id = "poc_0123456789abcdef01234567"
+        connection = affiliate_store._connect()
+        connection.executescript(
+            """
+            CREATE TABLE affiliate_poc_runs (
+                id TEXT PRIMARY KEY,
+                brand_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'blocked')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (brand_id, idempotency_key)
+            );
+            CREATE TABLE affiliate_poc_cases (
+                run_id TEXT NOT NULL,
+                case_code TEXT NOT NULL CHECK (case_code IN ('A', 'B', 'C', 'D')),
+                status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'passed', 'failed', 'blocked')),
+                note TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL DEFAULT '',
+                evidence TEXT NOT NULL DEFAULT '',
+                reference TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, case_code),
+                FOREIGN KEY (run_id) REFERENCES affiliate_poc_runs(id) ON DELETE CASCADE
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO affiliate_poc_runs VALUES (?, ?, ?, 'pending', ?, ?)",
+            (run_id, "knowzy", "legacy-content", "2026-08-31T00:00:00Z", "2026-08-31T00:00:00Z"),
+        )
+        reference = json.dumps({
+            "page_id": "page-legacy",
+            "post_id": "post-legacy",
+            "comment_id": "comment-legacy",
+            "banner_observed": "yes",
+        })
+        for case_key in affiliate_poc.CASES:
+            connection.execute(
+                "INSERT INTO affiliate_poc_cases VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)",
+                (
+                    run_id,
+                    case_key,
+                    "passed" if case_key == "A" else "pending",
+                    "legacy note" if case_key == "A" else "",
+                    "https://example.test/legacy-poc" if case_key == "A" else "",
+                    reference if case_key == "A" else "",
+                    "2026-08-31T00:00:00Z",
+                    "2026-08-31T00:00:00Z",
+                ),
+            )
+        connection.commit()
+        connection.close()
+
+        summary = affiliate_poc.poc_summary("knowzy", "legacy-content")
+        case_a = next(case for case in summary["cases"] if case["caseKey"] == "A")
+        self.assertTrue(summary["started"])
+        self.assertEqual(summary["runId"], run_id)
+        self.assertEqual(case_a["pageId"], "page-legacy")
+        self.assertEqual(case_a["postId"], "post-legacy")
+        self.assertEqual(case_a["commentId"], "comment-legacy")
+        self.assertTrue(case_a["bannerObserved"])
+        self.assertEqual(case_a["evidenceUrl"], "https://example.test/legacy-poc")
+        self.assertEqual(case_a["notes"], "legacy note")
+
+        migrated = sqlite3.connect(affiliate_store.AFFILIATE_DB_PATH)
+        tables = {row[0] for row in migrated.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        self.assertIn("affiliate_poc_runs_legacy_v1", tables)
+        self.assertIn("affiliate_poc_cases_legacy_v1", tables)
+        migrated.close()
+
     def test_validation_summary_precedence_and_all_status_counts(self):
         run = affiliate_poc.start_run("knowzy", "video-001", idempotency_key="summary")
         for args in (("unknown", "pending"), ("A", "unknown")):
@@ -145,6 +220,16 @@ class AffiliatePocTests(unittest.TestCase):
         self.assertEqual(len(affiliate_poc.list_runs("knowzy", "video-001", limit=1, offset=1)), 1)
         self.assertIn(first["runId"], [row["runId"] for row in affiliate_poc.list_runs("knowzy", "video-001", limit=2)])
         self.assertEqual(affiliate_poc.list_runs("knowzy", "other-video"), [])
+        page_a = affiliate_poc.start_run("knowzy", "video-001", idempotency_key="page-a")
+        page_b = affiliate_poc.start_run("knowzy", "video-001", idempotency_key="page-b")
+        self.assertEqual(
+            affiliate_poc.poc_summary("knowzy", "video-001", idempotency_key="page-a")["runId"],
+            page_a["runId"],
+        )
+        self.assertEqual(
+            affiliate_poc.poc_summary("knowzy", "video-001", idempotency_key="page-b")["runId"],
+            page_b["runId"],
+        )
         for kwargs in ({"limit": 0}, {"limit": True}, {"offset": -1}, {"status": "bad"}):
             with self.assertRaises(ValueError):
                 affiliate_poc.list_runs("knowzy", "video-001", **kwargs)
