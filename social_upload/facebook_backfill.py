@@ -1,10 +1,11 @@
-from __future__ import annotations
-
 """Conservative, Brand-scoped affiliate comment backfill for Facebook Pages.
 
-This module is intentionally not wired to an HTTP route.  Its public entry
-point is suitable for an explicit operator action and defaults to dry-run.
+The public entry point is used by an explicit operator action and defaults to
+dry-run.  The HTTP route is intentionally thin; all provider and idempotency
+guards live here so other callers get the same safety contract.
 """
+
+from __future__ import annotations
 
 import hashlib
 import re
@@ -40,9 +41,15 @@ MAX_POST_PAGES = 5
 MAX_COMMENT_PAGES = 10
 POST_PREVIEW_LENGTH = 500
 _BACKFILL_LOCK = threading.RLock()
-_SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?(?:shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my)|s\.shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my))[^\s<>'\"]*", re.I)
+_SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my|ee)[^\s<>'\"]*", re.I)
 _COMMENT_MARKER = "sản phẩm liên quan"
 _SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*(?:=|:|%3d)[^\s&,'\"]+")
+_MATCH_STOPWORDS = frozenset({
+    "a", "an", "and", "cho", "click", "co", "có", "cua", "của", "de", "đã", "đang", "đây", "để",
+    "duoc", "được", "gia", "giá", "giam", "giảm", "hãy", "hot", "khi", "la", "là", "link", "moi", "mới",
+    "mua", "ngay", "nhé", "nha", "nhất", "phẩm", "product", "reel", "review", "sale", "san", "sản", "shop",
+    "siêu", "tai", "tại", "the", "thật", "trong", "và", "video", "voi", "với", "xem", "you", "đẹp", "tốt",
+})
 
 
 def _fraction(value: object) -> float:
@@ -93,6 +100,51 @@ def _is_published(value: object) -> bool:
 
 def _post_preview(value: object) -> str:
     return " ".join(str(value or "").split())[:POST_PREVIEW_LENGTH]
+
+
+def _match_tokens(value: object) -> list[str]:
+    text = re.sub(r"https?://[^\s<>\"']+", " ", str(value or "").casefold())
+    return [
+        token
+        for token in re.findall(r"[\wÀ-ỹ]+", text, flags=re.UNICODE)
+        if len(token) > 1 and token not in _MATCH_STOPWORDS and not token.isdigit()
+    ]
+
+
+def _post_product_relevance(post_text: str, product_name: str) -> float:
+    """Score how much of a product name is present in a long post caption."""
+    post_tokens = set(_match_tokens(post_text))
+    product_tokens = set(_match_tokens(product_name))
+    overlap = post_tokens & product_tokens
+    if not overlap or not product_tokens:
+        return 0.0
+    # Product-name coverage is the strongest signal; a small overlap bonus
+    # avoids rejecting a clear two-word match just because the caption has
+    # normal editorial words around it.
+    coverage = len(overlap) / len(product_tokens)
+    overlap_signal = min(1.0, len(overlap) / 2.0)
+    return round(max(0.0, min(1.0, coverage * 0.7 + overlap_signal * 0.3)), 6)
+
+
+def _annotate_relevance(products: Iterable[object], post_text: str) -> list[dict]:
+    annotated: list[dict] = []
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        item = dict(product)
+        if not any(key in product for key in ("relevance_score", "relevanceScore", "relevance")):
+            item["relevance_score"] = _post_product_relevance(
+                post_text,
+                str(product.get("name") or product.get("productName") or product.get("product_name") or ""),
+            )
+        annotated.append(item)
+    return annotated
+
+
+def _product_query(post_text: str) -> str:
+    """Build a bounded provider-search query from a social caption."""
+    tokens = list(dict.fromkeys(_match_tokens(post_text)))
+    return " ".join(tokens[:12])[:180]
 
 
 def _normalize_posts(rows: Iterable[object], *, page_id: str, cutoff: datetime) -> list[dict]:
@@ -294,10 +346,36 @@ def _policy_product(products: Iterable[object], query: str, settings: dict) -> d
     return selected
 
 
+def _prepare_product_for_link(product: dict, context: dict) -> tuple[dict, str]:
+    """Choose the configured link writer and fail preview closed if none exists."""
+    selected = dict(product)
+    if str(selected.get("offer_url") or selected.get("affiliate_url") or "").strip():
+        return selected, ""
+
+    addlivetag = context.get("addlivetag") if isinstance(context.get("addlivetag"), dict) else {}
+    connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
+    if addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured"):
+        selected["link_provider"] = "addlivetag"
+        raw = selected.get("raw") if isinstance(selected.get("raw"), dict) else {}
+        selected["raw"] = {**raw, "_aurex_link_provider": "addlivetag"}
+        return selected, ""
+    if connection.get("connected"):
+        # A cached product may have originally come from AddLiveTag.  An
+        # official Shopee connection is a safe fallback when it is available.
+        selected["link_provider"] = "shopee"
+        return selected, ""
+    if addlivetag.get("enabled"):
+        return {}, "AddLiveTag cần Affiliate ID để tạo link cho bài này."
+    return {}, "Cần kết nối Shopee Affiliate hoặc bật AddLiveTag với Affiliate ID để tạo link."
+
+
 def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
     settings = context.get("settings") if isinstance(context.get("settings"), dict) else {}
-    if not bool(settings.get("enabled")) or str(settings.get("mode") or "off").casefold() == "off":
+    mode = str(settings.get("mode") or "off").casefold()
+    if not bool(settings.get("enabled")) or mode == "off":
         return {}, "Affiliate policy is not enabled for this Brand."
+    if mode != "auto":
+        return {}, "Backfill tự chọn sản phẩm cần đặt Affiliate mode là AUTO cho Brand này."
     query = _post_preview(text)
     if not query:
         return {}, "Post has no text to match against a product."
@@ -318,24 +396,35 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
             raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
             product["raw"] = {**raw, "_aurex_link_provider": "addlivetag"}
             selected = _policy_product([product], query, settings)
-            return (selected, "") if selected else ({}, "Explicit AddLiveTag product does not meet Brand relevance or commission policy.")
+            if not selected:
+                return {}, "Explicit AddLiveTag product does not meet Brand relevance or commission policy."
+            return _prepare_product_for_link(selected, context)
 
     connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
+    provider_query = _product_query(query)
+    if not provider_query:
+        return {}, "Post has no usable product keywords."
     if connection.get("connected"):
         try:
-            discovered = discover_products(brand, query, limit=10)
+            discovered = discover_products(brand, provider_query, limit=10)
         except (RuntimeError, TypeError, ValueError) as exc:
             return {}, f"Official Shopee discovery unavailable: {_safe_error(exc)}"
         products = discovered.get("products") if isinstance(discovered, dict) else []
-        selected = _policy_product(products or [], query, settings)
-        return (selected, "") if selected else ({}, "Official Shopee has no product meeting Brand relevance or commission policy.")
+        selected = _policy_product(_annotate_relevance(products or [], query), query, settings)
+        if not selected:
+            return {}, "Official Shopee has no product meeting Brand relevance or commission policy."
+        return _prepare_product_for_link(selected, context)
 
     try:
-        cached = affiliate_store.list_products(query=query, limit=MAX_LIMIT)
+        # Search locally after loading the bounded catalog: a full caption is
+        # rarely a literal SQL substring of the saved product name.
+        cached = affiliate_store.list_products(limit=MAX_LIMIT)
     except (RuntimeError, TypeError, ValueError) as exc:
         return {}, f"Cached product lookup unavailable: {_safe_error(exc)}"
-    selected = _policy_product(cached, query, settings)
-    return (selected, "") if selected else ({}, "No official Shopee connection and no cached product meets Brand policy.")
+    selected = _policy_product(_annotate_relevance(cached, query), query, settings)
+    if not selected:
+        return {}, "No official Shopee connection and no cached product meets Brand policy."
+    return _prepare_product_for_link(selected, context)
 
 
 def _record_for_execute(brand: str, content_id: str, page_id: str, post_id: str, product: dict) -> dict:

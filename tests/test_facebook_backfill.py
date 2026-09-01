@@ -15,7 +15,7 @@ CONFIG = {
 }
 CONTEXT = {
     "settings": {"enabled": True, "mode": "auto", "min_relevance": 0.5, "min_commission": 0.05},
-    "addlivetag": {"enabled": False},
+    "addlivetag": {"enabled": True, "affiliate_id_configured": True},
     "connection": {"connected": False},
 }
 
@@ -86,7 +86,39 @@ class FacebookBackfillTests(unittest.TestCase):
     def test_existing_comment_detects_marker_or_shopee_url(self):
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛒 Sản phẩm liên quan trong video:\nhttps://s.shopee.vn/abc"}]))
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "xem https://shopee.vn/product/1/2"}]))
+        self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "xem https://shopee.ee/product/1/2"}]))
         self.assertFalse(backfill._has_existing_affiliate_comment([{"message": "Một bình luận bình thường"}]))
+
+    def test_cached_selection_matches_product_name_inside_long_caption(self):
+        cached = [
+            {"id": "p-1", "name": "Máy hút bụi cầm tay", "origin_url": "https://shopee.vn/product/1/2", "commission_rate": 0.2},
+            {"id": "p-2", "name": "Áo mưa đi đường", "origin_url": "https://shopee.vn/product/1/3", "commission_rate": 0.8},
+        ]
+        with patch.object(backfill.affiliate_store, "list_products", return_value=cached) as list_products:
+            product, reason = backfill._select_product(
+                "knowzy",
+                "Review nhanh cho anh em: máy hút bụi cầm tay nhỏ gọn, lực hút mạnh, pin lâu, phù hợp căn hộ và văn phòng. Xem thêm mẹo dọn nhà cuối tuần.",
+                CONTEXT,
+            )
+
+        self.assertFalse(reason)
+        self.assertEqual(product["id"], "p-1")
+        self.assertEqual(product["link_provider"], "addlivetag")
+        self.assertGreaterEqual(product["relevance_score"], CONTEXT["settings"]["min_relevance"])
+        list_products.assert_called_once_with(limit=backfill.MAX_LIMIT)
+
+    def test_selection_is_not_eligible_without_a_link_provider(self):
+        context = {
+            **CONTEXT,
+            "addlivetag": {"enabled": True, "affiliate_id_configured": False},
+            "connection": {"connected": False},
+        }
+        cached = [{"id": "p-1", "name": "Bình giữ nhiệt", "origin_url": "https://shopee.vn/product/1/2", "commission_rate": 0.2}]
+        with patch.object(backfill.affiliate_store, "list_products", return_value=cached):
+            product, reason = backfill._select_product("knowzy", "Bình giữ nhiệt cho dân văn phòng", context)
+
+        self.assertFalse(product)
+        self.assertIn("Affiliate ID", reason)
 
     def test_dry_run_never_creates_link_or_comment(self):
         def fake_get(url, fields):
@@ -152,7 +184,7 @@ class FacebookBackfillTests(unittest.TestCase):
         post_comment.assert_not_called()
 
     def test_addlivetag_explicit_reference_is_selected_without_discovery(self):
-        context = {**CONTEXT, "addlivetag": {"enabled": True}}
+        context = {**CONTEXT, "addlivetag": {"enabled": True, "affiliate_id_configured": True}}
         raw = {
             "status": "success",
             "productInfo": {
