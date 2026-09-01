@@ -513,9 +513,43 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
     except (RuntimeError, TypeError, ValueError) as exc:
         return {}, f"Cached product lookup unavailable: {_safe_error(exc)}"
     selected = _policy_product(_annotate_relevance(cached, query), query, settings)
-    if not selected:
+    if selected:
+        return _prepare_product_for_link(selected, context)
+
+    if not addlivetag.get("enabled"):
         return {}, "No official Shopee connection and no cached product meets Brand policy."
-    return _prepare_product_for_link(selected, context)
+    if not addlivetag.get("affiliate_id_configured"):
+        return {}, "AddLiveTag cần Affiliate ID để tự tìm sản phẩm và tạo link cho bài này."
+
+    searched: list[dict] = []
+    search_errors: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for keyword in _product_search_queries(query):
+        try:
+            candidates = search_addlivetag_products(keyword, limit=20)
+        except (AddLiveTagApiError, TypeError, ValueError) as exc:
+            search_errors.append(_safe_error(exc))
+            continue
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            key = (
+                str(candidate.get("provider_product_id") or ""),
+                str(candidate.get("origin_url") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            searched.append(candidate)
+
+    if searched:
+        selected = _policy_product(_annotate_relevance(searched, query), query, settings)
+        if selected:
+            return _prepare_product_for_link(selected, context)
+        return {}, "AddLiveTag keyword search found products, but none met Brand relevance or commission policy."
+    if search_errors and len(search_errors) >= len(_product_search_queries(query)):
+        return {}, f"AddLiveTag keyword search unavailable: {search_errors[0]}"
+    return {}, "AddLiveTag keyword search returned no usable products."
 
 
 def _record_for_execute(brand: str, content_id: str, page_id: str, post_id: str, product: dict) -> dict:
