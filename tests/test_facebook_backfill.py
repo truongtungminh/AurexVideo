@@ -203,6 +203,29 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertGreaterEqual(product["relevance_score"], CONTEXT["settings"]["min_relevance"])
         list_products.assert_called_once_with(limit=backfill.MAX_LIMIT)
 
+    def test_addlivetag_keyword_search_is_used_when_cache_is_empty(self):
+        candidate = {
+            "provider_product_id": "p-3",
+            "name": "Bình giữ nhiệt",
+            "origin_url": "https://shopee.vn/bc-i.1.3",
+            "commission_rate": 0.2,
+            "link_provider": "addlivetag",
+        }
+        with (
+            patch.object(backfill.affiliate_store, "list_products", return_value=[]),
+            patch.object(backfill, "search_addlivetag_products", return_value=[candidate]) as search,
+        ):
+            product, reason = backfill._select_product(
+                "knowzy",
+                "Bình giữ nhiệt cho dân văn phòng",
+                CONTEXT,
+            )
+
+        self.assertFalse(reason)
+        self.assertEqual(product["provider_product_id"], "p-3")
+        self.assertEqual(product["link_provider"], "addlivetag")
+        search.assert_called_once_with("bình giữ nhiệt dân văn phòng", limit=20)
+
     def test_connected_discovery_is_read_only_for_backfill_preview(self):
         context = {**CONTEXT, "addlivetag": {"enabled": False}, "connection": {"connected": True}}
         discovered = {"products": [{"id": "p-1", "name": "Bình giữ nhiệt", "origin_url": "https://shopee.vn/product/1/2", "commission_rate": 0.2}]}

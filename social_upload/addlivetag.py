@@ -221,7 +221,6 @@ def _search_product_from_row(row: list[dict[str, object]], query: str) -> dict |
         "rating": 0.0,
         "discount_rate": 0.0,
         "shop_quality": 0.0,
-        "relevance_score": 0.0,
         "link_provider": "addlivetag",
         "raw": {
             "source": "addlivetag_live_search",
