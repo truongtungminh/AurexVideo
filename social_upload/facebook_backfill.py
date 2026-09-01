@@ -155,6 +155,18 @@ def _post_product_relevance(post_text: str, product_name: str) -> float:
     return round(max(0.0, min(1.0, coverage * 0.7 + overlap_signal * 0.3)), 6)
 
 
+def _search_product_relevance(search_query: str, product_name: str) -> float:
+    """Score catalog results by how much of the short search phrase matched."""
+    query_tokens = set(_match_tokens(search_query))
+    product_tokens = set(_match_tokens(product_name))
+    overlap = query_tokens & product_tokens
+    if not overlap or not query_tokens:
+        return 0.0
+    query_coverage = len(overlap) / len(query_tokens)
+    overlap_signal = min(1.0, len(overlap) / 2.0)
+    return round(max(0.0, min(1.0, query_coverage * 0.7 + overlap_signal * 0.3)), 6)
+
+
 def _annotate_relevance(products: Iterable[object], post_text: str) -> list[dict]:
     annotated: list[dict] = []
     for product in products:
@@ -162,10 +174,13 @@ def _annotate_relevance(products: Iterable[object], post_text: str) -> list[dict
             continue
         item = dict(product)
         if not any(key in product for key in ("relevance_score", "relevanceScore", "relevance")):
-            item["relevance_score"] = _post_product_relevance(
-                post_text,
-                str(product.get("name") or product.get("productName") or product.get("product_name") or ""),
-            )
+            name = str(product.get("name") or product.get("productName") or product.get("product_name") or "")
+            relevance = _post_product_relevance(post_text, name)
+            raw = product.get("raw")
+            search_query = raw.get("query") if isinstance(raw, dict) else ""
+            if search_query:
+                relevance = max(relevance, _search_product_relevance(str(search_query), name))
+            item["relevance_score"] = relevance
         annotated.append(item)
     return annotated
 

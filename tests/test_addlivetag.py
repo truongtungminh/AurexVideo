@@ -136,6 +136,7 @@ class AddLiveTagTests(unittest.TestCase):
         self.assertNotIn("relevance_score", product)
         self.assertEqual(product["link_provider"], "addlivetag")
         self.assertEqual(product["origin_url"], "https://shopee.vn/bc-i.123.456")
+        self.assertTrue(captured["url"].startswith(f"{DEFAULT_SEARCH_URL}?"))
         query = parse_qs(urlparse(captured["url"]).query)
         self.assertEqual(query["keyword"], ["nam châm"])
         self.assertEqual(query["sort"], ["com"])
