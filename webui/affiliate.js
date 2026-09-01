@@ -89,6 +89,7 @@ function renderBackfill() {
     return `<tr><td><div class="backfill-post"><strong title="${escapeHtml(postName)}">${escapeHtml(postName)}</strong><small>${escapeHtml(postId)} · ${escapeHtml(backfillDate(item.created_time || item.createdTime || post.created_time))}</small>${permalink ? `<a href="${escapeHtml(permalink)}" target="_blank" rel="noreferrer">Mở bài trên Facebook ↗</a>` : ""}</div></td><td><div class="backfill-product"><strong title="${escapeHtml(productName)}">${escapeHtml(productName)}</strong><small>${escapeHtml(product.provider || item.product_provider || "")}</small></div></td><td class="metric-cell">${escapeHtml(commission)}</td><td><span class="record-status ${escapeHtml(String(item.status || "").toLowerCase())}">${escapeHtml(backfillStatusLabel(item.status))}</span></td><td><div class="backfill-reason">${escapeHtml(reason || (dryRun && product.name ? "Đủ điều kiện sau khi kiểm tra comment hiện có." : "—"))}</div></td></tr>`;
   }).join("");
 }
+function invalidateBackfillPreview() { if (state.backfill?.scanned !== undefined) { state.backfill = {}; renderBackfill(); } }
 async function runBackfill(dryRun = true) {
   if (!state.brand) return showToast("Hãy chọn Brand trước.", true);
   const limit = Math.max(1, Math.min(50, Math.round(number(elements.backfillLimit.value)) || 10));
@@ -105,7 +106,7 @@ async function runBackfill(dryRun = true) {
     state.backfill = await request("/api/affiliate/backfill", { method: "POST", body: JSON.stringify({ brand: state.brand, limit, lookbackDays, dryRun, ...(dryRun ? {} : { confirm: "COMMENT" }) }) });
     renderBackfill();
     showToast(dryRun ? `Preview xong: ${number(state.backfill.eligible)} bài đủ điều kiện.` : `Đã xử lý ${number(state.backfill.commented)} comment.`);
-  } catch (error) { showToast(error.message, true); elements.backfillStatus.textContent = error.message; }
+  } catch (error) { state.backfill = { error: error.message }; showToast(error.message, true); }
   finally { elements.backfillPreviewButton.disabled = !state.brand; renderBackfill(); }
 }
 
@@ -157,4 +158,6 @@ elements.saveShopeeConfigButton?.addEventListener("click", saveShopeeConfig);
 elements.disconnectShopeeButton?.addEventListener("click", disconnectShopee);
 elements.backfillPreviewButton?.addEventListener("click", () => runBackfill(true));
 elements.backfillRunButton?.addEventListener("click", () => runBackfill(false));
+elements.backfillLimit?.addEventListener("input", invalidateBackfillPreview);
+elements.backfillDays?.addEventListener("input", invalidateBackfillPreview);
 refresh();

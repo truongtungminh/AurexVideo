@@ -366,7 +366,7 @@ def _project_query(project: str) -> str:
     return project_dir.name.replace("-", " ")
 
 
-def discover_products(brand: str, query: str, *, limit: int = 10) -> dict:
+def discover_products(brand: str, query: str, *, limit: int = 10, persist: bool = True) -> dict:
     config = read_social_config()
     brand = canonical_brand(brand)
     context = brand_context(config, brand)
@@ -394,6 +394,8 @@ def discover_products(brand: str, query: str, *, limit: int = 10) -> dict:
         if product["relevance_score"] >= settings["min_relevance"]
         and product["commission_rate"] >= settings["min_commission"]
     ]
+    if not persist:
+        return {"brand": brand, "query": query, "products": filtered, "candidates": len(ranked), "settings": settings}
     stored = []
     for product in filtered:
         saved = affiliate_store.upsert_product(product)
@@ -424,6 +426,7 @@ def create_affiliate_link(
     page_id: str = "",
     product_payload: dict | None = None,
     link_provider: str = "",
+    reuse_product_offer_url: bool = True,
 ) -> dict:
     config = read_social_config()
     brand = canonical_brand(brand)
@@ -435,7 +438,7 @@ def create_affiliate_link(
         raise ValueError("Affiliate placement không hợp lệ.")
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(origin_url or product.get("origin_url") or "").strip()
-    affiliate_url = str(affiliate_url or product.get("offer_url") or "").strip()
+    affiliate_url = str(affiliate_url or (product.get("offer_url") if reuse_product_offer_url else "") or "").strip()
     if not product and isinstance(product_payload, dict):
         candidate = normalize_product(product_payload)
         if candidate.get("origin_url") or candidate.get("offer_url"):
@@ -451,13 +454,14 @@ def create_affiliate_link(
             or product_payload.get("product_link")
             or ""
         ).strip()
-        affiliate_url = str(
-            affiliate_url
-            or product_payload.get("affiliate_url")
-            or product_payload.get("affiliateUrl")
-            or product_payload.get("shortUrl")
-            or ""
-        ).strip()
+        if reuse_product_offer_url:
+            affiliate_url = str(
+                affiliate_url
+                or product_payload.get("affiliate_url")
+                or product_payload.get("affiliateUrl")
+                or product_payload.get("shortUrl")
+                or ""
+            ).strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
     if origin_url and not _valid_shopee_link(origin_url):

@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from social_upload.facebook import post_facebook_source_comment
 from social_upload import facebook_backfill as backfill
 
 
@@ -54,6 +55,24 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.utcoffset(), timedelta(0))
 
+    def test_single_attempt_comment_mode_does_not_retry_ambiguous_post(self):
+        with (
+            patch("social_upload.facebook.http_form_request", side_effect=RuntimeError("network")) as request,
+            patch("social_upload.facebook.time.sleep") as sleep,
+        ):
+            comment_id, error = post_facebook_source_comment(
+                {"graph_version": "v25.0"},
+                "page-1_1",
+                "affiliate comment",
+                "page-token",
+                attempts=1,
+            )
+
+        self.assertFalse(comment_id)
+        self.assertEqual(error, "network")
+        request.assert_called_once()
+        sleep.assert_not_called()
+
     def test_read_page_posts_follows_graph_owned_paging_for_each_edge(self):
         next_feed = "https://graph.facebook.com/v25.0/page-1/feed?after=feed-2&access_token=page-token"
         next_reels = "https://graph.facebook.com/v25.0/page-1/video_reels?after=reel-2&access_token=page-token"
@@ -82,6 +101,33 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual([post["id"] for post in posts], ["page-1_1", "page-1_2", "page-1_3", "page-1_4"])
         self.assertEqual(calls[1], (next_feed, {}))
         self.assertEqual(calls[3], (next_reels, {}))
+        self.assertEqual(calls[0][1]["since"], str(int((NOW - timedelta(days=30)).timestamp())))
+
+    def test_page_read_stops_after_old_graph_page_instead_of_exhausting_history(self):
+        next_feed = "https://graph.facebook.com/v25.0/page-1/feed?after=old-2&access_token=page-token"
+        calls = []
+
+        def fake_get(url, fields):
+            calls.append((url, fields))
+            if url.endswith("/feed"):
+                return {"data": [graph_post("page-1_recent")], "paging": {"next": next_feed}}
+            if url == next_feed:
+                return {"data": [graph_post("page-1_old", days=40)], "paging": {"next": "https://graph.facebook.com/v25.0/page-1/feed?after=old-3"}}
+            if url.endswith("/video_reels"):
+                return {"data": []}
+            self.fail(f"paging should stop after old page: {url}")
+
+        with patch.object(backfill, "http_get_request", side_effect=fake_get):
+            posts = backfill._read_page_posts(
+                CONFIG["facebook"],
+                CONFIG["facebook"]["pages"][0],
+                limit=4,
+                cutoff=NOW - timedelta(days=30),
+            )
+
+        self.assertEqual([post["id"] for post in posts], ["page-1_recent"])
+        self.assertEqual([url for url, _ in calls[:2]], ["https://graph.facebook.com/v25.0/page-1/feed", next_feed])
+        self.assertEqual(len(calls), 3)  # the bounded scan still checks the Reels edge once
 
     def test_existing_comment_detects_marker_or_shopee_url(self):
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛒 Sản phẩm liên quan trong video:\nhttps://s.shopee.vn/abc"}]))
@@ -106,6 +152,32 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(product["link_provider"], "addlivetag")
         self.assertGreaterEqual(product["relevance_score"], CONTEXT["settings"]["min_relevance"])
         list_products.assert_called_once_with(limit=backfill.MAX_LIMIT)
+
+    def test_connected_discovery_is_read_only_for_backfill_preview(self):
+        context = {**CONTEXT, "addlivetag": {"enabled": False}, "connection": {"connected": True}}
+        discovered = {"products": [{"id": "p-1", "name": "Bình giữ nhiệt", "origin_url": "https://shopee.vn/product/1/2", "commission_rate": 0.2}]}
+        with (
+            patch.object(backfill, "discover_products", return_value=discovered) as discover,
+            patch.object(backfill.affiliate_store, "upsert_product") as upsert,
+        ):
+            product, reason = backfill._select_product("knowzy", "Bình giữ nhiệt cho dân văn phòng", context)
+
+        self.assertFalse(reason)
+        self.assertEqual(product["id"], "p-1")
+        discover.assert_called_once_with("knowzy", "bình giữ nhiệt dân văn phòng", limit=10, persist=False)
+        upsert.assert_not_called()
+
+    def test_policy_uses_relevance_before_commission(self):
+        selected = backfill._policy_product(
+            [
+                {"id": "relevant", "name": "Bình giữ nhiệt", "origin_url": "https://shopee.vn/relevant", "relevance_score": 0.95, "commission_rate": 0.05},
+                {"id": "commission-heavy", "name": "Bình giữ nhiệt", "origin_url": "https://shopee.vn/heavy", "relevance_score": 0.80, "commission_rate": 0.80},
+            ],
+            "Bình giữ nhiệt",
+            {"min_relevance": 0.5, "min_commission": 0.05},
+        )
+
+        self.assertEqual(selected["id"], "relevant")
 
     def test_selection_is_not_eligible_without_a_link_provider(self):
         context = {
@@ -180,6 +252,7 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(item["post_id"], "page-1_1")
         self.assertIn("Comments cannot be inspected", item["reason"])
         self.assertNotIn("very-secret-token", item["reason"])
+        self.assertNotIn("json-secret", backfill._safe_error('{"access_token": "json-secret"}'))
         create_link.assert_not_called()
         post_comment.assert_not_called()
 
@@ -241,7 +314,7 @@ class FacebookBackfillTests(unittest.TestCase):
                 return {"data": []}
             self.fail(f"unexpected URL {url}")
 
-        cached = [{"id": "p-1", "name": "Bình giữ nhiệt tốt", "origin_url": "https://shopee.vn/product/1/2", "commission_rate": 0.2}]
+        cached = [{"id": "p-1", "name": "Bình giữ nhiệt tốt", "origin_url": "https://shopee.vn/product/1/2", "offer_url": "https://shopee.vn/brand-a-affiliate", "commission_rate": 0.2}]
         with (
             patch.object(backfill, "read_social_config", return_value=CONFIG),
             patch.object(backfill, "brand_context", return_value=CONTEXT),
@@ -251,7 +324,7 @@ class FacebookBackfillTests(unittest.TestCase):
             patch.object(backfill.affiliate_store, "upsert_product", side_effect=lambda product: {**product, "id": "p-1"}),
             patch.object(backfill.affiliate_store, "record_content_product", return_value={"id": "record-1"}),
             patch.object(backfill.affiliate_store, "update_content_product") as update_record,
-            patch.object(backfill, "create_affiliate_link", return_value={"link": {"affiliate_url": "https://s.shopee.vn/abc"}}),
+            patch.object(backfill, "create_affiliate_link", return_value={"link": {"affiliate_url": "https://s.shopee.vn/abc"}}) as create_link,
             patch.object(backfill, "post_facebook_source_comment", return_value=("comment-1", "")) as post_comment,
         ):
             result = backfill.run_affiliate_backfill("knowzy", dry_run=False)
@@ -260,6 +333,9 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(result["commented"], 1)
         self.assertEqual(result["items"][0]["status"], "commented")
         self.assertEqual(post_comment.call_args.args[2], "🛒 Sản phẩm liên quan trong video:\nhttps://s.shopee.vn/abc")
+        self.assertEqual(post_comment.call_args.kwargs["attempts"], 1)
+        self.assertFalse(create_link.call_args.kwargs["reuse_product_offer_url"])
+        self.assertTrue(any(call.kwargs.get("affiliate_url") == "https://s.shopee.vn/abc" for call in update_record.call_args_list))
         self.assertTrue(any(call.kwargs.get("status") == "commented" for call in update_record.call_args_list))
 
 
