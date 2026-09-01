@@ -15,7 +15,13 @@ from typing import Iterable
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from . import affiliate_store
-from .addlivetag import AddLiveTagApiError, extract_shopee_reference, fetch_product_data, normalize_product_payload
+from .addlivetag import (
+    AddLiveTagApiError,
+    extract_shopee_reference,
+    fetch_product_data,
+    normalize_product_payload,
+    search_addlivetag_products,
+)
 from .affiliate import (
     affiliate_comment_text,
     brand_context,
@@ -49,7 +55,9 @@ _MATCH_STOPWORDS = frozenset({
     "duoc", "được", "gia", "giá", "giam", "giảm", "hãy", "hot", "khi", "la", "là", "link", "moi", "mới",
     "mua", "ngay", "nhé", "nha", "nhất", "phẩm", "product", "reel", "review", "sale", "san", "sản", "shop",
     "siêu", "tai", "tại", "the", "thật", "trong", "và", "video", "voi", "với", "xem", "you", "đẹp", "tốt",
+    "vs", "khác", "nhau", "đâu", "ở", "giữa", "này", "nào", "như", "thế", "sao", "một", "hai", "thì",
 })
+_COMPARISON_SPLIT_RE = re.compile(r"\s+(?:vs\.?|và|&|hay|hoặc)\s+", re.IGNORECASE)
 
 
 def _fraction(value: object) -> float:
@@ -166,6 +174,27 @@ def _product_query(post_text: str) -> str:
     """Build a bounded provider-search query from a social caption."""
     tokens = list(dict.fromkeys(_match_tokens(post_text)))
     return " ".join(tokens[:12])[:180]
+
+
+def _product_search_queries(post_text: str) -> list[str]:
+    """Create short commerce queries from an editorial/comparison caption."""
+    text = _post_preview(post_text)
+    prefix = re.split(r"[:?!\n|#]", text, maxsplit=1)[0]
+    clauses = [clause.strip() for clause in _COMPARISON_SPLIT_RE.split(prefix) if clause.strip()]
+    queries: list[str] = []
+
+    def add(value: object) -> None:
+        tokens = list(dict.fromkeys(_match_tokens(value)))
+        candidate = " ".join(tokens[:8])[:120]
+        if len(candidate) >= 2 and candidate not in queries:
+            queries.append(candidate)
+
+    add(prefix)
+    for clause in clauses[:3]:
+        if len(_match_tokens(clause)) >= 2:
+            add(clause)
+    add(_product_query(text))
+    return queries[:4]
 
 
 def _normalize_posts(rows: Iterable[object], *, page_id: str, cutoff: datetime) -> list[dict]:
