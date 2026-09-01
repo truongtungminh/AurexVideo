@@ -102,6 +102,27 @@ def _post_preview(value: object) -> str:
     return " ".join(str(value or "").split())[:POST_PREVIEW_LENGTH]
 
 
+def _attachment_description(row: dict) -> str:
+    """Read post description from the non-deprecated nested attachments field."""
+    attachments = row.get("attachments")
+    if isinstance(attachments, dict):
+        candidates = attachments.get("data")
+        candidates = candidates if isinstance(candidates, list) else [attachments]
+    elif isinstance(attachments, list):
+        candidates = attachments
+    else:
+        candidates = []
+    parts: list[str] = []
+    for attachment in candidates:
+        if not isinstance(attachment, dict):
+            continue
+        for key in ("title", "description"):
+            value = _post_preview(attachment.get(key))
+            if value and value not in parts:
+                parts.append(value)
+    return _post_preview(" ".join(parts))
+
+
 def _match_tokens(value: object) -> list[str]:
     text = re.sub(r"https?://[^\s<>\"']+", " ", str(value or "").casefold())
     return [
@@ -158,7 +179,7 @@ def _normalize_posts(rows: Iterable[object], *, page_id: str, cutoff: datetime) 
         if not post_id or not created_time or created_time < cutoff or not _is_published(row.get("is_published")):
             continue
         message = _post_preview(row.get("message"))
-        description = _post_preview(row.get("description"))
+        description = _post_preview(row.get("description")) or _attachment_description(row)
         normalized = {
             "id": post_id,
             "post_id": post_id,
@@ -190,6 +211,14 @@ def _graph_data(url: str, fields: dict) -> dict:
     if isinstance(error, dict):
         raise RuntimeError(str(error.get("message") or "Facebook Graph API request failed."))
     return data
+
+
+def _is_deprecated_post_field_error(error: object) -> bool:
+    """Recognize Meta's legacy aggregated-post-field error without broad retries."""
+    message = str(error or "").casefold()
+    return "deprecate_post_aggregated_fields_for_attachement" in message or (
+        "deprecated" in message and "attachment" in message and "post" in message
+    )
 
 
 def _next_graph_page_url(value: object) -> str:
@@ -244,14 +273,27 @@ def _read_page_posts(facebook: dict, page: dict, *, limit: int, cutoff: datetime
         raise ValueError("Facebook Page chưa có Page access token hợp lệ.")
     base = f"https://graph.facebook.com/{facebook_graph_version(facebook)}/{quote(page_id, safe='')}"
     fields = {
-        "fields": "id,message,description,created_time,permalink_url,is_published",
+        "fields": "id,message,created_time,permalink_url,is_published,attachments{description}",
+        "limit": str(min(MAX_LIMIT, max(limit, 20))),
+        "since": str(max(0, int(cutoff.timestamp()))),
+        "access_token": access_token,
+    }
+    fallback_fields = {
+        "fields": "id,message,created_time,permalink_url,is_published",
         "limit": str(min(MAX_LIMIT, max(limit, 20))),
         "since": str(max(0, int(cutoff.timestamp()))),
         "access_token": access_token,
     }
     rows: list[object] = []
     for edge in ("feed", "video_reels"):
-        rows.extend(_read_graph_edge(f"{base}/{edge}", fields, edge, limit=limit, cutoff=cutoff))
+        try:
+            rows.extend(_read_graph_edge(f"{base}/{edge}", fields, edge, limit=limit, cutoff=cutoff))
+        except RuntimeError as exc:
+            if not _is_deprecated_post_field_error(exc):
+                raise
+            # Some older Page/Reels surfaces reject nested attachment fields too.
+            # Retry once with only scalar fields; never hide auth or transport errors.
+            rows.extend(_read_graph_edge(f"{base}/{edge}", fallback_fields, edge, limit=limit, cutoff=cutoff))
     return _normalize_posts(rows, page_id=page_id, cutoff=cutoff)[:limit]
 
 
