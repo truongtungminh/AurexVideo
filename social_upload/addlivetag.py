@@ -13,6 +13,7 @@ import json
 import os
 import re
 from collections.abc import Mapping, Sequence
+from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
@@ -22,10 +23,14 @@ from .shopee import validate_shopee_url
 
 DEFAULT_PRODUCT_DATA_URL = "https://data.addlivetag.com/product-data/product-data.php"
 DEFAULT_SHORT_LINK_URL = "https://addlivetag.com/short-link.php"
+DEFAULT_SEARCH_URL = "https://addlivetag.com/live/search.php"
 PRODUCT_DATA_HOSTS = {"data.addlivetag.com"}
 SHORT_LINK_HOSTS = {"addlivetag.com", "www.addlivetag.com"}
+SEARCH_HOSTS = SHORT_LINK_HOSTS
 MAX_RESPONSE_BYTES = 512 * 1024
 MAX_TIMEOUT_SECONDS = 30
+MAX_SEARCH_RESULTS = 100
+MAX_SEARCH_QUERY_LENGTH = 180
 ITEM_ID_RE = re.compile(r"[1-9][0-9]{0,31}")
 ITEM_ID_LABEL_RE = re.compile(
     r"(?:\bitem[\s_-]*id\b|\bmã\s*sản\s*phẩm\b)\s*(?:[:=#-]\s*)?([1-9][0-9]{0,31})\b",
@@ -37,6 +42,247 @@ SECRET_KEY_RE = re.compile(r"secret|token|cookie|authorization|api[_-]?key|passw
 
 class AddLiveTagApiError(RuntimeError):
     """Safe AddLiveTag failure that intentionally omits request URLs and ids."""
+
+
+def _clean_html_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+class _LiveSearchTableParser(HTMLParser):
+    """Extract product rows without depending on a third-party HTML package."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[dict[str, object]]] = []
+        self._row: list[dict[str, object]] | None = None
+        self._cell: dict[str, object] | None = None
+        self._link: dict[str, object] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        if tag == "tr" and self._row is None:
+            self._row = []
+            return
+        if tag == "td" and self._row is not None and self._cell is None:
+            self._cell = {"parts": [], "links": []}
+            return
+        if tag == "a" and self._cell is not None and self._link is None:
+            values = dict(attrs)
+            self._link = {"href": str(values.get("href") or ""), "parts": []}
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # Images and other self-closing elements do not contribute to the
+        # searchable product fields; keeping this explicit avoids opening a
+        # phantom cell for malformed provider markup.
+        return
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is None:
+            return
+        parts = self._cell["parts"]
+        if isinstance(parts, list):
+            parts.append(data)
+        if self._link is not None:
+            link_parts = self._link["parts"]
+            if isinstance(link_parts, list):
+                link_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.casefold()
+        if tag == "a" and self._cell is not None and self._link is not None:
+            links = self._cell["links"]
+            if isinstance(links, list):
+                links.append({
+                    "href": str(self._link.get("href") or ""),
+                    "text": _clean_html_text(" ".join(str(part) for part in self._link.get("parts", []))),
+                })
+            self._link = None
+            return
+        if tag == "td" and self._row is not None and self._cell is not None:
+            self._row.append({
+                "text": _clean_html_text(" ".join(str(part) for part in self._cell.get("parts", []))),
+                "links": list(self._cell.get("links") or []),
+            })
+            self._cell = None
+            return
+        if tag == "tr" and self._row is not None:
+            if self._cell is not None:
+                self._row.append({
+                    "text": _clean_html_text(" ".join(str(part) for part in self._cell.get("parts", []))),
+                    "links": list(self._cell.get("links") or []),
+                })
+                self._cell = None
+            if self._row:
+                self.rows.append(self._row)
+            self._row = None
+
+
+def _request_text(endpoint: str, params: Mapping[str, str], *, timeout: object, default_timeout: int) -> str:
+    query = urlencode({key: value for key, value in params.items() if value != ""})
+    request = Request(
+        f"{endpoint}?{query}",
+        headers={
+            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": "AurexVideo/addlivetag-readonly",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=_timeout(timeout, default_timeout)) as response:
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+    except HTTPError as exc:
+        try:
+            exc.close()
+        except OSError:
+            pass
+        raise AddLiveTagApiError(f"AddLiveTag HTTP {exc.code}.") from exc
+    except (TimeoutError, URLError, OSError) as exc:
+        raise AddLiveTagApiError("AddLiveTag request failed.") from exc
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise AddLiveTagApiError("AddLiveTag response vượt quá giới hạn cho phép.")
+    return raw.decode("utf-8", "replace")
+
+
+def _search_number(value: object) -> float | None:
+    text = _clean_html_text(value)
+    if not text or not re.fullmatch(r"[0-9][0-9.,\s₫đĐvVnNdD]*", text):
+        return None
+    number = _number(text, default=-1)
+    return number if number >= 0 else None
+
+
+def _search_product_from_row(row: list[dict[str, object]], query: str) -> dict | None:
+    cells = [cell if isinstance(cell, dict) else {} for cell in row]
+    origin_url = ""
+    name = ""
+    url_cell_index = -1
+    for index, cell in enumerate(cells):
+        cell_text = str(cell.get("text") or "")
+        candidates = [cell_text]
+        links = cell.get("links")
+        if isinstance(links, list):
+            candidates.extend(str(link.get("href") or "") for link in links if isinstance(link, dict))
+            if not name:
+                for link in links:
+                    if not isinstance(link, dict):
+                        continue
+                    link_text = _clean_html_text(link.get("text"))
+                    if link_text and not re.fullmatch(r"https?://[^\s]+", link_text, flags=re.IGNORECASE):
+                        name = link_text
+                        break
+        for candidate in candidates:
+            try:
+                origin_url = validate_shopee_url(candidate)
+            except ValueError:
+                continue
+            url_cell_index = index
+            break
+        if origin_url:
+            break
+    if not origin_url or url_cell_index < 0:
+        return None
+    if not name:
+        name = str(cells[2].get("text") or "") if len(cells) > 2 else ""
+    name = _clean_html_text(name)
+    if not name:
+        return None
+
+    parsed = urlparse(origin_url)
+    match = re.search(r"/bc-i\.([1-9][0-9]{0,31})\.([1-9][0-9]{0,31})(?:[/?#]|$)", parsed.path)
+    if not match:
+        return None
+    shop_id, item_id = match.groups()
+    values = []
+    for cell in cells[url_cell_index + 1:]:
+        number = _search_number(cell.get("text"))
+        if number is not None:
+            values.append(number)
+    if len(values) < 2:
+        # Anonymous search results can expose the URL but hide commercial
+        # fields behind login.  They are not safe candidates for AUTO.
+        return None
+    commission_amount, price = values[:2]
+    sold = values[2] if len(values) > 2 else 0.0
+    commission_rate = commission_amount / price if price > 0 else 0.0
+    commission_rate = max(0.0, min(1.0, commission_rate))
+    return {
+        "provider": "shopee",
+        "provider_product_id": item_id,
+        "shop_id": shop_id,
+        "name": name,
+        "origin_url": origin_url,
+        "offer_url": "",
+        "image_url": "",
+        "price_min": price,
+        "price_max": price,
+        "commission_rate": commission_rate,
+        "commission_amount_vnd": commission_amount,
+        "sales": max(0.0, sold),
+        "rating": 0.0,
+        "discount_rate": 0.0,
+        "shop_quality": 0.0,
+        "relevance_score": 0.0,
+        "link_provider": "addlivetag",
+        "raw": {
+            "source": "addlivetag_live_search",
+            "query": query,
+            "commission_amount_vnd": commission_amount,
+            "price_vnd": price,
+            "sold": sold,
+        },
+    }
+
+
+def search_addlivetag_products(
+    query: object,
+    *,
+    endpoint: str = DEFAULT_SEARCH_URL,
+    limit: int = 20,
+    timeout: int = 20,
+) -> list[dict]:
+    """Read keyword-matched Shopee candidates from AddLiveTag's public catalog.
+
+    This is intentionally an HTML adapter because AddLiveTag's public LIVE
+    search is not the official Shopee Open API.  It never sends credentials,
+    cookies, or an Affiliate ID, and it rejects rows without visible price and
+    commission data so the caller can enforce Brand policy conservatively.
+    """
+    keyword = " ".join(str(query or "").split())[:MAX_SEARCH_QUERY_LENGTH]
+    if len(keyword) < 2:
+        return []
+    try:
+        result_limit = int(limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("AddLiveTag search limit không hợp lệ.") from exc
+    if not 1 <= result_limit <= MAX_SEARCH_RESULTS:
+        raise ValueError(f"AddLiveTag search limit phải từ 1 đến {MAX_SEARCH_RESULTS}.")
+    endpoint = _validated_endpoint(endpoint, hosts=SEARCH_HOSTS, label="Search endpoint")
+    html = _request_text(
+        endpoint,
+        {"keyword": keyword, "limit": str(result_limit), "sold": "0", "price": "0", "sort": "com"},
+        timeout=timeout,
+        default_timeout=20,
+    )
+    parser = _LiveSearchTableParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except (TypeError, ValueError) as exc:
+        raise AddLiveTagApiError("AddLiveTag search trả về HTML không hợp lệ.") from exc
+    products: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for row in parser.rows:
+        product = _search_product_from_row(row, keyword)
+        if not product:
+            continue
+        key = (str(product.get("provider_product_id") or ""), str(product.get("origin_url") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        products.append(product)
+        if len(products) >= result_limit:
+            break
+    return products
 
 
 def _validated_endpoint(value: object, *, hosts: set[str], label: str) -> str:
