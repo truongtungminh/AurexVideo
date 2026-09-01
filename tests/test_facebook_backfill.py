@@ -55,6 +55,56 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.utcoffset(), timedelta(0))
 
+    def test_page_read_uses_nested_attachment_description_field(self):
+        calls = []
+
+        def fake_get(url, fields):
+            calls.append((url, fields))
+            if url.endswith("/feed"):
+                return {"data": [graph_post(attachments={"data": [{"description": "Máy hút bụi cầm tay"}]})]}
+            if url.endswith("/video_reels"):
+                return {"data": []}
+            self.fail(f"unexpected URL {url}")
+
+        with patch.object(backfill, "http_get_request", side_effect=fake_get):
+            posts = backfill._read_page_posts(
+                CONFIG["facebook"],
+                CONFIG["facebook"]["pages"][0],
+                limit=4,
+                cutoff=NOW - timedelta(days=30),
+            )
+
+        self.assertEqual(posts[0]["description_preview"], "Máy hút bụi cầm tay")
+        fields = calls[0][1]["fields"]
+        self.assertIn("attachments{description}", fields)
+        self.assertNotIn(",description,", fields)
+
+    def test_page_read_falls_back_to_scalar_fields_for_meta_deprecation(self):
+        calls = []
+
+        def fake_get(url, fields):
+            calls.append((url, fields))
+            if url.endswith("/feed") and "attachments{description}" in fields.get("fields", ""):
+                return {"error": {"message": "(#12) deprecate_post_aggregated_fields_for_attachement is deprecated for versions v3.3 and higher"}}
+            if url.endswith("/feed"):
+                return {"data": [graph_post()]}
+            if url.endswith("/video_reels"):
+                return {"data": []}
+            self.fail(f"unexpected URL {url}")
+
+        with patch.object(backfill, "http_get_request", side_effect=fake_get):
+            posts = backfill._read_page_posts(
+                CONFIG["facebook"],
+                CONFIG["facebook"]["pages"][0],
+                limit=4,
+                cutoff=NOW - timedelta(days=30),
+            )
+
+        self.assertEqual([post["id"] for post in posts], ["page-1_1"])
+        self.assertEqual(len(calls), 3)
+        self.assertIn("attachments{description}", calls[0][1]["fields"])
+        self.assertNotIn("attachments", calls[1][1]["fields"])
+
     def test_single_attempt_comment_mode_does_not_retry_ambiguous_post(self):
         with (
             patch("social_upload.facebook.http_form_request", side_effect=RuntimeError("network")) as request,
