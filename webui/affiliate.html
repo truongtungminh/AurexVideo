@@ -84,6 +84,29 @@
         </div>
       </section>
 
+      <section class="poc-panel panel" aria-labelledby="pocTitle">
+        <div class="section-heading poc-heading">
+          <div><p class="eyebrow">Live verification</p><h2 id="pocTitle">POC A–D · Shopee × Facebook</h2></div>
+          <p id="pocSummary" class="settings-hint">Chưa có lần kiểm thử nào.</p>
+        </div>
+        <p class="poc-intro">Ghi nhận kết quả từ tài khoản thật theo 4 tổ hợp Reel/comment. Khu vực này chỉ lưu log cục bộ; không tự đăng bài và không hiển thị App Secret.</p>
+        <div class="poc-form-grid">
+          <label>Content / project ID<input id="pocContentId" type="text" autocomplete="off" placeholder="Ví dụ: video-001 hoặc project-slug" /></label>
+          <label>Facebook Page ID<input id="pocPageId" type="text" autocomplete="off" placeholder="Tự lấy theo Brand nếu bỏ trống" /></label>
+          <label>Post ID<input id="pocPostId" type="text" autocomplete="off" placeholder="Sau khi Reel đăng" /></label>
+          <label>Comment ID<input id="pocCommentId" type="text" autocomplete="off" placeholder="Nếu có comment" /></label>
+          <label>Banner Affiliate<select id="pocBannerObserved"><option value="">Chưa xác định</option><option value="yes">Có</option><option value="no">Không</option></select></label>
+          <label>Evidence URL<input id="pocEvidenceUrl" type="url" autocomplete="off" placeholder="Ảnh/chứng cứ nếu có" /></label>
+          <label class="poc-notes">Ghi chú<textarea id="pocNotes" rows="2" maxlength="1000" placeholder="Quyền, thời gian phản hồi, lỗi hoặc nhận xét..."></textarea></label>
+        </div>
+        <div class="poc-table-wrap">
+          <table class="poc-table">
+            <thead><tr><th>Case</th><th>Luồng</th><th>Trạng thái</th><th>Banner</th><th>Lần chạy gần nhất</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
+            <tbody id="pocCasesBody"><tr><td colspan="6" class="table-empty">Đang tải POC A–D...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="connection-grid" aria-label="Trạng thái nền tảng">
         <article class="connection-card panel" data-platform="shopee">
           <div class="connection-icon shopee-icon" aria-hidden="true">S</div>
