@@ -303,9 +303,17 @@ def wait_for_facebook_object_ready(
     return {}, last_error
 
 
-def post_facebook_source_comment(facebook: dict, object_id: str, message: str, access_token: str) -> tuple[str, str]:
+def post_facebook_source_comment(
+    facebook: dict,
+    object_id: str,
+    message: str,
+    access_token: str,
+    *,
+    attempts: int = 4,
+) -> tuple[str, str]:
+    attempts = max(1, min(int(attempts or 1), 4))
     last_error = ""
-    for attempt in range(4):
+    for attempt in range(attempts):
         try:
             comment_data = http_form_request(
                 facebook_post_comment_url(facebook, object_id),
@@ -320,7 +328,7 @@ def post_facebook_source_comment(facebook: dict, object_id: str, message: str, a
             last_error = f"Facebook comment response did not include an id: {comment_data}"
         except RuntimeError as exc:
             last_error = str(exc)
-        if attempt < 3:
+        if attempt < attempts - 1:
             time.sleep(3)
     return "", last_error
 

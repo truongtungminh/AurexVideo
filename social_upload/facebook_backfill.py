@@ -43,7 +43,7 @@ POST_PREVIEW_LENGTH = 500
 _BACKFILL_LOCK = threading.RLock()
 _SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my|ee)[^\s<>'\"]*", re.I)
 _COMMENT_MARKER = "sản phẩm liên quan"
-_SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*(?:=|:|%3d)[^\s&,'\"]+")
+_SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*['\"]?\s*(?:=|:|%3d)\s*(?:bearer\s+)?['\"]?[^\s&,'\"]+")
 _MATCH_STOPWORDS = frozenset({
     "a", "an", "and", "cho", "click", "co", "có", "cua", "của", "de", "đã", "đang", "đây", "để",
     "duoc", "được", "gia", "giá", "giam", "giảm", "hãy", "hot", "khi", "la", "là", "link", "moi", "mới",
@@ -206,7 +206,7 @@ def _next_graph_page_url(value: object) -> str:
     return next_url
 
 
-def _read_graph_edge(url: str, fields: dict, edge: str) -> list[object]:
+def _read_graph_edge(url: str, fields: dict, edge: str, *, limit: int, cutoff: datetime) -> list[object]:
     """Read one Graph edge through a small, fail-safe pagination budget."""
     rows: list[object] = []
     current_url = url
@@ -216,6 +216,19 @@ def _read_graph_edge(url: str, fields: dict, edge: str) -> list[object]:
         if not isinstance(page_rows, list):
             raise RuntimeError(f"Facebook {edge} response did not include data.")
         rows.extend(page_rows)
+        recent_count = 0
+        all_rows_older_than_cutoff = bool(page_rows)
+        for row in page_rows:
+            if not isinstance(row, dict):
+                all_rows_older_than_cutoff = False
+                continue
+            created_time = _parse_created_time(row.get("created_time"))
+            if created_time is None or created_time >= cutoff:
+                all_rows_older_than_cutoff = False
+            if created_time and created_time >= cutoff and _is_published(row.get("is_published")):
+                recent_count += 1
+        if recent_count >= limit or all_rows_older_than_cutoff:
+            return rows
         paging = data.get("paging") if isinstance(data.get("paging"), dict) else {}
         next_url = _next_graph_page_url(paging.get("next"))
         if not next_url:
@@ -233,11 +246,12 @@ def _read_page_posts(facebook: dict, page: dict, *, limit: int, cutoff: datetime
     fields = {
         "fields": "id,message,description,created_time,permalink_url,is_published",
         "limit": str(min(MAX_LIMIT, max(limit, 20))),
+        "since": str(max(0, int(cutoff.timestamp()))),
         "access_token": access_token,
     }
     rows: list[object] = []
     for edge in ("feed", "video_reels"):
-        rows.extend(_read_graph_edge(f"{base}/{edge}", fields, edge))
+        rows.extend(_read_graph_edge(f"{base}/{edge}", fields, edge, limit=limit, cutoff=cutoff))
     return _normalize_posts(rows, page_id=page_id, cutoff=cutoff)[:limit]
 
 
@@ -338,7 +352,15 @@ def _policy_product(products: Iterable[object], query: str, settings: dict) -> d
     ]
     if not acceptable:
         return {}
-    selected = sorted(acceptable, key=lambda product: (-float(product.get("ranking_score") or 0), -_fraction(product.get("commission_rate"))))[0]
+    selected = sorted(
+        acceptable,
+        key=lambda product: (
+            -_fraction(product.get("relevance_score")),
+            -_fraction(product.get("commission_rate")),
+            -float(product.get("ranking_score") or 0),
+            str(product.get("name") or "").casefold(),
+        ),
+    )[0]
     source = source_by_key.get((str(selected.get("provider_product_id") or ""), str(selected.get("origin_url") or "")), {})
     for key in ("id", "link_provider"):
         if source.get(key):
@@ -349,8 +371,6 @@ def _policy_product(products: Iterable[object], query: str, settings: dict) -> d
 def _prepare_product_for_link(product: dict, context: dict) -> tuple[dict, str]:
     """Choose the configured link writer and fail preview closed if none exists."""
     selected = dict(product)
-    if str(selected.get("offer_url") or selected.get("affiliate_url") or "").strip():
-        return selected, ""
 
     addlivetag = context.get("addlivetag") if isinstance(context.get("addlivetag"), dict) else {}
     connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
@@ -406,7 +426,7 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
         return {}, "Post has no usable product keywords."
     if connection.get("connected"):
         try:
-            discovered = discover_products(brand, provider_query, limit=10)
+            discovered = discover_products(brand, provider_query, limit=10, persist=False)
         except (RuntimeError, TypeError, ValueError) as exc:
             return {}, f"Official Shopee discovery unavailable: {_safe_error(exc)}"
         products = discovered.get("products") if isinstance(discovered, dict) else []
@@ -556,6 +576,7 @@ def run_affiliate_backfill(
                     page_id=resolved_page_id,
                     product_payload=product,
                     link_provider=str(product.get("link_provider") or ""),
+                    reuse_product_offer_url=False,
                 )
                 affiliate_url = str((link_result.get("link") or {}).get("affiliate_url") or "").strip()
                 if not affiliate_url:
@@ -565,15 +586,22 @@ def run_affiliate_backfill(
                     facebook_full_post_id(facebook, post_id, page),
                     affiliate_comment_text(affiliate_url),
                     facebook_page_access_token(facebook, page),
+                    attempts=1,
                 )
                 if not comment_id:
-                    affiliate_store.update_content_product(str(record.get("id") or ""), status="failed", error=_safe_error(comment_error))
+                    affiliate_store.update_content_product(
+                        str(record.get("id") or ""),
+                        affiliate_url=affiliate_url,
+                        status="failed",
+                        error=_safe_error(comment_error),
+                    )
                     raise RuntimeError(comment_error or "Facebook did not return a comment id.")
                 affiliate_store.update_content_product(
                     str(record.get("id") or ""),
                     page_id=resolved_page_id,
                     facebook_post_id=post_id,
                     facebook_comment_id=comment_id,
+                    affiliate_url=affiliate_url,
                     status="commented",
                     error="",
                 )

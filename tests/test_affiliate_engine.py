@@ -11,6 +11,7 @@ from social_upload.affiliate import (
     brand_context as affiliate_brand_context,
     build_sub_ids,
     create_affiliate_link,
+    discover_products,
     ingest_conversion_rows,
     list_saved_products,
     rank_products,
@@ -104,6 +105,27 @@ class AffiliateEngineTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(ranked[0]["ranking_score"], 0.84, places=6)
+
+    def test_discover_products_can_skip_catalog_persistence(self):
+        config = {}
+        update_shopee_config("app-123", "s" * 32, brand="knowzy", config=config, persist=False)
+        raw_product = {
+            "itemId": "item-1",
+            "name": "Bình giữ nhiệt",
+            "productLink": "https://shopee.vn/product/1/2",
+            "relevance": 0.9,
+            "commissionRate": 0.2,
+        }
+        with (
+            patch("social_upload.affiliate.read_social_config", return_value=config),
+            patch("social_upload.affiliate.search_product_offers", return_value=[raw_product]),
+            patch.object(affiliate_store, "product_conversion_rates", return_value={}),
+            patch.object(affiliate_store, "upsert_product") as upsert,
+        ):
+            result = discover_products("knowzy", "bình giữ nhiệt", persist=False)
+
+        self.assertEqual(result["products"][0]["provider_product_id"], "item-1")
+        upsert.assert_not_called()
 
     def test_brand_connection_is_scoped_and_secret_is_not_in_public_context(self):
         config = {}
@@ -225,6 +247,32 @@ class AffiliateEngineTests(unittest.TestCase):
         self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/already-created")
         self.assertEqual(result["link"]["content_id"], "affiliate-dashboard")
         self.assertEqual(result["sub_ids"][1], "123456")
+
+    def test_backfill_can_force_regeneration_instead_of_reusing_cached_offer_url(self):
+        config = {}
+        update_shopee_config("app-123", "s" * 32, brand="knowzy", config=config, persist=False)
+        product = affiliate_store.upsert_product({
+            "provider_product_id": "item-1",
+            "name": "Bình giữ nhiệt",
+            "origin_url": "https://shopee.vn/binh-giu-nhiet",
+            "offer_url": "https://s.shopee.vn/brand-a-offer",
+        })
+        with (
+            patch("social_upload.affiliate.read_social_config", return_value=config),
+            patch("social_upload.affiliate.generate_short_link", return_value="https://s.shopee.vn/brand-b-offer") as generate,
+        ):
+            result = create_affiliate_link(
+                brand="knowzy",
+                content_id="facebook-backfill-1",
+                product_id=product["id"],
+                origin_url=product["origin_url"],
+                placement="first_comment",
+                page_id="page-1",
+                reuse_product_offer_url=False,
+            )
+
+        self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/brand-b-offer")
+        generate.assert_called_once()
 
     def test_conversion_import_rebuilds_daily_stats_idempotently(self):
         rows = [
