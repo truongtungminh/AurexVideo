@@ -3,6 +3,7 @@ from __future__ import annotations
 """Local, API-agnostic persistence for the Shopee x Facebook A-D POC."""
 
 import re
+import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -166,7 +167,7 @@ def _legacy_reference(value: object) -> dict:
     if not isinstance(value, str) or not value:
         return {}
     try:
-        parsed = __import__("json").loads(value)
+        parsed = json.loads(value)
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
@@ -186,6 +187,8 @@ def _migrate_legacy_schema(connection: sqlite3.Connection) -> None:
     }
     if not (expected_legacy_runs.issubset(run_columns) and expected_legacy_cases.issubset(case_columns)):
         raise RuntimeError("Không nhận diện được schema POC Affiliate hiện tại để migrate an toàn.")
+    if _columns(connection, "affiliate_poc_runs_legacy_v1") or _columns(connection, "affiliate_poc_cases_legacy_v1"):
+        raise RuntimeError("Schema POC Affiliate đã có bản backup legacy, cần kiểm tra migration trước khi chạy lại.")
 
     connection.execute("ALTER TABLE affiliate_poc_runs RENAME TO affiliate_poc_runs_legacy_v1")
     connection.execute("ALTER TABLE affiliate_poc_cases RENAME TO affiliate_poc_cases_legacy_v1")
@@ -217,7 +220,12 @@ def _migrate_legacy_schema(connection: sqlite3.Connection) -> None:
         "SELECT run_id, case_code, status, note, message, evidence, reference, created_at, updated_at "
         "FROM affiliate_poc_cases_legacy_v1 ORDER BY run_id, case_code"
     ).fetchall()
+    legacy_run_ids = {str(row["id"]) for row in legacy_runs}
     for row in legacy_cases:
+        # Keep orphaned rows in the legacy backup. Without their parent run
+        # they cannot be safely assigned to a Brand/content in the new schema.
+        if str(row["run_id"]) not in legacy_run_ids:
+            continue
         reference = _legacy_reference(row["reference"])
         notes = str(row["note"] or "")
         if not notes:
@@ -533,20 +541,25 @@ def summarize_run(brand_id: object, run_id: object) -> dict:
         return _summary(connection, brand, run_key)
 
 
-def poc_summary(brand_id: object, content_id: object) -> dict:
-    """Return the latest run for a Brand/content, or an unstarted A-D matrix."""
+def poc_summary(brand_id: object, content_id: object, *, idempotency_key: object = None) -> dict:
+    """Return a selected or latest run for a Brand/content, or an unstarted matrix."""
     brand = _require_brand(brand_id)
     content = _require_safe_key("contentId", content_id)
+    key = None if idempotency_key is None else _require_safe_key("idempotencyKey", idempotency_key)
     init_db()
     with _connection() as connection:
-        row = connection.execute(
-            """
+        query = """
             SELECT id FROM affiliate_poc_runs
             WHERE brand_id = ? AND content_id = ?
-            ORDER BY created_at DESC, rowid DESC
-            LIMIT 1
-            """,
-            (brand, content),
+        """
+        values: list[object] = [brand, content]
+        if key is not None:
+            query += " AND idempotency_key = ?"
+            values.append(key)
+        query += " ORDER BY created_at DESC, rowid DESC LIMIT 1"
+        row = connection.execute(
+            query,
+            values,
         ).fetchone()
         if row is None:
             return _empty_summary(brand, content)

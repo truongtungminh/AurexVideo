@@ -99,6 +99,24 @@ class AffiliatePocApiTests(unittest.TestCase):
         self.assertEqual(len(reread["runs"]), 4)
         self.assertEqual(next(row for row in reread["runs"] if row["case_key"] == "A")["status"], "passed")
 
+        status, page_two = self.request("/api/affiliate/poc", {
+            "brand": "knowzy",
+            "contentId": "video-1",
+            "pageId": "page-2",
+            "caseKey": "B",
+            "status": "running",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(next(row for row in page_two["runs"] if row["case_key"] == "B")["status"], "running")
+        status, page_one_read = self.request("/api/affiliate/poc?brand=knowzy&contentId=video-1&pageId=page-1")
+        self.assertEqual(status, 200)
+        self.assertEqual(next(row for row in page_one_read["runs"] if row["case_key"] == "A")["status"], "passed")
+        self.assertEqual(next(row for row in page_one_read["runs"] if row["case_key"] == "B")["status"], "pending")
+        status, page_two_read = self.request("/api/affiliate/poc?brand=knowzy&contentId=video-1&pageId=page-2")
+        self.assertEqual(status, 200)
+        self.assertEqual(next(row for row in page_two_read["runs"] if row["case_key"] == "B")["status"], "running")
+        self.assertEqual(next(row for row in page_two_read["runs"] if row["case_key"] == "A")["status"], "pending")
+
         status, isolated = self.request("/api/affiliate/poc?brand=other&contentId=video-1")
         self.assertEqual(status, 200)
         self.assertEqual(isolated["runs"], [])
