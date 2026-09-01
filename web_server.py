@@ -30,12 +30,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from social_upload import (
     affiliate_brand_context,
+    addlivetag_brand_context,
     affiliate_overview,
     create_affiliate_link,
     discover_products,
     ingest_conversion_rows,
     list_saved_products,
     save_affiliate_settings,
+    save_addlivetag_settings,
+    resolve_addlivetag_product,
     shopee_status,
     update_shopee_config,
     disconnect_shopee,
@@ -10050,6 +10053,51 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if parsed.path == "/api/affiliate/addlivetag/config":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("AddLiveTag config cần Brand.")
+                if any(payload.get(key) for key in ("apiKey", "api_key", "secret", "token", "cookie")):
+                    raise ValueError("AddLiveTag Product Data không dùng API key, token hoặc cookie.")
+                settings = save_addlivetag_settings(brand, payload)
+                self.send_json(200, {"ok": True, "brand": brand, "addlivetag": settings})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/affiliate/auto-resolve":
+            try:
+                payload = self.read_json_body()
+                project = str(payload.get("project") or payload.get("contentId") or payload.get("content_id") or "").strip()
+                if not project:
+                    raise ValueError("AUTO AddLiveTag cần project.")
+                require_project(project)
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("AUTO AddLiveTag cần Brand.")
+                reference = str(payload.get("reference") or payload.get("query") or "").strip()
+                origin_url = str(payload.get("originUrl") or payload.get("origin_url") or "").strip()
+                item_id = str(payload.get("itemId") or payload.get("item_id") or "").strip()
+                if reference and not origin_url and not item_id:
+                    if reference.startswith("https://"):
+                        origin_url = reference
+                    elif reference.isdigit():
+                        item_id = reference
+                result = resolve_addlivetag_product(
+                    brand,
+                    project,
+                    origin_url=origin_url,
+                    item_id=item_id,
+                )
+                self.send_json(200, {"ok": True, **result})
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if parsed.path == "/api/affiliate/link":
             try:
                 payload = self.read_json_body()
@@ -10068,6 +10116,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                     placement=str(payload.get("placement") or "first_comment"),
                     page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
                     product_payload=payload.get("product") if isinstance(payload.get("product"), dict) else None,
+                    link_provider=str(payload.get("linkProvider") or payload.get("link_provider") or ""),
                 )
                 self.send_json(200, result)
             except FileNotFoundError as exc:
