@@ -90,6 +90,25 @@
         </div>
       </section>
 
+      <section class="backfill-panel panel" aria-labelledby="backfillTitle">
+        <div class="section-heading backfill-heading">
+          <div><p class="eyebrow">Bổ sung cho bài đã đăng</p><h2 id="backfillTitle">Tự chọn sản phẩm &amp; comment link</h2></div>
+          <p id="backfillStatus" class="settings-hint">Chạy preview để xem bài nào đủ điều kiện.</p>
+        </div>
+        <p class="backfill-intro">Quét các bài đã đăng trên đúng Fanpage của Brand, chọn sản phẩm phù hợp với nội dung và ưu tiên commission cao. Bài đã có comment/link affiliate sẽ được bỏ qua.</p>
+        <div class="backfill-controls">
+          <label>Quét tối đa<input id="backfillLimit" type="number" min="1" max="50" step="1" value="10" /></label>
+          <label>Trong số ngày gần nhất<input id="backfillDays" type="number" min="1" max="365" step="1" value="30" /></label>
+          <div class="settings-actions"><button class="button secondary" id="backfillPreviewButton" type="button">Quét preview</button><button class="button" id="backfillRunButton" type="button" disabled>Comment bài đủ điều kiện</button></div>
+        </div>
+        <div class="backfill-table-wrap">
+          <table class="backfill-table">
+            <thead><tr><th>Bài đã đăng</th><th>Sản phẩm được chọn</th><th>Hoa hồng</th><th>Trạng thái</th><th>Lý do</th></tr></thead>
+            <tbody id="backfillResultsBody"><tr><td colspan="5" class="table-empty">Chưa chạy preview.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="poc-panel panel" aria-labelledby="pocTitle">
         <div class="section-heading poc-heading">
           <div><p class="eyebrow">Live verification</p><h2 id="pocTitle">POC A–D · Shopee × Facebook</h2></div>

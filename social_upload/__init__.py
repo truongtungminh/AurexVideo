@@ -31,6 +31,7 @@ from .facebook import (
     set_facebook_active_page,
     update_facebook_page_config,
 )
+from .facebook_backfill import run_affiliate_backfill
 from .shopee import (
     DEFAULT_SHOPEE_API_BASE_URL,
     disconnect_shopee,
@@ -119,6 +120,7 @@ __all__ = [
     "disconnect_youtube_channel",
     "facebook_comment_source",
     "facebook_upload_video",
+    "run_affiliate_backfill",
     "finish_youtube_oauth",
     "instagram_config",
     "instagram_config_hint",

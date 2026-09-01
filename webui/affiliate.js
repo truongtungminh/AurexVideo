@@ -1,10 +1,11 @@
-const state = { context: {}, overview: {}, products: [], records: [], poc: {}, brand: new URLSearchParams(location.search).get("brand") || "", period: "7d", status: "all", query: "" };
+const state = { context: {}, overview: {}, products: [], records: [], poc: {}, backfill: {}, brand: new URLSearchParams(location.search).get("brand") || "", period: "7d", status: "all", query: "" };
 const elements = Object.fromEntries([
   "brandSelect", "periodSelect", "searchInput", "statusSelect", "refreshButton", "syncState", "shopeeState", "shopeeBadge", "facebookState", "facebookBadge",
   "kpiClicks", "kpiClicksDetail", "kpiOrders", "kpiOrdersDetail", "kpiGmv", "kpiGmvDetail", "kpiCommission", "kpiCommissionDetail", "kpiCtr", "kpiCtrDetail", "kpiConversionRate", "kpiConversionRateDetail", "recordsBody", "recordsCount", "toast",
   "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint", "addLiveTagEnabled", "addLiveTagAffiliateId", "saveAddLiveTagButton",
   "affiliateEnabled", "affiliateMode", "affiliatePlacement", "affiliateProductsPerPost", "affiliateMinRelevance", "affiliateMinCommission", "saveAffiliateSettingsButton",
   "pocSummary", "pocContentId", "pocPageId", "pocPostId", "pocCommentId", "pocBannerObserved", "pocEvidenceUrl", "pocNotes", "pocCasesBody",
+  "backfillStatus", "backfillLimit", "backfillDays", "backfillPreviewButton", "backfillRunButton", "backfillResultsBody",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
 
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char])); }
@@ -60,6 +61,54 @@ function typeLabel(type) { return ({ link: "Link", product: "Sản phẩm", camp
 function filteredRecords() { const needle = state.query.trim().toLocaleLowerCase("vi"); return state.records.filter((record) => (state.status === "all" || record.status === state.status) && (!needle || `${record.name} ${record.subtitle} ${record.campaign}`.toLocaleLowerCase("vi").includes(needle))); }
 function renderRecords() { const records = filteredRecords(); elements.recordsCount.textContent = state.records.length ? `${records.length}/${state.records.length} mục` : "Chưa có dữ liệu"; if (!records.length) { elements.recordsBody.innerHTML = `<tr><td colspan="9" class="table-empty">${state.records.length ? "Không có mục khớp bộ lọc." : "Chưa có link, sản phẩm hoặc campaign cho Brand này."}</td></tr>`; return; } elements.recordsBody.innerHTML = records.map((record) => `<tr><td><span class="type-tag ${escapeHtml(record.type)}">${escapeHtml(typeLabel(record.type))}</span></td><td><div class="record-content"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</strong><small title="${escapeHtml(record.subtitle)}">${escapeHtml(record.subtitle)}</small></div></td><td>${escapeHtml(record.campaign)}</td><td><span class="record-status ${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span></td><td class="metric-cell">${count(record.clicks)}</td><td class="metric-cell">${count(record.orders)}</td><td class="metric-cell">${money(record.gmv)}</td><td class="metric-cell">${money(record.commission)}</td><td>${record.type === "product" ? `<button class="button tiny secondary" type="button" data-create-link="${escapeHtml(record.id)}">Tạo link</button>` : ""}</td></tr>`).join(""); }
 
+function backfillStatusLabel(status) { return ({ ready: "Sẵn sàng", eligible: "Sẵn sàng", preview: "Sẵn sàng", dry_run: "Preview", commented: "Đã comment", published: "Đã comment", skipped: "Bỏ qua", skipped_existing: "Đã có comment", skipped_no_product: "Bỏ qua", skipped_unavailable: "Bỏ qua", failed: "Lỗi" })[String(status || "").toLowerCase()] || (status || "—"); }
+function backfillDate(value) { if (!value) return "—"; const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(date); }
+function renderBackfill() {
+  if (!elements.backfillResultsBody) return;
+  const result = state.backfill || {};
+  const items = list(result.items);
+  const dryRun = result.dry_run === true || result.dryRun === true;
+  const scanned = number(result.scanned);
+  const eligible = number(result.eligible);
+  if (!state.brand) elements.backfillStatus.textContent = "Chọn Brand để quét đúng Fanpage.";
+  else if (result.error) elements.backfillStatus.textContent = String(result.error);
+  else if (result.scanned !== undefined) elements.backfillStatus.textContent = `${dryRun ? "Preview" : "Đã chạy"}: ${count(scanned)} bài · ${count(eligible)} đủ điều kiện · ${count(result.commented)} đã comment · ${count(result.skipped)} bỏ qua`;
+  else elements.backfillStatus.textContent = "Chạy preview để xem bài nào đủ điều kiện.";
+  elements.backfillPreviewButton.disabled = !state.brand;
+  elements.backfillRunButton.disabled = !state.brand || !dryRun || eligible < 1;
+  if (!items.length) { elements.backfillResultsBody.innerHTML = `<tr><td colspan="5" class="table-empty">${result.scanned !== undefined ? "Không có bài phù hợp trong khoảng đã chọn." : "Chưa chạy preview."}</td></tr>`; return; }
+  elements.backfillResultsBody.innerHTML = items.map((item) => {
+    const post = item.post || item;
+    const product = item.product || {};
+    const permalink = String(item.permalink_url || item.permalinkUrl || post.permalink_url || post.permalink || "").trim();
+    const postName = String(item.message_preview || item.description_preview || post.message_preview || post.description_preview || item.post_id || item.postId || post.id || "Bài Facebook").trim();
+    const postId = String(item.post_id || item.postId || post.post_id || post.id || "").trim();
+    const productName = String(product.name || product.product_name || "Chưa chọn được sản phẩm").trim();
+    const commission = product.commission_rate === undefined ? "—" : percent(product.commission_rate);
+    const reason = String(item.reason || item.error || "").trim();
+    return `<tr><td><div class="backfill-post"><strong title="${escapeHtml(postName)}">${escapeHtml(postName)}</strong><small>${escapeHtml(postId)} · ${escapeHtml(backfillDate(item.created_time || item.createdTime || post.created_time))}</small>${permalink ? `<a href="${escapeHtml(permalink)}" target="_blank" rel="noreferrer">Mở bài trên Facebook ↗</a>` : ""}</div></td><td><div class="backfill-product"><strong title="${escapeHtml(productName)}">${escapeHtml(productName)}</strong><small>${escapeHtml(product.provider || item.product_provider || "")}</small></div></td><td class="metric-cell">${escapeHtml(commission)}</td><td><span class="record-status ${escapeHtml(String(item.status || "").toLowerCase())}">${escapeHtml(backfillStatusLabel(item.status))}</span></td><td><div class="backfill-reason">${escapeHtml(reason || (dryRun && product.name ? "Đủ điều kiện sau khi kiểm tra comment hiện có." : "—"))}</div></td></tr>`;
+  }).join("");
+}
+async function runBackfill(dryRun = true) {
+  if (!state.brand) return showToast("Hãy chọn Brand trước.", true);
+  const limit = Math.max(1, Math.min(50, Math.round(number(elements.backfillLimit.value)) || 10));
+  const lookbackDays = Math.max(1, Math.min(365, Math.round(number(elements.backfillDays.value)) || 30));
+  if (!dryRun) {
+    const eligible = number(state.backfill?.eligible);
+    if (!eligible) return showToast("Hãy chạy preview và có bài đủ điều kiện trước.", true);
+    if (!confirm(`AurexVideo sẽ comment link lên tối đa ${eligible} bài của Brand “${state.brand}”. Tiếp tục?`)) return;
+  }
+  elements.backfillPreviewButton.disabled = true;
+  elements.backfillRunButton.disabled = true;
+  elements.backfillStatus.textContent = dryRun ? "Đang quét bài và chọn sản phẩm..." : "Đang tạo link và comment...";
+  try {
+    state.backfill = await request("/api/affiliate/backfill", { method: "POST", body: JSON.stringify({ brand: state.brand, limit, lookbackDays, dryRun, ...(dryRun ? {} : { confirm: "COMMENT" }) }) });
+    renderBackfill();
+    showToast(dryRun ? `Preview xong: ${number(state.backfill.eligible)} bài đủ điều kiện.` : `Đã xử lý ${number(state.backfill.commented)} comment.`);
+  } catch (error) { showToast(error.message, true); elements.backfillStatus.textContent = error.message; }
+  finally { elements.backfillPreviewButton.disabled = !state.brand; renderBackfill(); }
+}
+
 const FALLBACK_POC_CASES = [
   { key: "A", title: "Manual Reel + manual comment", description: "Đăng Reel thủ công · comment thủ công", publish_mode: "manual", comment_mode: "manual" },
   { key: "B", title: "API Reel + manual comment", description: "Đăng Reel qua API · comment thủ công", publish_mode: "api", comment_mode: "manual" },
@@ -82,7 +131,7 @@ async function loadPoc() { if (!elements.pocCasesBody) return; try { state.poc =
 async function updatePoc(caseKey, status) { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); if (!elements.pocContentId.value.trim()) return showToast("Nhập Content / project ID trước khi ghi POC.", true); const run = pocLatestRuns().get(caseKey) || {}; const buttons = [...document.querySelectorAll(`[data-poc-case="${CSS.escape(caseKey)}"]`)]; buttons.forEach((button) => { button.disabled = true; }); try { await request("/api/affiliate/poc", { method: "POST", body: JSON.stringify(pocPayload(caseKey, status, run)) }); showToast(status === "running" ? `Đã bắt đầu case ${caseKey}.` : `Đã ghi ${pocStatusLabel(status)} cho case ${caseKey}.`); await loadPoc(); } catch (error) { showToast(error.message, true); } finally { renderPoc(); } }
 function clearPocRunFields() { [elements.pocPageId, elements.pocPostId, elements.pocCommentId, elements.pocEvidenceUrl, elements.pocNotes].forEach((element) => { if (element) element.value = ""; }); if (elements.pocBannerObserved) elements.pocBannerObserved.value = ""; }
 
-async function loadContext() { try { let context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); if (state.brand && context.selected_brand !== state.brand) { context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); } renderConnections(); renderSettings(); return true; } catch (error) { state.context = {}; renderBrands(); renderConnections(); renderSettings(); elements.syncState.textContent = unavailable(error) ? "API affiliate chưa được bật" : "Không đọc được cấu hình"; return false; } }
+async function loadContext() { try { let context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); if (state.brand && context.selected_brand !== state.brand) { context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); } renderConnections(); renderSettings(); renderBackfill(); return true; } catch (error) { state.context = {}; renderBrands(); renderConnections(); renderSettings(); renderBackfill(); elements.syncState.textContent = unavailable(error) ? "API affiliate chưa được bật" : "Không đọc được cấu hình"; return false; } }
 async function loadData() { const params = { brand: state.brand, period: state.period, status: state.status === "all" ? "" : state.status, q: state.query }; const [overviewResult, productsResult] = await Promise.allSettled([request(`/api/affiliate/overview${queryString(params)}`), request(`/api/affiliate/products${queryString(params)}`)]); const unavailableApi = [overviewResult, productsResult].some((result) => result.status === "rejected" && unavailable(result.reason)); state.overview = overviewResult.status === "fulfilled" ? overviewResult.value : {}; state.products = productsResult.status === "fulfilled" ? productsResult.value : []; state.records = collectRecords(); renderKpis(); renderRecords(); if (overviewResult.status === "rejected" && !unavailable(overviewResult.reason)) showToast(`Không tải overview: ${overviewResult.reason.message}`, true); if (productsResult.status === "rejected" && !unavailable(productsResult.reason)) showToast(`Không tải danh sách: ${productsResult.reason.message}`, true); elements.syncState.textContent = unavailableApi ? "API affiliate chưa được bật" : (pick(state.overview, ["updatedAt", "syncedAt"], "Đã đồng bộ dữ liệu")); }
 async function refresh() { elements.refreshButton.disabled = true; elements.syncState.textContent = "Đang đồng bộ..."; await loadContext(); await loadData(); await loadPoc(); elements.refreshButton.disabled = false; }
 async function createLink(productId) { const record = state.records.find((item) => String(item.id) === String(productId)); if (!record) return; const button = document.querySelector(`[data-create-link="${CSS.escape(String(productId))}"]`); if (button) { button.disabled = true; button.textContent = "Đang tạo..."; } try { const result = await request("/api/affiliate/link", { method: "POST", body: JSON.stringify({ brand: state.brand, productId, product: record.raw }) }); const link = result.link; const url = typeof link === "string" ? link : pick(link, ["affiliate_url", "url", "shortUrl"], pick(result, ["url", "shortUrl"])); if (url) { try { await navigator.clipboard?.writeText(url); } catch (_) {} showToast("Đã tạo và copy link affiliate."); } else showToast(result.message || "Đã gửi yêu cầu tạo link."); await loadData(); } catch (error) { showToast(unavailable(error) ? "Tính năng tạo link sẽ sẵn sàng khi API affiliate được bật." : error.message, true); } finally { if (button?.isConnected) { button.disabled = false; button.textContent = "Tạo link"; } } }
@@ -93,7 +142,7 @@ async function saveAddLiveTagConfig() { if (!state.brand) return showToast("Hãy
 async function saveShopeeConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); const secret = elements.shopeeSecret.value.trim(); if (!secret) return showToast("Nhập lại App Secret để lưu kết nối.", true); elements.saveShopeeConfigButton.disabled = true; try { await request("/api/social/shopee/config", { method: "POST", body: JSON.stringify({ brand: state.brand, appId: elements.shopeeAppId.value.trim(), secret, apiBaseUrl: elements.shopeeApiBaseUrl.value.trim(), displayName: elements.shopeeDisplayName.value.trim(), settings: settingsPayload() }) }); showToast("Đã lưu kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function disconnectShopee() { if (!state.brand || !confirm(`Gỡ kết nối Shopee Affiliate của Brand “${state.brand}”?`)) return; elements.disconnectShopeeButton.disabled = true; try { await request("/api/social/shopee/disconnect", { method: "POST", body: JSON.stringify({ brand: state.brand }) }); showToast("Đã gỡ kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 
-elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; clearPocRunFields(); refresh(); });
+elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; state.backfill = {}; clearPocRunFields(); renderBackfill(); refresh(); });
 elements.periodSelect.addEventListener("change", () => { state.period = elements.periodSelect.value; loadData(); });
 elements.statusSelect.addEventListener("change", () => { state.status = elements.statusSelect.value; loadData(); });
 elements.searchInput.addEventListener("input", () => { state.query = elements.searchInput.value; renderRecords(); clearTimeout(state.searchTimer); state.searchTimer = setTimeout(loadData, 300); });
@@ -106,4 +155,6 @@ elements.saveAffiliateSettingsButton?.addEventListener("click", saveAffiliateSet
 elements.saveAddLiveTagButton?.addEventListener("click", saveAddLiveTagConfig);
 elements.saveShopeeConfigButton?.addEventListener("click", saveShopeeConfig);
 elements.disconnectShopeeButton?.addEventListener("click", disconnectShopee);
+elements.backfillPreviewButton?.addEventListener("click", () => runBackfill(true));
+elements.backfillRunButton?.addEventListener("click", () => runBackfill(false));
 refresh();

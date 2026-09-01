@@ -39,6 +39,7 @@ from social_upload import (
     save_affiliate_settings,
     save_addlivetag_settings,
     resolve_addlivetag_product,
+    run_affiliate_backfill,
     shopee_status,
     update_shopee_config,
     disconnect_shopee,
@@ -10094,6 +10095,31 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, {"ok": True, **result})
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/affiliate/backfill":
+            try:
+                payload = self.read_json_body()
+                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
+                if not brand:
+                    raise ValueError("Affiliate backfill cần Brand.")
+                raw_dry_run = payload.get("dryRun", payload.get("dry_run", True))
+                dry_run = not (
+                    raw_dry_run is False
+                    or str(raw_dry_run or "").strip().casefold() in {"0", "false", "no"}
+                )
+                if not dry_run and str(payload.get("confirm") or "").strip().upper() != "COMMENT":
+                    raise ValueError("Hãy chạy preview trước và xác nhận COMMENT để ghi comment thật.")
+                result = run_affiliate_backfill(
+                    brand,
+                    limit=payload.get("limit", 20),
+                    lookback_days=payload.get("lookbackDays", payload.get("lookback_days", 30)),
+                    dry_run=dry_run,
+                    page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
+                )
+                self.send_json(200, result)
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
