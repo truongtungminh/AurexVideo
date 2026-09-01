@@ -178,6 +178,12 @@ class AffiliatePocTests(unittest.TestCase):
         tables = {row[0] for row in migrated.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         self.assertIn("affiliate_poc_runs_legacy_v1", tables)
         self.assertIn("affiliate_poc_cases_legacy_v1", tables)
+        index_tables = {
+            row[0]: row[1]
+            for row in migrated.execute("SELECT name, tbl_name FROM sqlite_master WHERE type = 'index'")
+        }
+        self.assertEqual(index_tables["idx_affiliate_poc_v2_runs_brand_status"], "affiliate_poc_runs")
+        self.assertEqual(index_tables["idx_affiliate_poc_v2_cases_run_status"], "affiliate_poc_cases")
         migrated.close()
 
     def test_validation_summary_precedence_and_all_status_counts(self):

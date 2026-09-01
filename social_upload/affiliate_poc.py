@@ -62,9 +62,9 @@ CREATE TABLE IF NOT EXISTS affiliate_poc_cases (
 
 CREATE INDEX IF NOT EXISTS idx_affiliate_poc_runs_brand_content_created
     ON affiliate_poc_runs (brand_id, content_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_affiliate_poc_runs_brand_status
+CREATE INDEX IF NOT EXISTS idx_affiliate_poc_v2_runs_brand_status
     ON affiliate_poc_runs (brand_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_affiliate_poc_cases_run_status
+CREATE INDEX IF NOT EXISTS idx_affiliate_poc_v2_cases_run_status
     ON affiliate_poc_cases (run_id, status);
 """
 
