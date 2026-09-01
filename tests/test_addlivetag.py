@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from social_upload.addlivetag import (
     DEFAULT_PRODUCT_DATA_URL,
+    DEFAULT_SEARCH_URL,
     AddLiveTagApiError,
     extract_shopee_reference,
     fetch_product_data,
@@ -14,6 +15,7 @@ from social_upload.addlivetag import (
     generate_short_link,
     normalize_config,
     normalize_product_payload,
+    search_addlivetag_products,
 )
 
 
@@ -97,6 +99,47 @@ class AddLiveTagTests(unittest.TestCase):
         self.assertEqual(product["commission_rate"], 0.05)
         self.assertEqual(product["offer_url"], "")
         self.assertEqual(product["discount_rate"], 17.0)
+
+    def test_public_search_normalizes_visible_product_rows_and_skips_login_rows(self):
+        captured = {}
+        html = """
+        <table>
+          <tr>
+            <td>0</td><td><a href="https://shopee.vn/bc-i.123.456"><img src="x"/></a></td>
+            <td><a href="https://shopee.vn/bc-i.123.456">Miếng Ghép Nam Châm</a></td>
+            <td class="click-to-copy">https://shopee.vn/bc-i.123.456</td>
+            <td>8,000</td><td>40,000</td><td>120</td>
+          </tr>
+          <tr>
+            <td>2</td><td><a href="https://shopee.vn/bc-i.123.789">Sản phẩm cần đăng nhập</a></td>
+            <td class="click-to-copy">https://shopee.vn/bc-i.123.789</td>
+            <td><small>đăng nhập để xem</small></td><td><small>đăng nhập để xem</small></td>
+          </tr>
+        </table>
+        """
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return _FakeResponse(html.encode("utf-8"))
+
+        with patch("social_upload.addlivetag.urlopen", fake_urlopen):
+            products = search_addlivetag_products("nam châm", limit=20)
+
+        self.assertEqual(len(products), 1)
+        product = products[0]
+        self.assertEqual(product["provider_product_id"], "456")
+        self.assertEqual(product["shop_id"], "123")
+        self.assertEqual(product["price_min"], 40000.0)
+        self.assertEqual(product["commission_amount_vnd"], 8000.0)
+        self.assertEqual(product["commission_rate"], 0.2)
+        self.assertNotIn("relevance_score", product)
+        self.assertEqual(product["link_provider"], "addlivetag")
+        self.assertEqual(product["origin_url"], "https://shopee.vn/bc-i.123.456")
+        query = parse_qs(urlparse(captured["url"]).query)
+        self.assertEqual(query["keyword"], ["nam châm"])
+        self.assertEqual(query["sort"], ["com"])
+        self.assertEqual(captured["timeout"], 20.0)
 
     def test_invalid_payload_and_provider_errors_are_safe(self):
         with self.assertRaises(AddLiveTagApiError):
