@@ -9,6 +9,7 @@ from social_upload.addlivetag import (
     DEFAULT_PRODUCT_DATA_URL,
     DEFAULT_SEARCH_URL,
     DEFAULT_SHORT_LINK_URL,
+    DEFAULT_SHORT_LINK_API_URL,
     AddLiveTagApiError,
     extract_shopee_reference,
     fetch_product_data,
@@ -198,7 +199,6 @@ class AddLiveTagTests(unittest.TestCase):
                 "https://shopee.vn/product-1",
                 "affiliate-1",
                 ["brand", "page", "video", "item", "comment"],
-                endpoint="https://addlivetag.com/short-link.php",
             )
         self.assertEqual(link, "https://s.shopee.vn/abc123")
         self.assertEqual(captured["timeout"], 30.0)
@@ -231,11 +231,12 @@ class AddLiveTagTests(unittest.TestCase):
                 "https://shopee.vn/product-1",
                 "affiliate-1",
                 ["brand-name", "page_1", "video-1", "product.2", "first-comment"],
+                endpoint=DEFAULT_SHORT_LINK_API_URL,
             )
 
         self.assertEqual(link, "https://s.shopee.vn/abc123")
         self.assertEqual(captured["method"], "POST")
-        self.assertEqual(captured["url"], DEFAULT_SHORT_LINK_URL)
+        self.assertEqual(captured["url"], DEFAULT_SHORT_LINK_API_URL)
         self.assertEqual(captured["content_type"], "application/json")
         self.assertEqual(captured["timeout"], 30.0)
         self.assertEqual(captured["body"]["api_type"], "generateShortLink")
@@ -270,7 +271,12 @@ class AddLiveTagTests(unittest.TestCase):
             return _FakeResponse(responses.pop(0))
 
         with patch("social_upload.addlivetag.urlopen", fake_urlopen):
-            link = generate_short_link("https://shopee.vn/product-1", "affiliate-1", ["brand-name"])
+            link = generate_short_link(
+                "https://shopee.vn/product-1",
+                "affiliate-1",
+                ["brand-name"],
+                endpoint=DEFAULT_SHORT_LINK_API_URL,
+            )
 
         self.assertEqual(link, "https://s.shopee.vn/fallback123")
         self.assertEqual(len(requests), 2)
@@ -282,7 +288,11 @@ class AddLiveTagTests(unittest.TestCase):
             return_value=_FakeResponse({"success": False, "error": {"message": "Rate limit exceeded"}}),
         ):
             with self.assertRaisesRegex(AddLiveTagApiError, "vượt giới hạn"):
-                generate_short_link("https://shopee.vn/product-1", "affiliate-1")
+                generate_short_link(
+                    "https://shopee.vn/product-1",
+                    "affiliate-1",
+                    endpoint=DEFAULT_SHORT_LINK_API_URL,
+                )
 
     def test_short_link_rejects_invalid_provider_response(self):
         with patch(
@@ -301,7 +311,7 @@ class AddLiveTagTests(unittest.TestCase):
             normalize_config({"shortLinkUrl": "https://addlivetag.com/shopee-affiliate-api/short_link.php"})[
                 "short_link_url"
             ],
-            DEFAULT_SHORT_LINK_URL,
+            DEFAULT_SHORT_LINK_API_URL,
         )
         self.assertEqual(normalize_config(environ={"ADDLIVETAG_AFFILIATE_ID": "env-id"})["affiliate_id"], "env-id")
 
