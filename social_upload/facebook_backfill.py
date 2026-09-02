@@ -28,7 +28,6 @@ from .addlivetag import (
 )
 from .affiliate import (
     affiliate_comment_text,
-    affiliate_comment_fallback_text,
     brand_context,
     create_affiliate_link,
     discover_products,
@@ -1071,11 +1070,6 @@ def run_affiliate_backfill(
                     affiliate_comment_text(affiliate_url, fallback=selection_mode == "random_high_commission"),
                     facebook_page_access_token(facebook, page),
                     attempts=1,
-                    attachment_url=affiliate_url,
-                    fallback_message=affiliate_comment_fallback_text(
-                        affiliate_url,
-                        fallback=selection_mode == "random_high_commission",
-                    ),
                 )
                 if not comment_id:
                     affiliate_store.update_content_product(
