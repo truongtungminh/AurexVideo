@@ -74,6 +74,32 @@ CREATE TABLE IF NOT EXISTS affiliate_products (
     UNIQUE (provider, provider_product_id, origin_url)
 );
 
+CREATE TABLE IF NOT EXISTS affiliate_product_pool (
+    id TEXT PRIMARY KEY,
+    brand_id TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'shopee',
+    provider_product_id TEXT NOT NULL DEFAULT '',
+    shop_id TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    origin_url TEXT NOT NULL,
+    affiliate_url TEXT NOT NULL,
+    image_url TEXT NOT NULL DEFAULT '',
+    price_min REAL NOT NULL DEFAULT 0,
+    price_max REAL NOT NULL DEFAULT 0,
+    commission_rate REAL NOT NULL DEFAULT 0,
+    sales REAL NOT NULL DEFAULT 0,
+    rating REAL NOT NULL DEFAULT 0,
+    discount_rate REAL NOT NULL DEFAULT 0,
+    shop_quality REAL NOT NULL DEFAULT 0,
+    priority INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    note TEXT NOT NULL DEFAULT '',
+    raw_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (brand_id, provider, origin_url)
+);
+
 CREATE TABLE IF NOT EXISTS affiliate_links (
     id TEXT PRIMARY KEY,
     content_id TEXT NOT NULL,
@@ -172,6 +198,8 @@ CREATE INDEX IF NOT EXISTS idx_affiliate_links_content
     ON affiliate_links (brand_id, content_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_affiliate_products_updated
     ON content_affiliate_products (brand_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_affiliate_product_pool_brand
+    ON affiliate_product_pool (brand_id, enabled, priority DESC, commission_rate DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_affiliate_conversions_order
     ON affiliate_conversions (brand_id, order_time);
 """
@@ -440,6 +468,172 @@ def list_products(*, query: str = "", limit: int = 50) -> list[dict]:
             item["raw"] = {}
         result.append(item)
     return result
+
+
+def _pool_row_result(row: sqlite3.Row | None) -> dict:
+    result = _row_dict(row)
+    if not result:
+        return result
+    raw_json = result.pop("raw_json", "")
+    try:
+        result["raw"] = json.loads(raw_json) if raw_json else {}
+    except (TypeError, json.JSONDecodeError):
+        result["raw"] = {}
+    result["enabled"] = bool(result.get("enabled"))
+    return result
+
+
+def upsert_product_pool(product: dict) -> dict:
+    """Create or update one manually curated, Brand-scoped product.
+
+    Pool rows intentionally keep the affiliate URL separate from the global
+    provider catalog.  That lets two Brands use the same Shopee item with
+    different hand-picked short links without sharing attribution state.
+    """
+    init_db()
+    product = product if isinstance(product, dict) else {}
+    brand_id = str(product.get("brand_id") or product.get("brandId") or "").strip()
+    provider = str(product.get("provider") or "shopee").strip().lower()
+    origin_url = str(product.get("origin_url") or product.get("originUrl") or "").strip()
+    affiliate_url = str(product.get("affiliate_url") or product.get("affiliateUrl") or "").strip()
+    if not brand_id or provider != "shopee" or not origin_url or not affiliate_url:
+        raise ValueError("Pool Shopee cần Brand, link gốc và link affiliate.")
+    name = str(product.get("name") or product.get("product_name") or "").strip()
+    if not name:
+        raise ValueError("Pool Shopee cần tên sản phẩm.")
+
+    requested_id = str(product.get("id") or product.get("pool_id") or product.get("poolId") or "").strip()
+    now = _now()
+    raw = product.get("raw") if isinstance(product.get("raw"), dict) else {"source": "manual_pool"}
+    fields = {
+        "brand_id": brand_id,
+        "provider": provider,
+        "provider_product_id": str(product.get("provider_product_id") or product.get("product_id") or "").strip(),
+        "shop_id": str(product.get("shop_id") or product.get("shopId") or "").strip(),
+        "name": name,
+        "origin_url": origin_url,
+        "affiliate_url": affiliate_url,
+        "image_url": str(product.get("image_url") or product.get("imageUrl") or "").strip(),
+        "price_min": float(product.get("price_min") or product.get("priceMin") or 0),
+        "price_max": float(product.get("price_max") or product.get("priceMax") or 0),
+        "commission_rate": float(product.get("commission_rate") or product.get("commissionRate") or 0),
+        "sales": float(product.get("sales") or 0),
+        "rating": float(product.get("rating") or 0),
+        "discount_rate": float(product.get("discount_rate") or product.get("discountRate") or 0),
+        "shop_quality": float(product.get("shop_quality") or product.get("shopQuality") or 0),
+        "priority": int(product.get("priority") or 0),
+        "enabled": int(bool(product.get("enabled", True))),
+        "note": str(product.get("note") or "").strip()[:1000],
+        "raw_json": _json(raw),
+        "updated_at": now,
+    }
+    with _connect() as connection:
+        existing_by_id = None
+        if requested_id:
+            existing_by_id = connection.execute(
+                "SELECT * FROM affiliate_product_pool WHERE id = ?",
+                (requested_id,),
+            ).fetchone()
+            if existing_by_id and str(existing_by_id["brand_id"]) != brand_id:
+                raise ValueError("Không thể sửa sản phẩm pool của Brand khác.")
+        existing_by_key = connection.execute(
+            "SELECT * FROM affiliate_product_pool WHERE brand_id = ? AND provider = ? AND origin_url = ?",
+            (brand_id, provider, origin_url),
+        ).fetchone()
+        if existing_by_key and existing_by_id and str(existing_by_key["id"]) != str(existing_by_id["id"]):
+            raise ValueError("Sản phẩm với link gốc này đã có trong pool của Brand.")
+
+        pool_id = str((existing_by_id or existing_by_key)["id"]) if (existing_by_id or existing_by_key) else (requested_id or _new_id("pool_product"))
+        created_at = str((existing_by_id or existing_by_key)["created_at"]) if (existing_by_id or existing_by_key) else now
+        values = (pool_id, *fields.values(), created_at)
+        if existing_by_id or existing_by_key:
+            connection.execute(
+                """
+                UPDATE affiliate_product_pool SET
+                    brand_id = ?, provider = ?, provider_product_id = ?, shop_id = ?, name = ?,
+                    origin_url = ?, affiliate_url = ?, image_url = ?, price_min = ?, price_max = ?,
+                    commission_rate = ?, sales = ?, rating = ?, discount_rate = ?, shop_quality = ?,
+                    priority = ?, enabled = ?, note = ?, raw_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (*fields.values(), pool_id),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO affiliate_product_pool
+                  (id, brand_id, provider, provider_product_id, shop_id, name, origin_url, affiliate_url,
+                   image_url, price_min, price_max, commission_rate, sales, rating, discount_rate,
+                   shop_quality, priority, enabled, note, raw_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+        row = connection.execute("SELECT * FROM affiliate_product_pool WHERE id = ?", (pool_id,)).fetchone()
+    return _pool_row_result(row)
+
+
+def get_product_pool(pool_id: str, *, brand_id: str = "") -> dict:
+    init_db()
+    filters = ["id = ?"]
+    params: list[object] = [str(pool_id or "")]
+    if brand_id:
+        filters.append("brand_id = ?")
+        params.append(str(brand_id))
+    with _connect() as connection:
+        row = connection.execute(
+            f"SELECT * FROM affiliate_product_pool WHERE {' AND '.join(filters)}",
+            tuple(params),
+        ).fetchone()
+    return _pool_row_result(row)
+
+
+def list_product_pool(
+    brand_id: str,
+    *,
+    query: str = "",
+    enabled_only: bool = False,
+    limit: int = 100,
+) -> list[dict]:
+    """Return only the manually curated pool rows for one Brand."""
+    init_db()
+    limit = max(1, min(int(limit or 100), 200))
+    filters = ["brand_id = ?", "provider = ?"]
+    params: list[object] = [str(brand_id or ""), "shopee"]
+    if enabled_only:
+        filters.append("enabled = 1")
+    needle = str(query or "").strip()
+    if needle:
+        filters.append("(name LIKE ? OR origin_url LIKE ? OR affiliate_url LIKE ? OR note LIKE ?)")
+        pattern = f"%{needle}%"
+        params.extend([pattern, pattern, pattern, pattern])
+    params.append(limit)
+    with _connect() as connection:
+        rows = connection.execute(
+            f"SELECT * FROM affiliate_product_pool WHERE {' AND '.join(filters)} "
+            "ORDER BY enabled DESC, priority DESC, commission_rate DESC, updated_at DESC, name COLLATE NOCASE ASC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    return [_pool_row_result(row) for row in rows]
+
+
+def delete_product_pool(pool_id: str, *, brand_id: str) -> dict:
+    """Delete one pool row only when it belongs to the requested Brand."""
+    init_db()
+    pool_id = str(pool_id or "").strip()
+    brand_id = str(brand_id or "").strip()
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT id FROM affiliate_product_pool WHERE id = ? AND brand_id = ?",
+            (pool_id, brand_id),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "id": pool_id, "deleted": False}
+        connection.execute(
+            "DELETE FROM affiliate_product_pool WHERE id = ? AND brand_id = ?",
+            (pool_id, brand_id),
+        )
+    return {"ok": True, "id": pool_id, "deleted": True}
 
 
 def product_conversion_rates(provider: str = "shopee") -> dict[str, float]:
