@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS affiliate_product_pool (
     raw_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    UNIQUE (brand_id, provider, origin_url)
+    UNIQUE (brand_id, provider, affiliate_url)
 );
 
 CREATE TABLE IF NOT EXISTS affiliate_links (
@@ -306,10 +306,84 @@ def _migrate_affiliate_links_brand_scope(connection: sqlite3.Connection) -> None
     )
 
 
+def _affiliate_product_pool_has_affiliate_unique(connection: sqlite3.Connection) -> bool:
+    """Return whether Pool rows are unique by Brand and affiliate URL."""
+    for index in connection.execute("PRAGMA index_list('affiliate_product_pool')").fetchall():
+        if not int(index["unique"] or 0):
+            continue
+        index_name = str(index["name"] or "").replace("'", "''")
+        columns = [
+            str(column["name"] or "")
+            for column in connection.execute(f"PRAGMA index_info('{index_name}')").fetchall()
+        ]
+        if columns == ["brand_id", "provider", "affiliate_url"]:
+            return True
+    return False
+
+
+def _migrate_product_pool_affiliate_unique(connection: sqlite3.Connection) -> None:
+    """Make the Pool's manually managed affiliate URL the stable row key."""
+    if _affiliate_product_pool_has_affiliate_unique(connection):
+        return
+
+    connection.execute("DROP INDEX IF EXISTS idx_affiliate_product_pool_brand")
+    connection.execute("ALTER TABLE affiliate_product_pool RENAME TO affiliate_product_pool_legacy")
+    connection.execute(
+        """
+        CREATE TABLE affiliate_product_pool (
+            id TEXT PRIMARY KEY,
+            brand_id TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'shopee',
+            provider_product_id TEXT NOT NULL DEFAULT '',
+            shop_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL,
+            origin_url TEXT NOT NULL,
+            affiliate_url TEXT NOT NULL,
+            image_url TEXT NOT NULL DEFAULT '',
+            price_min REAL NOT NULL DEFAULT 0,
+            price_max REAL NOT NULL DEFAULT 0,
+            commission_rate REAL NOT NULL DEFAULT 0,
+            sales REAL NOT NULL DEFAULT 0,
+            rating REAL NOT NULL DEFAULT 0,
+            discount_rate REAL NOT NULL DEFAULT 0,
+            shop_quality REAL NOT NULL DEFAULT 0,
+            priority INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            note TEXT NOT NULL DEFAULT '',
+            raw_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (brand_id, provider, affiliate_url)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO affiliate_product_pool
+          (id, brand_id, provider, provider_product_id, shop_id, name, origin_url, affiliate_url,
+           image_url, price_min, price_max, commission_rate, sales, rating, discount_rate,
+           shop_quality, priority, enabled, note, raw_json, created_at, updated_at)
+        SELECT id, brand_id, provider, provider_product_id, shop_id, name, origin_url, affiliate_url,
+               image_url, price_min, price_max, commission_rate, sales, rating, discount_rate,
+               shop_quality, priority, enabled, note, raw_json, created_at, updated_at
+        FROM affiliate_product_pool_legacy
+        ORDER BY updated_at DESC, created_at DESC
+        """
+    )
+    connection.execute("DROP TABLE affiliate_product_pool_legacy")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_affiliate_product_pool_brand
+            ON affiliate_product_pool (brand_id, enabled, priority DESC, commission_rate DESC, updated_at DESC)
+        """
+    )
+
+
 def init_db() -> None:
     with _connect() as connection:
         connection.executescript(SCHEMA)
         _migrate_affiliate_links_brand_scope(connection)
+        _migrate_product_pool_affiliate_unique(connection)
     try:
         os.chmod(Path(AFFILIATE_DB_PATH), 0o600)
     except OSError:
@@ -564,11 +638,11 @@ def upsert_product_pool(product: dict) -> dict:
     provider = str(product.get("provider") or "shopee").strip().lower()
     origin_url = str(product.get("origin_url") or product.get("originUrl") or "").strip()
     affiliate_url = str(product.get("affiliate_url") or product.get("affiliateUrl") or "").strip()
-    if not brand_id or provider != "shopee" or not origin_url or not affiliate_url:
-        raise ValueError("Pool Shopee cần Brand, link gốc và link affiliate.")
+    if not brand_id or provider != "shopee" or not affiliate_url:
+        raise ValueError("Pool Shopee cần Brand và link affiliate.")
     name = str(product.get("name") or product.get("product_name") or "").strip()
     if not name:
-        raise ValueError("Pool Shopee cần tên sản phẩm.")
+        name = "Shopee Pool link"
 
     requested_id = str(product.get("id") or product.get("pool_id") or product.get("poolId") or "").strip()
     now = _now()
@@ -605,11 +679,11 @@ def upsert_product_pool(product: dict) -> dict:
             if existing_by_id and str(existing_by_id["brand_id"]) != brand_id:
                 raise ValueError("Không thể sửa sản phẩm pool của Brand khác.")
         existing_by_key = connection.execute(
-            "SELECT * FROM affiliate_product_pool WHERE brand_id = ? AND provider = ? AND origin_url = ?",
-            (brand_id, provider, origin_url),
+            "SELECT * FROM affiliate_product_pool WHERE brand_id = ? AND provider = ? AND affiliate_url = ?",
+            (brand_id, provider, affiliate_url),
         ).fetchone()
         if existing_by_key and existing_by_id and str(existing_by_key["id"]) != str(existing_by_id["id"]):
-            raise ValueError("Sản phẩm với link gốc này đã có trong pool của Brand.")
+            raise ValueError("Link affiliate này đã có trong Pool của Brand.")
 
         pool_id = str((existing_by_id or existing_by_key)["id"]) if (existing_by_id or existing_by_key) else (requested_id or _new_id("pool_product"))
         created_at = str((existing_by_id or existing_by_key)["created_at"]) if (existing_by_id or existing_by_key) else now

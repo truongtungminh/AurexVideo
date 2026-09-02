@@ -25,6 +25,7 @@ from .affiliate import (
     create_affiliate_link,
     is_valid_affiliate_url,
     rank_products,
+    product_title_for_comment,
 )
 from .config import canonical_brand, read_social_config
 from .facebook import (
@@ -312,7 +313,7 @@ def _pool_candidates(products: Iterable[object], settings: dict) -> list[dict]:
         if not is_valid_affiliate_url(affiliate_url):
             continue
         commission_rate = _fraction(product.get("commission_rate"))
-        if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < min_commission:
+        if not math.isfinite(commission_rate) or commission_rate < 0 or (commission_rate > 0 and commission_rate < min_commission):
             continue
         name = str(product.get("name") or "").strip()
         if not name:
@@ -353,7 +354,7 @@ def _select_pool_product(
         return {}, "Pool Shopee chưa có sản phẩm đang bật cho Brand."
     candidates = _pool_candidates(rows, settings)
     if not candidates:
-        return {}, "Pool Shopee không có sản phẩm đang bật đạt mức hoa hồng tối thiểu."
+        return {}, "Pool Shopee không có link affiliate hợp lệ đang bật cho Brand."
     annotated = _annotate_relevance(candidates, query)
     min_relevance = _fraction(settings.get("min_relevance", settings.get("minRelevance", 0.75)))
     matching = [product for product in annotated if _fraction(product.get("relevance_score")) >= min_relevance]
@@ -390,8 +391,13 @@ def _select_pool_product(
             if target <= 0:
                 selected = product
                 break
-        selected["_aurex_selection_mode"] = "pool_high_commission"
-        selected["_aurex_selection_reason"] = "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+        has_commission_data = any(_fraction(product.get("commission_rate")) > 0 for product in finalists)
+        selected["_aurex_selection_mode"] = "pool_high_commission" if has_commission_data else "pool_random"
+        selected["_aurex_selection_reason"] = (
+            "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+            if has_commission_data
+            else "Keyword chưa khớp; đã chọn ngẫu nhiên trong Pool Shopee của Brand."
+        )
         max_commission = max(_fraction(product.get("commission_rate")) for product in finalists) or 1.0
         selected["ranking_score"] = round(_fraction(selected.get("commission_rate")) / max_commission, 6)
     selected["link_provider"] = "pool"
@@ -716,7 +722,7 @@ def _preview_product_for_execute(
 
     selected = _annotate_relevance(candidates, _post_preview(text))[0]
     selection_mode = str(product.get("_aurex_selection_mode") or selection.get("selection_mode") or "pool_match").strip()
-    if selection_mode != "pool_high_commission":
+    if selection_mode not in {"pool_high_commission", "pool_random"}:
         minimum_relevance = _fraction(settings.get("min_relevance", settings.get("minRelevance", 0.75)))
         if _fraction(selected.get("relevance_score")) < minimum_relevance:
             return {}, "Sản phẩm Pool trong preview không còn phù hợp; hãy chạy preview lại."
@@ -727,7 +733,11 @@ def _preview_product_for_execute(
         or (
             "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
             if selection_mode == "pool_high_commission"
-            else "Đã chọn sản phẩm phù hợp từ Pool Shopee của Brand."
+            else (
+                "Keyword chưa khớp; đã chọn ngẫu nhiên trong Pool Shopee của Brand."
+                if selection_mode == "pool_random"
+                else "Đã chọn sản phẩm phù hợp từ Pool Shopee của Brand."
+            )
         )
     ).strip()
     selected, provider_reason = _prepare_product_for_link(selected, context)
@@ -930,7 +940,11 @@ def run_affiliate_backfill(
                 comment_id, comment_error = post_facebook_source_comment(
                     facebook,
                     facebook_full_post_id(facebook, post_id, page),
-                    affiliate_comment_text(affiliate_url, fallback=selection_mode == "pool_high_commission"),
+                    affiliate_comment_text(
+                        affiliate_url,
+                        product_name=product_title_for_comment(product),
+                        fallback=selection_mode in {"pool_high_commission", "pool_random"},
+                    ),
                     facebook_page_access_token(facebook, page),
                     attempts=1,
                 )

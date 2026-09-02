@@ -8,7 +8,10 @@ import random
 import re
 from collections import Counter
 from datetime import datetime, timezone
+from functools import lru_cache
+from html.parser import HTMLParser
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from . import affiliate_store
 from .config import canonical_brand, read_social_config, resolve_social_brand_connection
@@ -266,16 +269,20 @@ def _authoritative_pool_product(
     row = affiliate_store.get_product_pool(pool_id, brand_id=canonical_brand(brand))
     if not row or not bool(row.get("enabled")):
         return {}
-    try:
-        origin_url = validate_shopee_url(str(row.get("origin_url") or "").strip())
-    except (TypeError, ValueError):
-        return {}
+    origin_candidate = str(row.get("origin_url") or "").strip()
+    if origin_candidate:
+        try:
+            origin_url = validate_shopee_url(origin_candidate)
+        except (TypeError, ValueError):
+            return {}
+    else:
+        origin_url = ""
     affiliate_url = str(row.get("affiliate_url") or "").strip()
     if not _valid_pool_affiliate_url(affiliate_url):
         return {}
     commission_rate = _fraction(row.get("commission_rate"))
     minimum = _fraction((settings or {}).get("min_commission", (settings or {}).get("minCommission", 0.05)))
-    if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < minimum:
+    if not math.isfinite(commission_rate) or commission_rate < 0 or (commission_rate > 0 and commission_rate < minimum):
         return {}
     product = _pool_product_row({**row, "origin_url": origin_url, "affiliate_url": affiliate_url})
     product["commission_rate"] = commission_rate
@@ -295,9 +302,9 @@ def select_pool_product(
 ) -> dict:
     """Select one usable product only from the Brand's curated pool.
 
-    A matching pool item wins on relevance.  When no item matches the
-    content threshold, the deterministic fallback chooses from the highest
-    commission band so preview and execute keep the same product.
+    A matching pool item wins on relevance when names are available. When the
+    Pool contains links only, the deterministic fallback chooses one link so
+    preview and execute keep the same item.
     """
     brand = canonical_brand(brand)
     settings = settings if isinstance(settings, dict) else affiliate_store.get_settings(brand)
@@ -310,14 +317,15 @@ def select_pool_product(
             continue
         origin_url = str(row.get("origin_url") or "").strip()
         affiliate_url = str(row.get("affiliate_url") or "").strip()
-        try:
-            origin_url = validate_shopee_url(origin_url)
-        except (TypeError, ValueError):
-            continue
+        if origin_url:
+            try:
+                origin_url = validate_shopee_url(origin_url)
+            except (TypeError, ValueError):
+                continue
         if not _valid_pool_affiliate_url(affiliate_url):
             continue
         commission_rate = _fraction(row.get("commission_rate"))
-        if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < min_commission:
+        if not math.isfinite(commission_rate) or commission_rate < 0 or (commission_rate > 0 and commission_rate < min_commission):
             continue
         candidate = _pool_product_row({**row, "origin_url": origin_url, "affiliate_url": affiliate_url}, query)
         candidate["commission_rate"] = commission_rate
@@ -371,8 +379,13 @@ def select_pool_product(
             if target <= 0:
                 selected = product
                 break
-        selected["_aurex_selection_mode"] = "pool_high_commission"
-        selected["_aurex_selection_reason"] = "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+        has_commission_data = any(_fraction(product.get("commission_rate")) > 0 for product in finalists)
+        selected["_aurex_selection_mode"] = "pool_high_commission" if has_commission_data else "pool_random"
+        selected["_aurex_selection_reason"] = (
+            "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+            if has_commission_data
+            else "Keyword chưa khớp; đã chọn ngẫu nhiên trong Pool Shopee của Brand."
+        )
         selected["ranking_score"] = round(selected["commission_rate"] / max_commission, 6)
     raw = selected.get("raw") if isinstance(selected.get("raw"), dict) else {}
     selected["raw"] = {
@@ -392,18 +405,22 @@ def _pool_bool(value: object, default: bool = True) -> bool:
 
 
 def save_product_pool(brand: str, values: dict | None = None) -> dict:
-    """Validate and save one manually curated product for a Brand."""
+    """Validate and save one manually curated affiliate URL for a Brand."""
     brand = canonical_brand(brand)
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
         raise ValueError("Brand không hợp lệ.")
     values = values if isinstance(values, dict) else {}
     name = str(values.get("name") or values.get("productName") or values.get("product_name") or "").strip()
-    if not name or len(name) > 300:
-        raise ValueError("Tên sản phẩm trong Pool phải từ 1 đến 300 ký tự.")
-    try:
-        origin_url = validate_shopee_url(str(values.get("originUrl") or values.get("origin_url") or "").strip())
-    except ValueError as exc:
-        raise ValueError("Link gốc phải là link Shopee HTTPS hợp lệ.") from exc
+    if len(name) > 300:
+        raise ValueError("Tên sản phẩm trong Pool không được quá 300 ký tự.")
+    origin_candidate = str(values.get("originUrl") or values.get("origin_url") or "").strip()
+    if origin_candidate:
+        try:
+            origin_url = validate_shopee_url(origin_candidate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Link gốc phải là link Shopee HTTPS hợp lệ.") from exc
+    else:
+        origin_url = ""
     affiliate_url = str(values.get("affiliateUrl") or values.get("affiliate_url") or "").strip()
     if len(affiliate_url) > 4000 or not _valid_pool_affiliate_url(affiliate_url):
         raise ValueError("Link rút gọn phải là HTTPS của Shopee hoặc shp.today.")
@@ -431,6 +448,35 @@ def save_product_pool(brand: str, values: dict | None = None) -> dict:
         "note": str(values.get("note") or "").strip()[:1000],
         "raw": {"source": "manual_pool"},
     })
+
+
+def save_product_pool_links(brand: str, values: dict | None = None) -> dict:
+    """Add a pasted newline-separated list of affiliate URLs to one Brand Pool."""
+    values = values if isinstance(values, dict) else {}
+    raw_links = values.get("links", values.get("affiliateUrls", values.get("affiliate_urls", values.get("linksText", ""))))
+    if isinstance(raw_links, str):
+        links = [line.strip() for line in raw_links.splitlines() if line.strip()]
+    elif isinstance(raw_links, (list, tuple)):
+        links = [str(line or "").strip() for line in raw_links if str(line or "").strip()]
+    else:
+        links = []
+    links = list(dict.fromkeys(links))
+    if not links:
+        raise ValueError("Hãy dán ít nhất một link affiliate Shopee, mỗi link một dòng.")
+    if len(links) > 200:
+        raise ValueError("Mỗi lần chỉ thêm tối đa 200 link vào Pool.")
+    invalid = next((link for link in links if len(link) > 4000 or not _valid_pool_affiliate_url(link)), "")
+    if invalid:
+        raise ValueError(f"Link affiliate không hợp lệ: {invalid}")
+    if values.get("id") or values.get("poolId") or values.get("pool_id"):
+        raise ValueError("Khi sửa Pool, chỉ nhập một link trong form sửa.")
+    common = {
+        key: value
+        for key, value in values.items()
+        if key not in {"links", "affiliateUrls", "affiliate_urls", "linksText", "id", "poolId", "pool_id"}
+    }
+    products = [save_product_pool(brand, {**common, "affiliateUrl": link}) for link in links]
+    return {"ok": True, "brand": canonical_brand(brand), "count": len(products), "products": products}
 
 
 def list_product_pool(brand: str, *, query: str = "", enabled_only: bool = False, limit: int = 100) -> dict:
@@ -717,7 +763,7 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         if not product:
             product = select_pool_product(brand, query, settings=settings, selection_seed=project)
         if not product:
-            raise ValueError("Pool Shopee không có sản phẩm đạt mức hoa hồng tối thiểu của Brand.")
+            raise ValueError("Pool Shopee không có link affiliate hợp lệ đang bật cho Brand.")
         product_id = str(product.get("id") or "").strip()
         origin_url = str(product.get("origin_url") or "").strip()
         affiliate_url = str(product.get("affiliate_url") or "").strip()
@@ -783,15 +829,105 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     }
 
 
-def affiliate_comment_text(affiliate_url: str, *, fallback: bool = False) -> str:
+class _ProductTitleParser(HTMLParser):
+    """Extract a short product title without depending on a HTML package."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.title_parts: list[str] = []
+        self.meta_title = ""
+        self._in_title = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized = {str(key).lower(): str(value or "") for key, value in attrs}
+        if tag.lower() == "title":
+            self._in_title = True
+        if tag.lower() == "meta":
+            marker = normalized.get("property", "").lower() or normalized.get("name", "").lower()
+            if marker in {"og:title", "twitter:title"} and normalized.get("content"):
+                self.meta_title = normalized["content"]
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title and data.strip():
+            self.title_parts.append(data)
+
+    def value(self) -> str:
+        return self.meta_title or " ".join(self.title_parts)
+
+
+def _clean_comment_title(value: object) -> str:
+    title = " ".join(str(value or "").replace("\u0000", "").split()).strip()
+    title = re.sub(r"\s*[|–—-]\s*(?:Shopee|Shopee Việt Nam).*$", "", title, flags=re.IGNORECASE).strip(" -|–—")
+    if not title or title.casefold() in {"shopee", "shopee việt nam", "shopee vietnam", "shopee product", "shopee pool link"}:
+        return ""
+    return title[:140].rstrip()
+
+
+@lru_cache(maxsize=256)
+def _fetch_product_title(url: str) -> str:
+    """Read a title from a validated Shopee URL with a small timeout."""
+    try:
+        request = Request(
+            url,
+            headers={
+                "Accept": "text/html,application/xhtml+xml",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) AurexVideo/1.0",
+            },
+            method="GET",
+        )
+        with urlopen(request, timeout=8) as response:
+            final_url = str(response.geturl() or url)
+            final_host = (urlparse(final_url).hostname or "").lower().rstrip(".")
+            if final_host not in {*SHOPEE_HOSTS, "shp.today", "www.shp.today"}:
+                return ""
+            content = response.read(512 * 1024).decode("utf-8", "replace")
+        parser = _ProductTitleParser()
+        parser.feed(content)
+        return _clean_comment_title(parser.value())
+    except (OSError, UnicodeError, ValueError):
+        return ""
+
+
+def product_title_for_comment(product: dict | None = None) -> str:
+    """Return a concise Pool/product title, resolving it from the link if needed."""
+    product = product if isinstance(product, dict) else {}
+    title = _clean_comment_title(product.get("name"))
+    if title:
+        return title
+    for key in ("origin_url", "affiliate_url"):
+        candidate = str(product.get(key) or "").strip()
+        if not candidate:
+            continue
+        host = (urlparse(candidate).hostname or "").lower().rstrip(".")
+        if host not in {*SHOPEE_HOSTS, "shp.today", "www.shp.today"}:
+            continue
+        title = _fetch_product_title(candidate)
+        if title:
+            return title
+    return ""
+
+
+def affiliate_comment_text(
+    affiliate_url: str,
+    *,
+    product_name: str = "",
+    fallback: bool = False,
+) -> str:
     """Return a clickable plain-text affiliate comment.
 
     Keep the tracking URL in ``message``.  Facebook Page comment routes can
     reject the optional ``attachment_url`` field even when the Page token can
     read and comment on the post.
     """
-    label = "Sản phẩm gợi ý trên Shopee" if fallback else "Sản phẩm liên quan trong video"
-    return f"🛒 {label}:\n{affiliate_url}"
+    label = "Gợi ý trên Shopee" if fallback else "Sản phẩm liên quan"
+    title = _clean_comment_title(product_name)
+    if title:
+        return f"🛒 {label}: {title}\n{affiliate_url}"
+    return f"🛒 {label} trong video:\n{affiliate_url}"
 
 
 def caption_with_affiliate(caption: str, affiliate_url: str) -> str:
