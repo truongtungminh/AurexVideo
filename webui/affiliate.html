@@ -72,12 +72,6 @@
             <label>Tên kết nối<input id="shopeeDisplayName" type="text" autocomplete="off" placeholder="Shopee Affiliate" /></label>
             <label>API base URL<input id="shopeeApiBaseUrl" type="url" autocomplete="off" placeholder="https://open-api.affiliate.shopee.vn/graphql" /></label>
             <div class="settings-actions"><button class="button" id="saveShopeeConfigButton" type="button">Lưu kết nối</button><button class="button secondary" id="disconnectShopeeButton" type="button">Gỡ kết nối</button></div>
-            <div class="settings-divider"></div>
-            <h3>Thử AUTO qua AddLiveTag</h3>
-            <p class="settings-hint settings-hint-left">Dùng Product Data cho URL/Item ID Shopee và catalog tìm kiếm theo từ khóa công khai. Đây là endpoint thử nghiệm; không nhập API key hoặc cookie.</p>
-            <label class="settings-check"><input id="addLiveTagEnabled" type="checkbox" /> Bật resolver AddLiveTag cho AUTO</label>
-            <label>Affiliate ID AddLiveTag<input id="addLiveTagAffiliateId" type="password" autocomplete="off" placeholder="Affiliate ID tại affiliate.shopee.vn" /></label>
-            <div class="settings-actions"><button class="button secondary" id="saveAddLiveTagButton" type="button">Lưu AddLiveTag</button></div>
           </div>
           <div class="settings-column">
             <h3>Policy khi upload</h3>
@@ -90,12 +84,36 @@
         </div>
       </section>
 
+      <section class="pool-panel panel" aria-labelledby="poolTitle">
+        <div class="section-heading pool-heading">
+          <div><p class="eyebrow">Nguồn sản phẩm cố định</p><h2 id="poolTitle">Pool Shopee của Brand</h2></div>
+          <p id="poolStatus" class="settings-hint">Chọn Brand để quản lý sản phẩm trong Pool.</p>
+        </div>
+        <p class="pool-intro">Anh chọn sản phẩm một lần, dán link gốc và link rút gọn đã tạo sẵn (ví dụ <code>https://shp.today/...</code>). AUTO và quét bài đã đăng sẽ chỉ lấy sản phẩm đang bật trong Pool của Brand; không tự tìm nguồn khác.</p>
+        <div class="pool-form-grid">
+          <label>Tên sản phẩm<input id="poolProductName" type="text" maxlength="300" autocomplete="off" placeholder="Ví dụ: Bình giữ nhiệt 500ml" /></label>
+          <label>Link gốc Shopee<input id="poolOriginUrl" type="url" autocomplete="off" placeholder="https://shopee.vn/product/shop/item" /></label>
+          <label>Link rút gọn / affiliate<input id="poolAffiliateUrl" type="url" autocomplete="off" placeholder="https://shp.today/9Owj" /></label>
+          <label>Hoa hồng (%)<input id="poolCommission" type="number" min="0" max="100" step="0.1" placeholder="10.5" /></label>
+          <label>Ưu tiên<input id="poolPriority" type="number" min="-100" max="100" step="1" value="0" /></label>
+          <label>Trạng thái<select id="poolProductEnabled"><option value="true">Đang bật</option><option value="false">Tạm tắt</option></select></label>
+          <label class="pool-note">Ghi chú<textarea id="poolNote" rows="2" maxlength="1000" placeholder="Ví dụ: Link đã kiểm tra, dùng cho nhóm video gia dụng"></textarea></label>
+        </div>
+        <div class="settings-actions pool-actions"><button class="button" id="savePoolProductButton" type="button">Thêm vào Pool</button><button class="button secondary" id="cancelPoolEditButton" type="button" hidden>Huỷ sửa</button></div>
+        <div class="pool-table-wrap">
+          <table class="pool-table">
+            <thead><tr><th>Sản phẩm</th><th>Hoa hồng</th><th>Link rút gọn</th><th>Trạng thái</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
+            <tbody id="poolProductsBody"><tr><td colspan="5" class="table-empty">Chưa có sản phẩm trong Pool.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="backfill-panel panel" aria-labelledby="backfillTitle">
         <div class="section-heading backfill-heading">
           <div><p class="eyebrow">Bổ sung cho bài đã đăng</p><h2 id="backfillTitle">Tự chọn sản phẩm &amp; comment link</h2></div>
           <p id="backfillStatus" class="settings-hint">Chạy preview để xem bài nào đủ điều kiện.</p>
         </div>
-        <p class="backfill-intro">Quét các bài đã đăng trên đúng Fanpage của Brand, chọn sản phẩm phù hợp với nội dung và ưu tiên commission cao. Bài đã có comment/link affiliate sẽ được bỏ qua. Để chạy thật, bật policy AUTO và cấu hình đường tạo link. Với AddLiveTag, hệ thống đọc thêm catalog tìm kiếm theo từ khóa công khai; các dòng thiếu URL, giá hoặc hoa hồng sẽ bị bỏ qua. Nếu keyword không có sản phẩm đạt policy, hệ thống dùng pool sản phẩm công khai và chọn ngẫu nhiên có trọng số trong nhóm hoa hồng cao; preview sẽ khóa sản phẩm cho lần chạy thật hiện tại. URL/Item ID trong bài và sản phẩm đã lưu vẫn được ưu tiên. Comment Facebook sẽ gửi link tracking dưới dạng link attachment để không lộ query dài; nếu Meta không nhận attachment, hệ thống tự fallback về URL đầy đủ để không mất attribution.</p>
+        <p class="backfill-intro">Quét các bài đã đăng trên đúng Fanpage của Brand, chọn sản phẩm phù hợp trong Pool và ưu tiên hoa hồng cao. Bài đã có comment/link affiliate sẽ được bỏ qua. Để chạy thật, bật policy AUTO và bảo đảm Pool có sản phẩm đang bật, có link gốc Shopee và link rút gọn hợp lệ. Nếu keyword không khớp, hệ thống chọn ngẫu nhiên có trọng số trong nhóm hoa hồng cao của chính Pool; preview sẽ khóa sản phẩm cho lần chạy thật hiện tại. Comment Facebook gửi link dưới dạng plain text để giữ attribution và tránh lỗi trường attachment deprecated.</p>
         <div class="backfill-controls">
           <label>Quét tối đa<input id="backfillLimit" type="number" min="1" max="50" step="1" value="10" /></label>
           <label>Trong số ngày gần nhất<input id="backfillDays" type="number" min="1" max="365" step="1" value="30" /></label>

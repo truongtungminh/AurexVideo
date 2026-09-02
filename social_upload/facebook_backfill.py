@@ -58,7 +58,6 @@ _MATCH_STOPWORDS = frozenset({
     "siêu", "tai", "tại", "the", "thật", "trong", "và", "video", "voi", "với", "xem", "you", "đẹp", "tốt",
     "vs", "khác", "nhau", "đâu", "ở", "giữa", "này", "nào", "như", "thế", "sao", "một", "hai", "thì",
 })
-_COMPARISON_SPLIT_RE = re.compile(r"\s+(?:vs\.?|và|&|hay|hoặc)\s+", re.IGNORECASE)
 
 
 def _fraction(value: object) -> float:
@@ -108,8 +107,8 @@ def _preview_product_payload(product: dict) -> dict:
     """Keep only non-secret product fields needed to bind execute to preview."""
     allowed = (
         "id", "provider", "provider_product_id", "shop_id", "name", "origin_url",
-        "price_min", "price_max", "commission_rate", "sales", "rating", "discount_rate",
-        "shop_quality", "relevance_score", "ranking_score", "link_provider",
+        "affiliate_url", "price_min", "price_max", "commission_rate", "sales", "rating", "discount_rate",
+        "shop_quality", "priority", "relevance_score", "ranking_score", "link_provider",
         "_aurex_selection_mode", "_aurex_selection_reason",
     )
     payload = {key: product[key] for key in allowed if key in product and product[key] is not None}
@@ -288,33 +287,6 @@ def _annotate_relevance(products: Iterable[object], post_text: str) -> list[dict
             item["relevance_score"] = relevance
         annotated.append(item)
     return annotated
-
-
-def _product_query(post_text: str) -> str:
-    """Build a bounded provider-search query from a social caption."""
-    tokens = list(dict.fromkeys(_match_tokens(post_text)))
-    return " ".join(tokens[:12])[:180]
-
-
-def _product_search_queries(post_text: str) -> list[str]:
-    """Create short commerce queries from an editorial/comparison caption."""
-    text = _post_preview(post_text)
-    prefix = re.split(r"[:?!\n|#]", text, maxsplit=1)[0]
-    clauses = [clause.strip() for clause in _COMPARISON_SPLIT_RE.split(prefix) if clause.strip()]
-    queries: list[str] = []
-
-    def add(value: object) -> None:
-        tokens = list(dict.fromkeys(_match_tokens(value)))
-        candidate = " ".join(tokens[:8])[:120]
-        if len(candidate) >= 2 and candidate not in queries:
-            queries.append(candidate)
-
-    add(prefix)
-    for clause in clauses[:3]:
-        if len(_match_tokens(clause)) >= 2:
-            add(clause)
-    add(_product_query(text))
-    return queries[:4]
 
 
 def _pool_product_key(product: dict) -> tuple[str, str]:
@@ -668,7 +640,10 @@ def _policy_product(products: Iterable[object], query: str, settings: dict) -> d
         ),
     )[0]
     source = source_by_key.get((str(selected.get("provider_product_id") or ""), str(selected.get("origin_url") or "")), {})
-    for key in ("id", "link_provider"):
+    for key in (
+        "id", "link_provider", "affiliate_url", "priority", "note",
+        "_aurex_selection_mode", "_aurex_selection_reason",
+    ):
         if source.get(key):
             selected[key] = source[key]
     return selected
@@ -678,21 +653,19 @@ def _prepare_product_for_link(product: dict, context: dict) -> tuple[dict, str]:
     """Choose the configured link writer and fail preview closed if none exists."""
     selected = dict(product)
 
-    addlivetag = context.get("addlivetag") if isinstance(context.get("addlivetag"), dict) else {}
-    connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
-    if addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured"):
-        selected["link_provider"] = "addlivetag"
+    provider = str(selected.get("link_provider") or "").strip().lower()
+    if provider == "pool":
+        affiliate_url = str(selected.get("affiliate_url") or "").strip()
+        if not affiliate_url or not is_valid_affiliate_url(affiliate_url):
+            return {}, "Sản phẩm Pool không có link affiliate HTTPS hợp lệ."
         raw = selected.get("raw") if isinstance(selected.get("raw"), dict) else {}
-        selected["raw"] = {**raw, "_aurex_link_provider": "addlivetag"}
+        selected["raw"] = {**raw, "_aurex_link_provider": "pool"}
         return selected, ""
+    connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
     if connection.get("connected"):
-        # A cached product may have originally come from AddLiveTag.  An
-        # official Shopee connection is a safe fallback when it is available.
         selected["link_provider"] = "shopee"
         return selected, ""
-    if addlivetag.get("enabled"):
-        return {}, "AddLiveTag cần Affiliate ID để tạo link cho bài này."
-    return {}, "Cần kết nối Shopee Affiliate hoặc bật AddLiveTag với Affiliate ID để tạo link."
+    return {}, "Cần thêm sản phẩm có link rút gọn vào Pool Shopee của Brand."
 
 
 def _select_product(brand: str, text: str, context: dict, *, selection_seed: object = "") -> tuple[dict, str]:
@@ -703,115 +676,16 @@ def _select_product(brand: str, text: str, context: dict, *, selection_seed: obj
     if mode != "auto":
         return {}, "Backfill tự chọn sản phẩm cần đặt Affiliate mode là AUTO cho Brand này."
     query = _post_preview(text)
-    if not query:
-        return {}, "Post has no text to match against a product."
-
-    addlivetag = context.get("addlivetag") if isinstance(context.get("addlivetag"), dict) else {}
-    if addlivetag.get("enabled"):
-        try:
-            reference = extract_shopee_reference(text)
-        except ValueError:
-            reference = {}
-        if reference:
-            try:
-                product = normalize_product_payload(fetch_product_data(reference), relevance_score=1.0)
-            except (AddLiveTagApiError, TypeError, ValueError) as exc:
-                return {}, f"AddLiveTag explicit reference unavailable: {_safe_error(exc)}"
-            product["link_provider"] = "addlivetag"
-            product["ranking_score"] = 1.0
-            raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
-            product["raw"] = {**raw, "_aurex_link_provider": "addlivetag"}
-            selected = _policy_product([product], query, settings)
-            if not selected:
-                return {}, "Explicit AddLiveTag product does not meet Brand relevance or commission policy."
-            return _prepare_product_for_link(selected, context)
-
-    connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
-    provider_query = _product_query(query)
-    if not provider_query:
-        if addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured"):
-            fallback, fallback_reason = _select_random_high_commission_product(
-                brand,
-                query,
-                context,
-                cached=[],
-                searched=[],
-                selection_seed=selection_seed,
-            )
-            if fallback:
-                return _prepare_product_for_link(fallback, context)[0], fallback_reason
-        return {}, "Post has no usable product keywords."
-    if connection.get("connected"):
-        try:
-            discovered = discover_products(brand, provider_query, limit=10, persist=False)
-        except (RuntimeError, TypeError, ValueError) as exc:
-            if not (addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured")):
-                return {}, f"Official Shopee discovery unavailable: {_safe_error(exc)}"
-        else:
-            products = discovered.get("products") if isinstance(discovered, dict) else []
-            selected = _policy_product(_annotate_relevance(products or [], query), query, settings)
-            if selected:
-                return _prepare_product_for_link(selected, context)
-            if not (addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured")):
-                return {}, "Official Shopee has no product meeting Brand relevance or commission policy."
-
-    try:
-        # Search locally after loading the bounded catalog: a full caption is
-        # rarely a literal SQL substring of the saved product name.
-        cached = affiliate_store.list_products(limit=MAX_LIMIT)
-    except (RuntimeError, TypeError, ValueError) as exc:
-        return {}, f"Cached product lookup unavailable: {_safe_error(exc)}"
-    selected = _policy_product(_annotate_relevance(cached, query), query, settings)
-    if selected:
-        return _prepare_product_for_link(selected, context)
-
-    if not addlivetag.get("enabled"):
-        return {}, "No official Shopee connection and no cached product meets Brand policy."
-    if not addlivetag.get("affiliate_id_configured"):
-        return {}, "AddLiveTag cần Affiliate ID để tự tìm sản phẩm và tạo link cho bài này."
-
-    search_queries = _product_search_queries(query)
-    searched: list[dict] = []
-    search_errors: list[str] = []
-    seen: set[tuple[str, str]] = set()
-    for keyword in search_queries:
-        try:
-            candidates = search_addlivetag_products(keyword, limit=20)
-        except (AddLiveTagApiError, TypeError, ValueError) as exc:
-            search_errors.append(_safe_error(exc))
-            continue
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            key = (
-                str(candidate.get("provider_product_id") or ""),
-                str(candidate.get("origin_url") or ""),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            searched.append(candidate)
-
-    if searched:
-        selected = _policy_product(_annotate_relevance(searched, query), query, settings)
-        if selected:
-            return _prepare_product_for_link(selected, context)
-    if not search_errors or len(search_errors) < len(search_queries):
-        fallback, fallback_reason = _select_random_high_commission_product(
-            brand,
-            query,
-            context,
-            cached=cached,
-            searched=searched,
-            selection_seed=selection_seed,
-        )
-        if fallback:
-            return _prepare_product_for_link(fallback, context)[0], fallback_reason
-    if search_errors and len(search_errors) >= len(search_queries):
-        return {}, f"AddLiveTag keyword search unavailable: {search_errors[0]}"
-    if searched:
-        return {}, "AddLiveTag keyword search found products, but none met Brand relevance or commission policy; random fallback cũng không có sản phẩm đạt mức hoa hồng tối thiểu."
-    return {}, "AddLiveTag keyword search returned no usable products; random fallback cũng không tìm thấy sản phẩm đạt mức hoa hồng tối thiểu."
+    product, reason = _select_pool_product(
+        brand,
+        query,
+        context,
+        selection_seed=selection_seed,
+    )
+    if not product:
+        return {}, reason
+    selected, provider_reason = _prepare_product_for_link(product, context)
+    return selected, provider_reason or reason
 
 
 def _preview_product_for_execute(selection: dict, text: str, context: dict) -> tuple[dict, str]:
@@ -821,10 +695,10 @@ def _preview_product_for_execute(selection: dict, text: str, context: dict) -> t
         return {}, "Preview không còn sản phẩm đã chọn; hãy chạy preview lại."
     settings = context.get("settings") if isinstance(context.get("settings"), dict) else {}
     selection_mode = str(product.get("_aurex_selection_mode") or selection.get("selection_mode") or "").strip()
-    if selection_mode == "random_high_commission":
-        candidates = _fallback_candidates([product], settings)
+    if selection_mode == "pool_high_commission":
+        candidates = _pool_candidates([product], settings)
         if not candidates:
-            return {}, "Sản phẩm fallback trong preview không còn đạt URL Shopee hoặc mức hoa hồng hiện tại."
+            return {}, "Sản phẩm Pool trong preview không còn đạt link hoặc mức hoa hồng hiện tại."
         selected, _ = _prepare_product_for_link(candidates[0], context)
     else:
         selected = _policy_product(_annotate_relevance([product], _post_preview(text)), _post_preview(text), settings)
@@ -845,6 +719,7 @@ def _record_for_execute(brand: str, content_id: str, page_id: str, post_id: str,
         "product_id": str(product.get("id") or ""),
         "product_name": str(product.get("name") or "Shopee product"),
         "original_url": str(product.get("origin_url") or ""),
+        "affiliate_url": str(product.get("affiliate_url") or ""),
         "commission_rate": _fraction(product.get("commission_rate")),
         "relevance_score": _fraction(product.get("relevance_score")),
         "ranking_score": float(product.get("ranking_score") or 0),
@@ -997,8 +872,12 @@ def run_affiliate_backfill(
                 continue
             record: dict = {}
             try:
-                # AddLiveTag product data is read-only until this explicit execute path.
-                saved_product = affiliate_store.upsert_product(product)
+                if str(product.get("link_provider") or "").strip().lower() == "pool":
+                    # Pool rows already contain the Brand-owned affiliate URL;
+                    # keep them out of the global provider catalog.
+                    saved_product = product
+                else:
+                    saved_product = affiliate_store.upsert_product(product)
                 product = {**product, **saved_product}
                 record = _record_for_execute(brand, content_id, resolved_page_id, post_id, product)
                 link_result = create_affiliate_link(

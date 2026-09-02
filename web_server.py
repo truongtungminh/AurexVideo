@@ -30,15 +30,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from social_upload import (
     affiliate_brand_context,
-    addlivetag_brand_context,
     affiliate_overview,
     create_affiliate_link,
+    delete_product_pool,
     discover_products,
     ingest_conversion_rows,
+    list_product_pool,
     list_saved_products,
     save_affiliate_settings,
-    save_addlivetag_settings,
-    resolve_addlivetag_product,
+    save_product_pool,
     run_affiliate_backfill,
     shopee_status,
     update_shopee_config,
@@ -9678,6 +9678,21 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if path == "/api/affiliate/pool":
+            query_values = parse_qs(parsed.query)
+            try:
+                brand = canonical_brand((query_values.get("brand") or [""])[0])
+                if not brand:
+                    raise ValueError("Cần chọn Brand để đọc Pool Shopee.")
+                query = (query_values.get("q") or query_values.get("query") or [""])[0].strip()
+                raw_enabled_only = (query_values.get("enabledOnly") or query_values.get("enabled_only") or [""])[0]
+                enabled_only = str(raw_enabled_only).strip().casefold() in {"1", "true", "yes", "on"}
+                limit = int((query_values.get("limit") or [100])[0])
+                self.send_json(200, list_product_pool(brand, query=query, enabled_only=enabled_only, limit=limit))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if path == "/api/affiliate/products":
             query_values = parse_qs(parsed.query)
             project = (query_values.get("project") or [""])[0]
@@ -10054,47 +10069,14 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
-        if parsed.path == "/api/affiliate/addlivetag/config":
+        if parsed.path == "/api/affiliate/pool":
             try:
                 payload = self.read_json_body()
                 brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
                 if not brand:
-                    raise ValueError("AddLiveTag config cần Brand.")
-                if any(payload.get(key) for key in ("apiKey", "api_key", "secret", "token", "cookie")):
-                    raise ValueError("AddLiveTag Product Data không dùng API key, token hoặc cookie.")
-                settings = save_addlivetag_settings(brand, payload)
-                self.send_json(200, {"ok": True, "brand": brand, "addlivetag": settings})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/auto-resolve":
-            try:
-                payload = self.read_json_body()
-                project = str(payload.get("project") or payload.get("contentId") or payload.get("content_id") or "").strip()
-                if not project:
-                    raise ValueError("AUTO AddLiveTag cần project.")
-                require_project(project)
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("AUTO AddLiveTag cần Brand.")
-                reference = str(payload.get("reference") or payload.get("query") or "").strip()
-                origin_url = str(payload.get("originUrl") or payload.get("origin_url") or "").strip()
-                item_id = str(payload.get("itemId") or payload.get("item_id") or "").strip()
-                if reference and not origin_url and not item_id:
-                    if reference.startswith("https://"):
-                        origin_url = reference
-                    elif reference.isdigit():
-                        item_id = reference
-                result = resolve_addlivetag_product(
-                    brand,
-                    project,
-                    origin_url=origin_url,
-                    item_id=item_id,
-                )
-                self.send_json(200, {"ok": True, **result})
-            except FileNotFoundError as exc:
-                self.send_json(404, {"error": str(exc)})
+                    raise ValueError("Pool Shopee cần Brand.")
+                product = save_product_pool(brand, payload)
+                self.send_json(200, {"ok": True, "brand": brand, "product": product})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -11121,7 +11103,18 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_json(400, {"error": str(exc)})
 
     def do_DELETE(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        pool_match = re.fullmatch(r"/api/affiliate/pool/([^/]+)", path)
+        if pool_match:
+            try:
+                brand = canonical_brand((parse_qs(parsed.query).get("brand") or [""])[0])
+                if not brand:
+                    raise ValueError("Pool Shopee cần Brand.")
+                self.send_json(200, delete_product_pool(brand, unquote(pool_match.group(1))))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
         character_match = re.fullmatch(r"/api/characters/([^/]+)", path)
         if not character_match:
             self.send_json(404, {"error": "Unknown endpoint."})
