@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from social_upload.affiliate import (
     delete_product_pool,
     is_valid_affiliate_url,
     list_product_pool,
+    prepare_affiliate_for_publish,
     save_product_pool,
     select_pool_product,
 )
@@ -100,14 +102,15 @@ class AffiliatePoolTests(unittest.TestCase):
                 brand="knowzy",
                 content_id="video-1",
                 product_id=pool_row["id"],
-                origin_url=ORIGIN,
-                affiliate_url=SHORT,
+                origin_url="https://shopee.vn/product/other/999",
+                affiliate_url="https://shp.today/client-value",
                 page_id="page-1",
                 product_payload=pool_row,
                 link_provider="pool",
             )
 
         self.assertEqual(result["link"]["affiliate_url"], SHORT)
+        self.assertEqual(result["link"]["origin_url"], ORIGIN)
         self.assertEqual(result["product"]["id"], pool_row["id"])
         self.assertEqual(result["product"]["brand_id"], "knowzy")
         generate.assert_not_called()
@@ -118,6 +121,109 @@ class AffiliatePoolTests(unittest.TestCase):
         self.assertFalse(delete_product_pool("bietchichomet", pool_row["id"])["deleted"])
         self.assertTrue(delete_product_pool("knowzy", pool_row["id"])["deleted"])
         self.assertFalse(list_product_pool("knowzy")["configured"])
+
+    def test_auto_ignores_client_provider_product_and_uses_brand_pool(self):
+        pool_row = save_product_pool(
+            "knowzy",
+            {"name": "Bình giữ nhiệt trong Pool", "originUrl": ORIGIN, "affiliateUrl": SHORT, "commissionRate": 10.5},
+        )
+        affiliate_store.upsert_settings(
+            "knowzy",
+            {"enabled": True, "mode": "auto", "min_relevance": 0, "min_commission": 0.05},
+        )
+        config = {"brand_routes": {"knowzy": {"facebook": {"page_id": "page-1"}}}}
+        payload = {
+            "affiliate": {
+                "enabled": True,
+                "mode": "auto",
+                "productId": "provider-catalog-product",
+                "linkProvider": "shopee",
+                "originUrl": "https://shopee.vn/product/client/999",
+                "affiliateUrl": "https://s.shopee.vn/client-link",
+                "product": {
+                    "id": "provider-catalog-product",
+                    "name": "Sản phẩm provider không được dùng",
+                    "origin_url": "https://shopee.vn/product/client/999",
+                    "offer_url": "https://s.shopee.vn/client-link",
+                    "link_provider": "shopee",
+                },
+            }
+        }
+        with (
+            patch("social_upload.affiliate.read_social_config", return_value=config),
+            patch("social_upload.affiliate.generate_short_link") as generate,
+        ):
+            result = prepare_affiliate_for_publish(payload, "video-1", "knowzy", "page-1")
+
+        self.assertEqual(result["link_provider"], "pool")
+        self.assertEqual(result["product"]["id"], pool_row["id"])
+        self.assertEqual(result["link"]["affiliate_url"], SHORT)
+        self.assertEqual(result["link"]["origin_url"], ORIGIN)
+        generate.assert_not_called()
+
+    def test_same_affiliate_url_is_isolated_between_brands(self):
+        affiliate_store.record_link({
+            "content_id": "video-knowzy",
+            "brand_id": "knowzy",
+            "origin_url": ORIGIN,
+            "affiliate_url": SHORT,
+        })
+        affiliate_store.record_link({
+            "content_id": "video-bietchichomet",
+            "brand_id": "bietchichomet",
+            "origin_url": "https://shopee.vn/product/775125376/18824975415",
+            "affiliate_url": SHORT,
+        })
+
+        knowzy_links = affiliate_store.overview(brand_id="knowzy")["links"]
+        bietchichomet_links = affiliate_store.overview(brand_id="bietchichomet")["links"]
+        self.assertEqual(len(knowzy_links), 1)
+        self.assertEqual(len(bietchichomet_links), 1)
+        self.assertEqual(knowzy_links[0]["content_id"], "video-knowzy")
+        self.assertEqual(bietchichomet_links[0]["content_id"], "video-bietchichomet")
+
+    def test_existing_global_link_unique_key_migrates_without_losing_rows(self):
+        with sqlite3.connect(str(affiliate_store.AFFILIATE_DB_PATH)) as connection:
+            connection.execute(
+                """
+                CREATE TABLE affiliate_links (
+                    id TEXT PRIMARY KEY,
+                    content_id TEXT NOT NULL,
+                    brand_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    product_id TEXT NOT NULL DEFAULT '',
+                    origin_url TEXT NOT NULL,
+                    affiliate_url TEXT NOT NULL,
+                    sub_id_1 TEXT NOT NULL DEFAULT '',
+                    sub_id_2 TEXT NOT NULL DEFAULT '',
+                    sub_id_3 TEXT NOT NULL DEFAULT '',
+                    sub_id_4 TEXT NOT NULL DEFAULT '',
+                    sub_id_5 TEXT NOT NULL DEFAULT '',
+                    placement TEXT NOT NULL DEFAULT 'first_comment',
+                    status TEXT NOT NULL DEFAULT 'created',
+                    created_at TEXT NOT NULL,
+                    UNIQUE (affiliate_url)
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO affiliate_links
+                  (id, content_id, brand_id, provider, product_id, origin_url, affiliate_url, created_at)
+                VALUES ('legacy-link', 'legacy-video', 'knowzy', 'shopee', '', ?, ?, '2026-09-02T00:00:00Z')
+                """,
+                (ORIGIN, SHORT),
+            )
+
+        affiliate_store.init_db()
+        affiliate_store.record_link({
+            "content_id": "new-video",
+            "brand_id": "bietchichomet",
+            "origin_url": "https://shopee.vn/product/775125376/18824975415",
+            "affiliate_url": SHORT,
+        })
+        self.assertEqual(len(affiliate_store.overview(brand_id="knowzy")["links"]), 1)
+        self.assertEqual(len(affiliate_store.overview(brand_id="bietchichomet")["links"]), 1)
 
 
 if __name__ == "__main__":

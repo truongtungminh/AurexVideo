@@ -108,7 +108,7 @@ def _preview_product_payload(product: dict) -> dict:
     allowed = (
         "id", "provider", "provider_product_id", "shop_id", "name", "origin_url",
         "affiliate_url", "price_min", "price_max", "commission_rate", "sales", "rating", "discount_rate",
-        "shop_quality", "priority", "relevance_score", "ranking_score", "link_provider",
+        "shop_quality", "priority", "enabled", "note", "relevance_score", "ranking_score", "link_provider",
         "_aurex_selection_mode", "_aurex_selection_reason",
     )
     payload = {key: product[key] for key in allowed if key in product and product[key] is not None}
@@ -325,7 +325,7 @@ def _pool_candidates(products: Iterable[object], settings: dict) -> list[dict]:
             "link_provider": "pool",
         }
         key = _pool_product_key(normalized)
-        if not key[0] and not key[1] or key in seen:
+        if (not key[0] and not key[1]) or key in seen:
             continue
         seen.add(key)
         candidates.append(normalized)
@@ -688,24 +688,52 @@ def _select_product(brand: str, text: str, context: dict, *, selection_seed: obj
     return selected, provider_reason or reason
 
 
-def _preview_product_for_execute(selection: dict, text: str, context: dict) -> tuple[dict, str]:
-    """Revalidate the exact product selected by the preview token."""
+def _preview_product_for_execute(
+    brand: str,
+    selection: dict,
+    text: str,
+    context: dict,
+) -> tuple[dict, str]:
+    """Revalidate the exact current Pool row selected by the preview token."""
     product = selection.get("product") if isinstance(selection, dict) else {}
     if not isinstance(product, dict):
         return {}, "Preview không còn sản phẩm đã chọn; hãy chạy preview lại."
     settings = context.get("settings") if isinstance(context.get("settings"), dict) else {}
-    selection_mode = str(product.get("_aurex_selection_mode") or selection.get("selection_mode") or "").strip()
-    if selection_mode == "pool_high_commission":
-        candidates = _pool_candidates([product], settings)
-        if not candidates:
-            return {}, "Sản phẩm Pool trong preview không còn đạt link hoặc mức hoa hồng hiện tại."
-        selected, _ = _prepare_product_for_link(candidates[0], context)
-    else:
-        selected = _policy_product(_annotate_relevance([product], _post_preview(text)), _post_preview(text), settings)
-        if not selected:
-            return {}, "Sản phẩm trong preview không còn đạt Brand policy; hãy chạy preview lại."
-        selected, _ = _prepare_product_for_link(selected, context)
-    return selected, str(selection.get("reason") or product.get("_aurex_selection_reason") or "").strip()
+    raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+    provider = str(product.get("link_provider") or raw.get("_aurex_link_provider") or "").strip().lower()
+    if provider != "pool":
+        return {}, "Preview không còn liên kết Pool hợp lệ; hãy chạy preview lại."
+
+    pool_id = str(product.get("id") or "").strip()
+    if not pool_id:
+        return {}, "Preview không còn ID sản phẩm Pool; hãy chạy preview lại."
+    current = affiliate_store.get_product_pool(pool_id, brand_id=brand)
+    if not current:
+        return {}, "Sản phẩm Pool trong preview đã bị xoá hoặc không còn thuộc Brand."
+    candidates = _pool_candidates([current], settings)
+    if not candidates:
+        return {}, "Sản phẩm Pool trong preview đã bị tắt, đổi link hoặc không còn đạt mức hoa hồng."
+
+    selected = _annotate_relevance(candidates, _post_preview(text))[0]
+    selection_mode = str(product.get("_aurex_selection_mode") or selection.get("selection_mode") or "pool_match").strip()
+    if selection_mode != "pool_high_commission":
+        minimum_relevance = _fraction(settings.get("min_relevance", settings.get("minRelevance", 0.75)))
+        if _fraction(selected.get("relevance_score")) < minimum_relevance:
+            return {}, "Sản phẩm Pool trong preview không còn phù hợp; hãy chạy preview lại."
+    selected["_aurex_selection_mode"] = selection_mode
+    selected["_aurex_selection_reason"] = str(
+        product.get("_aurex_selection_reason")
+        or selection.get("reason")
+        or (
+            "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+            if selection_mode == "pool_high_commission"
+            else "Đã chọn sản phẩm phù hợp từ Pool Shopee của Brand."
+        )
+    ).strip()
+    selected, provider_reason = _prepare_product_for_link(selected, context)
+    if not selected:
+        return {}, provider_reason or "Sản phẩm Pool trong preview không còn link hợp lệ."
+    return selected, str(selection.get("reason") or selected.get("_aurex_selection_reason") or "").strip()
 
 
 def _record_for_execute(brand: str, content_id: str, page_id: str, post_id: str, product: dict) -> dict:
@@ -840,6 +868,7 @@ def run_affiliate_backfill(
                 )
             else:
                 product, reason = _preview_product_for_execute(
+                    brand,
                     preview_selections.get(post_id) or {},
                     post_text,
                     context,
@@ -879,7 +908,6 @@ def run_affiliate_backfill(
                 else:
                     saved_product = affiliate_store.upsert_product(product)
                 product = {**product, **saved_product}
-                record = _record_for_execute(brand, content_id, resolved_page_id, post_id, product)
                 link_result = create_affiliate_link(
                     brand=brand,
                     content_id=content_id,
@@ -894,10 +922,15 @@ def run_affiliate_backfill(
                 affiliate_url = str((link_result.get("link") or {}).get("affiliate_url") or "").strip()
                 if not affiliate_url:
                     raise RuntimeError("Affiliate link creation returned no URL.")
+                product["affiliate_url"] = affiliate_url
+                # Persist the content selection only after link creation has
+                # succeeded, so a failed/stale link cannot leave a record that
+                # looks ready for Facebook.
+                record = _record_for_execute(brand, content_id, resolved_page_id, post_id, product)
                 comment_id, comment_error = post_facebook_source_comment(
                     facebook,
                     facebook_full_post_id(facebook, post_id, page),
-                    affiliate_comment_text(affiliate_url, fallback=selection_mode == "random_high_commission"),
+                    affiliate_comment_text(affiliate_url, fallback=selection_mode == "pool_high_commission"),
                     facebook_page_access_token(facebook, page),
                     attempts=1,
                 )
