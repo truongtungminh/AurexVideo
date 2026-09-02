@@ -40,6 +40,7 @@ class FacebookScheduledAffiliateCommentTests(unittest.TestCase):
             "auto_comment": True,
             "affiliate_url": "https://s.shopee.vn/affiliate-1",
             "product_name": "Bình giữ nhiệt",
+            "scheduled_at": "2026-01-01T00:00:00Z",
             "status": "scheduled",
         }
         values.update(overrides)
@@ -65,6 +66,13 @@ class FacebookScheduledAffiliateCommentTests(unittest.TestCase):
         saved = affiliate_store.get_publish_job(job["id"])
         self.assertEqual(saved["status"], "scheduled")
         self.assertEqual(saved["comment_id"], "")
+        self.assertEqual(saved["publish_check_attempts"], 1)
+        self.assertTrue(saved["next_comment_attempt_at"])
+
+        result, metadata, comment = self._poll({"id": "post-1", "is_published": True})
+        self.assertEqual(result["checked"], 0)
+        metadata.assert_not_called()
+        comment.assert_not_called()
 
     def test_published_posts_once_and_second_poll_is_idempotent(self):
         job = self._scheduled_job()
@@ -89,10 +97,66 @@ class FacebookScheduledAffiliateCommentTests(unittest.TestCase):
 
         result, metadata, comment = self._poll({"id": "post-1", "is_published": True})
 
-        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["checked"], 0)
+        self.assertEqual(result["skipped"], 0)
         metadata.assert_not_called()
         comment.assert_not_called()
-        self.assertEqual(affiliate_store.get_publish_job(job["id"])["status"], "scheduled_no_comment")
+        self.assertEqual(affiliate_store.get_publish_job(job["id"])["status"], "scheduled")
+
+    def test_caption_only_is_not_polled_or_commented(self):
+        job = self._scheduled_job(placement="caption", auto_comment=True)
+
+        result, metadata, comment = self._poll({"id": "post-1", "is_published": True})
+
+        self.assertEqual(result["checked"], 0)
+        metadata.assert_not_called()
+        comment.assert_not_called()
+        self.assertEqual(affiliate_store.get_publish_job(job["id"])["status"], "scheduled")
+
+    def test_future_schedule_is_not_polled_early(self):
+        self._scheduled_job(scheduled_at="2099-01-01T00:00:00Z")
+
+        result, metadata, comment = self._poll({"id": "post-1", "is_published": True})
+
+        self.assertEqual(result["checked"], 0)
+        metadata.assert_not_called()
+        comment.assert_not_called()
+
+    def test_nested_graph_publish_variants_are_supported(self):
+        positive = [
+            {"status": {"is_published": True}},
+            {"data": {"video_status": "PUBLISHED"}},
+            {"reel": {"publishing_status": {"published": "1"}}},
+            {"status": True},
+        ]
+        negative = [
+            {"status": {"is_published": False, "video_status": "SCHEDULED"}},
+            {"data": {"published": "false"}},
+            {"id": "post-1", "success": True},
+        ]
+        for metadata in positive:
+            with self.subTest(metadata=metadata):
+                self.assertTrue(facebook.facebook_object_is_published(metadata))
+        for metadata in negative:
+            with self.subTest(metadata=metadata):
+                self.assertFalse(facebook.facebook_object_is_published(metadata))
+
+    def test_transient_graph_error_is_retried_with_backoff(self):
+        job = self._scheduled_job()
+        with (
+            patch.object(facebook, "read_social_config", return_value=CONFIG),
+            patch.object(facebook, "facebook_object_metadata", side_effect=RuntimeError("HTTP 503 temporary")) as metadata,
+            patch.object(facebook, "post_facebook_source_comment") as comment,
+        ):
+            result = scheduler.poll_facebook_scheduled_affiliate_comments()
+
+        self.assertEqual(result["retried"], 1)
+        metadata.assert_called_once()
+        comment.assert_not_called()
+        saved = affiliate_store.get_publish_job(job["id"])
+        self.assertEqual(saved["status"], "scheduled")
+        self.assertEqual(saved["publish_check_attempts"], 1)
+        self.assertTrue(saved["next_comment_attempt_at"])
 
     def test_transient_comment_error_is_retried_with_backoff(self):
         job = self._scheduled_job()
@@ -134,6 +198,7 @@ class FacebookScheduledAffiliateCommentTests(unittest.TestCase):
         saved = affiliate_store.get_publish_job("legacy-1")
         self.assertFalse(saved["auto_comment"])
         self.assertIn("affiliate_url", saved)
+        self.assertEqual(saved["publish_check_attempts"], 0)
 
 
 if __name__ == "__main__":

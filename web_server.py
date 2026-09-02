@@ -33,6 +33,7 @@ from social_upload import (
     affiliate_overview,
     create_affiliate_link,
     delete_product_pool,
+    delete_product_pool_bulk,
     discover_products,
     ingest_conversion_rows,
     list_product_pool,
@@ -9686,10 +9687,20 @@ class WebHandler(SimpleHTTPRequestHandler):
                 if not brand:
                     raise ValueError("Cần chọn Brand để đọc Pool Shopee.")
                 query = (query_values.get("q") or query_values.get("query") or [""])[0].strip()
+                category = (query_values.get("category") or [""])[0].strip()
                 raw_enabled_only = (query_values.get("enabledOnly") or query_values.get("enabled_only") or [""])[0]
                 enabled_only = str(raw_enabled_only).strip().casefold() in {"1", "true", "yes", "on"}
                 limit = int((query_values.get("limit") or [100])[0])
-                self.send_json(200, list_product_pool(brand, query=query, enabled_only=enabled_only, limit=limit))
+                self.send_json(
+                    200,
+                    list_product_pool(
+                        brand,
+                        query=query,
+                        category=category,
+                        enabled_only=enabled_only,
+                        limit=limit,
+                    ),
+                )
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -11113,6 +11124,17 @@ class WebHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/api/affiliate/pool":
+            try:
+                query_values = parse_qs(parsed.query, keep_blank_values=True)
+                brand = canonical_brand((query_values.get("brand") or [""])[0])
+                if not brand:
+                    raise ValueError("Pool Shopee cần Brand.")
+                category = (query_values.get("category") or [""])[0].strip()
+                self.send_json(200, delete_product_pool_bulk(brand, category))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
         pool_match = re.fullmatch(r"/api/affiliate/pool/([^/]+)", path)
         if pool_match:
             try:

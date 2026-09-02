@@ -26,6 +26,8 @@ from .shopee import (
 
 AFFILIATE_MODES = {"off", "manual", "auto"}
 AFFILIATE_PLACEMENTS = {"first_comment", "caption", "caption_and_comment", "shopee_native_tag"}
+AFFILIATE_PRODUCT_CATEGORIES = affiliate_store.AFFILIATE_PRODUCT_CATEGORIES
+UNCATEGORIZED_PRODUCT_CATEGORY = affiliate_store.UNCATEGORIZED_PRODUCT_CATEGORY
 
 
 def _float(value: object, default: float = 0.0) -> float:
@@ -244,6 +246,7 @@ def _pool_product_row(row: dict, query: str = "") -> dict:
     product.update({
         "id": str(row.get("id") or ""),
         "brand_id": str(row.get("brand_id") or ""),
+        "category": str(row.get("category") or UNCATEGORIZED_PRODUCT_CATEGORY),
         "affiliate_url": str(row.get("affiliate_url") or row.get("affiliateUrl") or "").strip(),
         "priority": int(_float(row.get("priority"), 0)),
         "enabled": bool(row.get("enabled", True)),
@@ -299,6 +302,7 @@ def select_pool_product(
     *,
     settings: dict | None = None,
     selection_seed: object = "",
+    category_hint: str = "",
 ) -> dict:
     """Select one usable product only from the Brand's curated pool.
 
@@ -307,6 +311,7 @@ def select_pool_product(
     preview and execute keep the same item.
     """
     brand = canonical_brand(brand)
+    category_hint = affiliate_store.normalize_product_category(category_hint, empty_means_all=True)
     settings = settings if isinstance(settings, dict) else affiliate_store.get_settings(brand)
     min_relevance = _fraction(settings.get("min_relevance", settings.get("minRelevance", 0.75)))
     min_commission = _fraction(settings.get("min_commission", settings.get("minCommission", 0.05)))
@@ -332,6 +337,10 @@ def select_pool_product(
         candidates.append(candidate)
     if not candidates:
         return {}
+
+    category_candidates = [product for product in candidates if product.get("category") == category_hint]
+    if category_hint and category_candidates:
+        candidates = category_candidates
 
     max_commission = max((product["commission_rate"] for product in candidates), default=0.0) or 1.0
     max_priority = max((max(0, int(product.get("priority") or 0)) for product in candidates), default=0)
@@ -393,6 +402,8 @@ def select_pool_product(
         "_aurex_link_provider": "pool",
         "_aurex_selection_mode": selected["_aurex_selection_mode"],
     }
+    if category_hint and category_candidates:
+        selected["_aurex_category_hint"] = category_hint
     return dict(selected)
 
 
@@ -433,6 +444,7 @@ def save_product_pool(brand: str, values: dict | None = None) -> dict:
     pool_id = str(values.get("id") or values.get("poolId") or values.get("pool_id") or "").strip()
     if pool_id and len(pool_id) > 128:
         raise ValueError("Pool product ID không hợp lệ.")
+    category = affiliate_store.normalize_product_category(values.get("category"))
     return affiliate_store.upsert_product_pool({
         "id": pool_id,
         "brand_id": brand,
@@ -440,6 +452,7 @@ def save_product_pool(brand: str, values: dict | None = None) -> dict:
         "provider_product_id": str(values.get("providerProductId") or values.get("provider_product_id") or "").strip(),
         "shop_id": str(values.get("shopId") or values.get("shop_id") or "").strip(),
         "name": name,
+        "category": category,
         "origin_url": origin_url,
         "affiliate_url": affiliate_url,
         "commission_rate": commission_rate,
@@ -479,9 +492,23 @@ def save_product_pool_links(brand: str, values: dict | None = None) -> dict:
     return {"ok": True, "brand": canonical_brand(brand), "count": len(products), "products": products}
 
 
-def list_product_pool(brand: str, *, query: str = "", enabled_only: bool = False, limit: int = 100) -> dict:
+def list_product_pool(
+    brand: str,
+    *,
+    query: str = "",
+    category: str = "",
+    enabled_only: bool = False,
+    limit: int = 100,
+) -> dict:
     brand = canonical_brand(brand)
-    rows = affiliate_store.list_product_pool(brand, query=query, enabled_only=enabled_only, limit=limit)
+    category = affiliate_store.normalize_product_category(category, empty_means_all=True)
+    rows = affiliate_store.list_product_pool(
+        brand,
+        query=query,
+        category=category,
+        enabled_only=enabled_only,
+        limit=limit,
+    )
     return {
         "ok": True,
         "brand": brand,
@@ -489,6 +516,8 @@ def list_product_pool(brand: str, *, query: str = "", enabled_only: bool = False
         "items": rows,
         "configured": bool(rows),
         "count": len(rows),
+        "category": category,
+        "categories": list(AFFILIATE_PRODUCT_CATEGORIES),
     }
 
 
@@ -499,6 +528,14 @@ def delete_product_pool(brand: str, pool_id: str) -> dict:
     if not str(pool_id or "").strip():
         raise ValueError("Cần chỉ định sản phẩm cần xoá khỏi Pool.")
     return affiliate_store.delete_product_pool(str(pool_id).strip(), brand_id=brand)
+
+
+def delete_product_pool_bulk(brand: str, category: str = "") -> dict:
+    brand = canonical_brand(brand)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+        raise ValueError("Brand không hợp lệ.")
+    category = affiliate_store.normalize_product_category(category, empty_means_all=True)
+    return affiliate_store.delete_product_pool_bulk(brand_id=brand, category=category)
 
 
 def _project_query(project: str) -> str:
@@ -722,8 +759,17 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     if placement == "shopee_native_tag":
         raise ValueError("Shopee native tag mới là POC; hãy dùng comment hoặc caption cho lần đăng này.")
     query = str(raw.get("query") or raw.get("affiliateQuery") or "").strip() or _project_query(project)
+    category_hint = str(
+        raw.get("categoryHint")
+        or raw.get("category_hint")
+        or raw.get("category")
+        or ""
+    ).strip()
     product_id = str(raw.get("productId") or raw.get("product_id") or raw.get("affiliateProductId") or "").strip()
     product_payload = raw.get("product") if isinstance(raw.get("product"), dict) else None
+    if not category_hint and product_payload:
+        category_hint = str(product_payload.get("category") or "").strip()
+    category_hint = affiliate_store.normalize_product_category(category_hint, empty_means_all=True)
     # AUTO never reads the global provider catalog.  It is deliberately
     # resolved from the current Brand-owned Pool below.
     product = affiliate_store.get_product(product_id) if product_id and mode != "auto" else {}
@@ -761,7 +807,13 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
             metadata=product_payload,
         )
         if not product:
-            product = select_pool_product(brand, query, settings=settings, selection_seed=project)
+            product = select_pool_product(
+                brand,
+                query,
+                settings=settings,
+                selection_seed=project,
+                category_hint=category_hint,
+            )
         if not product:
             raise ValueError("Pool Shopee không có link affiliate hợp lệ đang bật cho Brand.")
         product_id = str(product.get("id") or "").strip()
@@ -825,6 +877,7 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         "placement": placement,
         "auto_comment": auto_comment,
         "query": query,
+        "category_hint": category_hint,
         "product": product,
         "link_provider": link_provider,
         "link": link_row,
@@ -948,6 +1001,7 @@ def finalize_affiliate_publish(
     comment_id: str = "",
     error: str = "",
     status: str = "published",
+    scheduled_at: str = "",
 ) -> dict:
     if not prepared or not prepared.get("enabled"):
         return {}
@@ -969,6 +1023,7 @@ def finalize_affiliate_publish(
             post_id=post_id,
             comment_id=comment_id,
             auto_comment=bool(prepared.get("auto_comment")),
+            scheduled_at=str(scheduled_at or ""),
             status=status,
             error=error,
             next_comment_attempt_at="",

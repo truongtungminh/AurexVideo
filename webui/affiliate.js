@@ -1,11 +1,21 @@
-const state = { context: {}, overview: {}, products: [], records: [], pool: {}, poolEditingId: "", poc: {}, backfill: {}, brand: new URLSearchParams(location.search).get("brand") || "", period: "7d", status: "all", query: "" };
+const UNCATEGORIZED_POOL_CATEGORY = "Chưa phân loại";
+const POOL_CATEGORIES = [
+  "Thời Trang Nữ", "Thời Trang Nam", "Sắc Đẹp", "Sức Khỏe", "Phụ Kiện Thời Trang",
+  "Thiết Bị Điện Gia Dụng", "Giày Dép Nam", "Điện Thoại & Phụ Kiện", "Du lịch & Hành lý",
+  "Túi Ví Nữ", "Giày Dép Nữ", "Túi Ví Nam", "Đồng Hồ", "Thiết Bị Âm Thanh",
+  "Thực phẩm và đồ uống", "Chăm Sóc Thú Cưng", "Mẹ & Bé", "Thời trang trẻ em & trẻ sơ sinh",
+  "Gaming & Console", "Cameras & Flycam", "Nhà cửa & Đời sống", "Thể Thao & Dã Ngoại",
+  "Văn Phòng Phẩm", "Sở thích & Sưu tầm", "Ô tô", "Mô tô, xe máy", "Voucher & Dịch vụ",
+  "Sách & Tạp Chí", "Máy tính & Laptop", "Deal Gần bạn", UNCATEGORIZED_POOL_CATEGORY,
+];
+const state = { context: {}, overview: {}, products: [], records: [], pool: {}, poolEditingId: "", poolCategory: "", poc: {}, backfill: {}, brand: new URLSearchParams(location.search).get("brand") || "", period: "7d", status: "all", query: "" };
 const elements = Object.fromEntries([
   "brandSelect", "periodSelect", "searchInput", "statusSelect", "refreshButton", "syncState", "shopeeState", "shopeeBadge", "facebookState", "facebookBadge",
   "kpiClicks", "kpiClicksDetail", "kpiOrders", "kpiOrdersDetail", "kpiGmv", "kpiGmvDetail", "kpiCommission", "kpiCommissionDetail", "kpiCtr", "kpiCtrDetail", "kpiConversionRate", "kpiConversionRateDetail", "recordsBody", "recordsCount", "toast",
   "affiliateConfirm", "affiliateConfirmTitle", "affiliateConfirmMessage", "affiliateConfirmClose", "affiliateConfirmCancel", "affiliateConfirmAccept",
   "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint",
   "affiliateEnabled", "affiliateMode", "affiliatePlacement", "affiliateProductsPerPost", "affiliateMinRelevance", "affiliateMinCommission", "saveAffiliateSettingsButton",
-  "poolAffiliateUrl", "poolProductEnabled", "savePoolProductButton", "cancelPoolEditButton", "poolProductsBody", "poolStatus",
+  "poolAffiliateUrl", "poolProductCategory", "poolProductEnabled", "poolCategoryFilter", "deletePoolCategoryButton", "savePoolProductButton", "cancelPoolEditButton", "poolProductsBody", "poolStatus",
   "pocSummary", "pocContentId", "pocPageId", "pocPostId", "pocCommentId", "pocBannerObserved", "pocEvidenceUrl", "pocNotes", "pocCasesBody",
   "backfillStatus", "backfillLimit", "backfillDays", "backfillPreviewButton", "backfillRunButton", "backfillResultsBody",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -156,9 +166,28 @@ async function updatePoc(caseKey, status) { if (!state.brand) return showToast("
 function clearPocRunFields() { [elements.pocPageId, elements.pocPostId, elements.pocCommentId, elements.pocEvidenceUrl, elements.pocNotes].forEach((element) => { if (element) element.value = ""; }); if (elements.pocBannerObserved) elements.pocBannerObserved.value = ""; }
 
 function poolItems() { const value = state.pool || {}; return list(value.products || value.items || value.data || value); }
+function poolCategories() {
+  const fromApi = list(state.pool?.categories).map((value) => String(value || "").trim()).filter(Boolean);
+  return fromApi.length ? fromApi : POOL_CATEGORIES;
+}
+function renderPoolCategoryOptions() {
+  const categories = poolCategories();
+  const editValue = elements.poolProductCategory?.value || UNCATEGORIZED_POOL_CATEGORY;
+  const filterValue = state.poolCategory || "";
+  if (elements.poolProductCategory) {
+    elements.poolProductCategory.replaceChildren(...categories.map((category) => new Option(category, category)));
+    elements.poolProductCategory.value = categories.includes(editValue) ? editValue : UNCATEGORIZED_POOL_CATEGORY;
+  }
+  if (elements.poolCategoryFilter) {
+    elements.poolCategoryFilter.replaceChildren(new Option("Tất cả", ""), ...categories.map((category) => new Option(category, category)));
+    elements.poolCategoryFilter.value = categories.includes(filterValue) ? filterValue : "";
+    state.poolCategory = elements.poolCategoryFilter.value;
+  }
+}
 function clearPoolForm() {
   state.poolEditingId = "";
   if (elements.poolAffiliateUrl) elements.poolAffiliateUrl.value = "";
+  if (elements.poolProductCategory) elements.poolProductCategory.value = UNCATEGORIZED_POOL_CATEGORY;
   if (elements.poolProductEnabled) elements.poolProductEnabled.value = "true";
   if (elements.savePoolProductButton) elements.savePoolProductButton.textContent = "Thêm vào Pool";
   if (elements.cancelPoolEditButton) elements.cancelPoolEditButton.hidden = true;
@@ -167,29 +196,36 @@ function renderPool() {
   if (!elements.poolProductsBody) return;
   const items = poolItems();
   const enabled = items.filter((item) => Boolean(item.enabled)).length;
+  const categoryLabel = state.poolCategory || "Tất cả";
+  renderPoolCategoryOptions();
   if (!state.brand) elements.poolStatus.textContent = "Chọn Brand để quản lý link trong Pool.";
-  else if (!items.length) elements.poolStatus.textContent = "Pool đang trống · dán các link affiliate đã chọn.";
-  else elements.poolStatus.textContent = `${count(enabled)}/${count(items.length)} link đang bật cho Brand này.`;
-  if (!items.length) { elements.poolProductsBody.innerHTML = '<tr><td colspan="3" class="table-empty">Chưa có link trong Pool.</td></tr>'; return; }
+  else if (!items.length) elements.poolStatus.textContent = state.poolCategory ? `Không có link trong danh mục “${categoryLabel}”.` : "Pool đang trống · dán các link affiliate đã chọn.";
+  else elements.poolStatus.textContent = `${count(enabled)}/${count(items.length)} link đang bật · ${categoryLabel}.`;
+  if (elements.deletePoolCategoryButton) {
+    elements.deletePoolCategoryButton.disabled = !state.brand || !items.length;
+    elements.deletePoolCategoryButton.textContent = `Xoá ${count(items.length)} link`;
+  }
+  if (!items.length) { elements.poolProductsBody.innerHTML = '<tr><td colspan="4" class="table-empty">Chưa có link trong Pool.</td></tr>'; return; }
   elements.poolProductsBody.innerHTML = items.map((item) => {
     const id = String(item.id || "");
     const affiliate = String(item.affiliate_url || "");
+    const category = String(item.category || UNCATEGORIZED_POOL_CATEGORY);
     const status = item.enabled ? "Đang bật" : "Tạm tắt";
-    return `<tr><td><a class="pool-link pool-link-wide" href="${escapeHtml(affiliate)}" target="_blank" rel="noreferrer" title="${escapeHtml(affiliate)}">${escapeHtml(affiliate)}</a></td><td><span class="record-status ${item.enabled ? "active" : "paused"}">${escapeHtml(status)}</span></td><td><div class="pool-actions"><button class="button tiny secondary" type="button" data-pool-edit="${escapeHtml(id)}">Sửa</button><button class="button tiny danger" type="button" data-pool-delete="${escapeHtml(id)}">Xoá</button></div></td></tr>`;
+    return `<tr><td><a class="pool-link pool-link-wide" href="${escapeHtml(affiliate)}" target="_blank" rel="noreferrer" title="${escapeHtml(affiliate)}">${escapeHtml(affiliate)}</a></td><td><span class="pool-category">${escapeHtml(category)}</span></td><td><span class="record-status ${item.enabled ? "active" : "paused"}">${escapeHtml(status)}</span></td><td><div class="pool-actions"><button class="button tiny secondary" type="button" data-pool-edit="${escapeHtml(id)}">Sửa</button><button class="button tiny danger" type="button" data-pool-delete="${escapeHtml(id)}">Xoá</button></div></td></tr>`;
   }).join("");
 }
 async function loadPool() {
   if (!elements.poolProductsBody) return;
   if (!state.brand) { state.pool = {}; renderPool(); return; }
-  try { state.pool = await request(`/api/affiliate/pool${queryString({ brand: state.brand })}`); renderPool(); }
+  try { state.pool = await request(`/api/affiliate/pool${queryString({ brand: state.brand, category: state.poolCategory })}`); renderPool(); }
   catch (error) { state.pool = {}; renderPool(); if (!unavailable(error)) showToast(`Không tải Pool: ${error.message}`, true); }
 }
 function poolPayload() {
   const links = String(elements.poolAffiliateUrl?.value || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
   if (state.poolEditingId) {
-    return { brand: state.brand, id: state.poolEditingId, affiliateUrl: links[0] || "", enabled: elements.poolProductEnabled.value === "true" };
+    return { brand: state.brand, id: state.poolEditingId, affiliateUrl: links[0] || "", category: elements.poolProductCategory.value, enabled: elements.poolProductEnabled.value === "true" };
   }
-  return { brand: state.brand, links };
+  return { brand: state.brand, links, category: elements.poolProductCategory.value, enabled: elements.poolProductEnabled.value === "true" };
 }
 async function savePoolProduct() {
   if (!state.brand) return showToast("Hãy chọn Brand trước.", true);
@@ -206,6 +242,7 @@ function editPoolProduct(id) {
   if (!item) return;
   state.poolEditingId = String(item.id || "");
   elements.poolAffiliateUrl.value = item.affiliate_url || "";
+  elements.poolProductCategory.value = item.category || UNCATEGORIZED_POOL_CATEGORY;
   elements.poolProductEnabled.value = item.enabled ? "true" : "false";
   elements.savePoolProductButton.textContent = "Lưu thay đổi";
   elements.cancelPoolEditButton.hidden = false;
@@ -220,8 +257,32 @@ async function deletePoolProduct(id) {
     danger: true,
   });
   if (!accepted) return;
+  const button = document.querySelector(`[data-pool-delete="${CSS.escape(String(id))}"]`);
+  if (button) button.disabled = true;
   try { await request(`/api/affiliate/pool/${encodeURIComponent(id)}${queryString({ brand: state.brand })}`, { method: "DELETE" }); if (state.poolEditingId === String(id)) clearPoolForm(); showToast("Đã xoá sản phẩm khỏi Pool."); await loadPool(); }
   catch (error) { showToast(error.message, true); }
+  finally { if (button?.isConnected) button.disabled = false; }
+}
+async function deletePoolCategory() {
+  if (!state.brand) return;
+  const items = poolItems();
+  if (!items.length) return;
+  const categoryLabel = state.poolCategory ? `danh mục “${state.poolCategory}”` : "tất cả danh mục";
+  const accepted = await askConfirmation({
+    title: `Xoá ${count(items.length)} link khỏi Pool?`,
+    message: `Chỉ ${count(items.length)} link của Brand “${state.brand}” trong ${categoryLabel} sẽ bị xoá. Dữ liệu Brand khác không bị ảnh hưởng.`,
+    acceptLabel: `Xoá ${count(items.length)} link`,
+    danger: true,
+  });
+  if (!accepted) return;
+  elements.deletePoolCategoryButton.disabled = true;
+  try {
+    const result = await request(`/api/affiliate/pool${queryString({ brand: state.brand, category: state.poolCategory })}`, { method: "DELETE" });
+    clearPoolForm();
+    showToast(`Đã xoá ${count(result.count ?? result.deleted ?? 0)} link khỏi Pool.`);
+    await loadPool();
+  } catch (error) { showToast(error.message, true); }
+  finally { renderPool(); }
 }
 async function loadContext() { try { let context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); if (state.brand && context.selected_brand !== state.brand) { context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); } renderConnections(); renderSettings(); renderBackfill(); return true; } catch (error) { state.context = {}; renderBrands(); renderConnections(); renderSettings(); renderBackfill(); elements.syncState.textContent = unavailable(error) ? "API affiliate chưa được bật" : "Không đọc được cấu hình"; return false; } }
 async function loadData() { const params = { brand: state.brand, period: state.period, status: state.status === "all" ? "" : state.status, q: state.query }; const [overviewResult, productsResult] = await Promise.allSettled([request(`/api/affiliate/overview${queryString(params)}`), request(`/api/affiliate/products${queryString(params)}`)]); const unavailableApi = [overviewResult, productsResult].some((result) => result.status === "rejected" && unavailable(result.reason)); state.overview = overviewResult.status === "fulfilled" ? overviewResult.value : {}; state.products = productsResult.status === "fulfilled" ? productsResult.value : []; state.records = collectRecords(); renderKpis(); renderRecords(); if (overviewResult.status === "rejected" && !unavailable(overviewResult.reason)) showToast(`Không tải overview: ${overviewResult.reason.message}`, true); if (productsResult.status === "rejected" && !unavailable(productsResult.reason)) showToast(`Không tải danh sách: ${productsResult.reason.message}`, true); elements.syncState.textContent = unavailableApi ? "API affiliate chưa được bật" : (pick(state.overview, ["updatedAt", "syncedAt"], "Đã đồng bộ dữ liệu")); }
@@ -233,7 +294,7 @@ async function saveAffiliateSettings() { if (!state.brand) return showToast("Hã
 async function saveShopeeConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); const secret = elements.shopeeSecret.value.trim(); if (!secret) return showToast("Nhập lại App Secret để lưu kết nối.", true); elements.saveShopeeConfigButton.disabled = true; try { await request("/api/social/shopee/config", { method: "POST", body: JSON.stringify({ brand: state.brand, appId: elements.shopeeAppId.value.trim(), secret, apiBaseUrl: elements.shopeeApiBaseUrl.value.trim(), displayName: elements.shopeeDisplayName.value.trim(), settings: settingsPayload() }) }); showToast("Đã lưu kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function disconnectShopee() { if (!state.brand) return; const accepted = await askConfirmation({ title: "Gỡ kết nối Shopee?", message: `Kết nối Shopee Affiliate của Brand “${state.brand}” sẽ bị gỡ khỏi cấu hình local. Bạn có chắc muốn tiếp tục không?`, acceptLabel: "Gỡ kết nối", danger: true }); if (!accepted) return; elements.disconnectShopeeButton.disabled = true; try { await request("/api/social/shopee/disconnect", { method: "POST", body: JSON.stringify({ brand: state.brand }) }); showToast("Đã gỡ kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 
-elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; state.backfill = {}; state.pool = {}; clearPoolForm(); clearPocRunFields(); renderPool(); renderBackfill(); refresh(); });
+elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; state.backfill = {}; state.pool = {}; state.poolCategory = ""; clearPoolForm(); clearPocRunFields(); renderPool(); renderBackfill(); refresh(); });
 elements.periodSelect.addEventListener("change", () => { state.period = elements.periodSelect.value; loadData(); });
 elements.statusSelect.addEventListener("change", () => { state.status = elements.statusSelect.value; loadData(); });
 elements.searchInput.addEventListener("input", () => { state.query = elements.searchInput.value; renderRecords(); clearTimeout(state.searchTimer); state.searchTimer = setTimeout(loadData, 300); });
@@ -252,6 +313,8 @@ elements.saveShopeeConfigButton?.addEventListener("click", saveShopeeConfig);
 elements.disconnectShopeeButton?.addEventListener("click", disconnectShopee);
 elements.savePoolProductButton?.addEventListener("click", savePoolProduct);
 elements.cancelPoolEditButton?.addEventListener("click", clearPoolForm);
+elements.poolCategoryFilter?.addEventListener("change", () => { state.poolCategory = elements.poolCategoryFilter.value; clearPoolForm(); loadPool(); });
+elements.deletePoolCategoryButton?.addEventListener("click", deletePoolCategory);
 elements.poolProductsBody?.addEventListener("click", (event) => { const edit = event.target.closest("[data-pool-edit]"); const remove = event.target.closest("[data-pool-delete]"); if (edit) editPoolProduct(edit.dataset.poolEdit); else if (remove) deletePoolProduct(remove.dataset.poolDelete); });
 elements.backfillPreviewButton?.addEventListener("click", () => runBackfill(true));
 elements.backfillRunButton?.addEventListener("click", () => runBackfill(false));

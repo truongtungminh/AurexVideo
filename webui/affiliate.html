@@ -87,20 +87,25 @@
       <section class="pool-panel panel" aria-labelledby="poolTitle">
         <div class="section-heading pool-heading">
           <div><p class="eyebrow">Nguồn sản phẩm cố định</p><h2 id="poolTitle">Pool Shopee của Brand</h2></div>
-          <p id="poolStatus" class="settings-hint">Chọn Brand để quản lý sản phẩm trong Pool.</p>
+          <div class="pool-heading-controls">
+            <label>Lọc danh mục<select id="poolCategoryFilter" aria-label="Lọc Pool theo danh mục"></select></label>
+            <button class="button danger" id="deletePoolCategoryButton" type="button" disabled>Xoá 0 link</button>
+            <p id="poolStatus" class="settings-hint">Chọn Brand để quản lý sản phẩm trong Pool.</p>
+          </div>
         </div>
         <p class="pool-intro">Dán các link affiliate Shopee anh đã chọn, mỗi link một dòng. Có thể dán nhiều link để thêm một lần; khi cần thay đổi, bấm Sửa trên đúng dòng. AUTO và quét bài đã đăng chỉ lấy link đang bật trong Pool của Brand.</p>
         <div class="pool-form-grid">
           <label class="pool-links">Link affiliate Shopee <span>(mỗi link một dòng)</span><textarea id="poolAffiliateUrl" rows="6" maxlength="400000" autocomplete="off" placeholder="https://s.shopee.vn/1qbiRtcdTE
 https://s.shopee.vn/1gIIFadGoD
 https://s.shopee.vn/1Vys3Hdu9C"></textarea></label>
+          <label>Danh mục<select id="poolProductCategory" aria-label="Danh mục sản phẩm"></select></label>
           <label>Trạng thái<select id="poolProductEnabled"><option value="true">Đang bật</option><option value="false">Tạm tắt</option></select></label>
         </div>
         <div class="settings-actions pool-actions"><button class="button" id="savePoolProductButton" type="button">Thêm vào Pool</button><button class="button secondary" id="cancelPoolEditButton" type="button" hidden>Huỷ sửa</button></div>
         <div class="pool-table-wrap">
           <table class="pool-table">
-            <thead><tr><th>Link affiliate Shopee</th><th>Trạng thái</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
-            <tbody id="poolProductsBody"><tr><td colspan="3" class="table-empty">Chưa có link trong Pool.</td></tr></tbody>
+            <thead><tr><th>Link affiliate Shopee</th><th>Danh mục</th><th>Trạng thái</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
+            <tbody id="poolProductsBody"><tr><td colspan="4" class="table-empty">Chưa có link trong Pool.</td></tr></tbody>
           </table>
         </div>
       </section>
