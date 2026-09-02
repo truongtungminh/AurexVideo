@@ -183,6 +183,18 @@ https://s.shopee.vn/1Vys3Hdu9C"></textarea></label>
       </section>
     </main>
 
+    <div class="affiliate-confirm-backdrop" id="affiliateConfirm" hidden>
+      <div class="affiliate-confirm-card" role="dialog" aria-modal="true" aria-labelledby="affiliateConfirmTitle" aria-describedby="affiliateConfirmMessage">
+        <button class="affiliate-confirm-close" id="affiliateConfirmClose" type="button" aria-label="Đóng">×</button>
+        <p class="eyebrow">Xác nhận thao tác</p>
+        <h2 id="affiliateConfirmTitle">Bạn có chắc muốn tiếp tục?</h2>
+        <p id="affiliateConfirmMessage"></p>
+        <div class="affiliate-confirm-actions">
+          <button class="button secondary" id="affiliateConfirmCancel" type="button">Huỷ</button>
+          <button class="button" id="affiliateConfirmAccept" type="button">Xác nhận</button>
+        </div>
+      </div>
+    </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/webui/affiliate.js"></script>
   </body>
