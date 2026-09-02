@@ -4,9 +4,11 @@ from __future__ import annotations
 
 The product-data endpoint is used only to enrich a Shopee item the caller has
 already selected.  The default short-link route is AddLiveTag's
-``shopee-affiliate-api/api_handler.php`` wrapper for ``generateShortLink``;
-the older public ``/short-link.php`` helper is retained only for compatibility
-because it returns a long redirect URL.  This module is deliberately opt-in:
+Affiliate-ID-aware ``/short-link.php`` helper, so the configured Affiliate ID
+is preserved in the generated link.  AddLiveTag's
+``shopee-affiliate-api/api_handler.php`` trial wrapper is retained as an
+explicit opt-in route; its server-side API account must match the Brand before
+it is safe to use for attribution.  This module is deliberately opt-in:
 callers must supply an affiliate id and it never writes config or sends
 cookies, API keys, or other credentials.
 """
@@ -24,7 +26,8 @@ from .shopee import validate_shopee_url
 
 
 DEFAULT_PRODUCT_DATA_URL = "https://data.addlivetag.com/product-data/product-data.php"
-DEFAULT_SHORT_LINK_URL = "https://addlivetag.com/shopee-affiliate-api/api_handler.php"
+DEFAULT_SHORT_LINK_URL = "https://addlivetag.com/short-link.php"
+DEFAULT_SHORT_LINK_API_URL = "https://addlivetag.com/shopee-affiliate-api/api_handler.php"
 DEFAULT_SEARCH_URL = "https://addlivetag.com/live/search.php"
 SHORT_LINK_API_PATH = "/shopee-affiliate-api/api_handler.php"
 SHORT_LINK_DOC_PATH = "/shopee-affiliate-api/short_link.php"
