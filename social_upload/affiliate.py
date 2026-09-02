@@ -517,6 +517,19 @@ def create_affiliate_link(
             payload_provider = payload_provider or payload_raw.get("_aurex_link_provider")
         if not link_provider:
             link_provider = str(payload_provider or "").strip().lower()
+        if not product_id:
+            product_id = str(product_payload.get("id") or product_payload.get("pool_id") or "").strip()
+        if link_provider == "pool":
+            if not product_id:
+                raise ValueError("Cần chọn sản phẩm có ID trong Pool Shopee của Brand.")
+            pool_row = affiliate_store.get_product_pool(product_id, brand_id=brand)
+            if not pool_row:
+                raise ValueError("Sản phẩm Pool không thuộc Brand này hoặc đã bị xoá.")
+            if not bool(pool_row.get("enabled")):
+                raise ValueError("Sản phẩm Pool đang tắt; hãy bật lại trước khi dùng.")
+            product = _pool_product_row(pool_row)
+            origin_url = str(origin_url or product.get("origin_url") or "").strip()
+            affiliate_url = str(product.get("affiliate_url") or "").strip()
         origin_url = str(
             origin_url
             or product_payload.get("origin_url")
@@ -561,7 +574,7 @@ def create_affiliate_link(
             link_provider = "pool"
     if reuse_product_offer_url and not affiliate_url:
         affiliate_url = str(
-            product.get("affiliate_url") if link_provider == "pool" else product.get("offer_url") or ""
+            (product.get("affiliate_url") if link_provider == "pool" else product.get("offer_url")) or ""
         ).strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
@@ -618,6 +631,13 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     product_id = str(raw.get("productId") or raw.get("product_id") or raw.get("affiliateProductId") or "").strip()
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(raw.get("originUrl") or raw.get("origin_url") or "").strip() or str(product.get("origin_url") or "")
+    product_payload = raw.get("product") if isinstance(raw.get("product"), dict) else None
+    if not product and product_payload:
+        product = dict(product_payload)
+        if not product_id:
+            product_id = str(product.get("id") or product.get("pool_id") or "").strip()
+        if not origin_url:
+            origin_url = str(product.get("origin_url") or product.get("original_url") or "").strip()
     link_provider = str(raw.get("linkProvider") or raw.get("link_provider") or "").strip().lower()
     if not link_provider and product:
         product_raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}

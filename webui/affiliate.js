@@ -1,9 +1,10 @@
-const state = { context: {}, overview: {}, products: [], records: [], poc: {}, backfill: {}, brand: new URLSearchParams(location.search).get("brand") || "", period: "7d", status: "all", query: "" };
+const state = { context: {}, overview: {}, products: [], records: [], pool: {}, poolEditingId: "", poc: {}, backfill: {}, brand: new URLSearchParams(location.search).get("brand") || "", period: "7d", status: "all", query: "" };
 const elements = Object.fromEntries([
   "brandSelect", "periodSelect", "searchInput", "statusSelect", "refreshButton", "syncState", "shopeeState", "shopeeBadge", "facebookState", "facebookBadge",
   "kpiClicks", "kpiClicksDetail", "kpiOrders", "kpiOrdersDetail", "kpiGmv", "kpiGmvDetail", "kpiCommission", "kpiCommissionDetail", "kpiCtr", "kpiCtrDetail", "kpiConversionRate", "kpiConversionRateDetail", "recordsBody", "recordsCount", "toast",
-  "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint", "addLiveTagEnabled", "addLiveTagAffiliateId", "saveAddLiveTagButton",
+  "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint",
   "affiliateEnabled", "affiliateMode", "affiliatePlacement", "affiliateProductsPerPost", "affiliateMinRelevance", "affiliateMinCommission", "saveAffiliateSettingsButton",
+  "poolProductName", "poolOriginUrl", "poolAffiliateUrl", "poolCommission", "poolPriority", "poolProductEnabled", "poolNote", "savePoolProductButton", "cancelPoolEditButton", "poolProductsBody", "poolStatus",
   "pocSummary", "pocContentId", "pocPageId", "pocPostId", "pocCommentId", "pocBannerObserved", "pocEvidenceUrl", "pocNotes", "pocCasesBody",
   "backfillStatus", "backfillLimit", "backfillDays", "backfillPreviewButton", "backfillRunButton", "backfillResultsBody",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -30,7 +31,6 @@ function renderSettings() {
   const affiliate = state.context.affiliate || {};
   const connection = affiliate.connection || {};
   const settings = affiliate.settings || {};
-  const addLiveTag = affiliate.addlivetag || {};
   const hasBrand = Boolean(state.brand);
   const configured = Boolean(connection.connected || connection.configured);
   elements.shopeeAppId.value = connection.app_id || "";
@@ -38,18 +38,15 @@ function renderSettings() {
   elements.shopeeSecret.placeholder = connection.masked_secret ? `Đã lưu ${connection.masked_secret} · nhập lại để thay đổi` : "App Secret (tối thiểu 16 ký tự)";
   elements.shopeeApiBaseUrl.value = connection.api_base_url || "https://open-api.affiliate.shopee.vn/graphql";
   elements.shopeeDisplayName.value = connection.display_name || "";
-  elements.addLiveTagEnabled.checked = Boolean(addLiveTag.enabled);
-  elements.addLiveTagAffiliateId.value = "";
-  elements.addLiveTagAffiliateId.placeholder = addLiveTag.masked_affiliate_id ? `Đã lưu ${addLiveTag.masked_affiliate_id} · nhập lại để thay đổi` : "Affiliate ID tại affiliate.shopee.vn";
   elements.affiliateEnabled.checked = Boolean(settings.enabled && settings.mode !== "off");
   elements.affiliateMode.value = settings.mode || "manual";
   elements.affiliatePlacement.value = settings.placement || "first_comment";
   elements.affiliateProductsPerPost.value = settings.products_per_post ?? 1;
   elements.affiliateMinRelevance.value = settings.min_relevance ?? 0.75;
   elements.affiliateMinCommission.value = Math.round(Number(settings.min_commission ?? 0.05) * 10000) / 100;
-  [elements.shopeeAppId, elements.shopeeSecret, elements.shopeeApiBaseUrl, elements.shopeeDisplayName, elements.addLiveTagEnabled, elements.addLiveTagAffiliateId, elements.affiliateEnabled, elements.affiliateMode, elements.affiliatePlacement, elements.affiliateProductsPerPost, elements.affiliateMinRelevance, elements.affiliateMinCommission, elements.saveShopeeConfigButton, elements.disconnectShopeeButton, elements.saveAddLiveTagButton, elements.saveAffiliateSettingsButton].forEach((element) => { if (element) element.disabled = !hasBrand; });
+  [elements.shopeeAppId, elements.shopeeSecret, elements.shopeeApiBaseUrl, elements.shopeeDisplayName, elements.affiliateEnabled, elements.affiliateMode, elements.affiliatePlacement, elements.affiliateProductsPerPost, elements.affiliateMinRelevance, elements.affiliateMinCommission, elements.saveShopeeConfigButton, elements.disconnectShopeeButton, elements.saveAffiliateSettingsButton].forEach((element) => { if (element) element.disabled = !hasBrand; });
   elements.disconnectShopeeButton.disabled = !hasBrand || !configured;
-  elements.settingsHint.textContent = hasBrand ? (addLiveTag.enabled ? `AddLiveTag: ${addLiveTag.message || "đang bật thử nghiệm"}` : (connection.message || (configured ? "Secret không được đọc ngược từ máy chủ; nhập lại nếu cần đổi kết nối." : "Nhập App ID và App Secret để bật tìm sản phẩm và tạo link."))) : "Chọn Brand để cấu hình Shopee Affiliate.";
+  elements.settingsHint.textContent = hasBrand ? (connection.message || (configured ? "Secret không được đọc ngược từ máy chủ; nhập lại nếu cần đổi kết nối." : "Nhập App ID và App Secret để tìm sản phẩm chính thức.")) : "Chọn Brand để cấu hình Shopee Affiliate.";
 }
 function percent(value) { const numeric = number(value); return `${(numeric <= 1 ? numeric * 100 : numeric).toFixed(1)}%`; }
 function renderKpis() { const values = { clicks: metric(state.overview, ["clicks", "totalClicks"]), orders: metric(state.overview, ["orders", "totalOrders"]), gmv: metric(state.overview, ["gmv", "totalGmv", "revenue"]), commission: metric(state.overview, ["commission", "totalCommission", "earnings"]), ctr: metric(state.overview, ["ctr", "clickThroughRate"]), conversionRate: metric(state.overview, ["conversion_rate", "conversionRate", "cvr"]) }; const details = state.overview?.changes || state.overview?.comparison || {}; elements.kpiClicks.textContent = count(values.clicks); elements.kpiOrders.textContent = count(values.orders); elements.kpiGmv.textContent = money(values.gmv); elements.kpiCommission.textContent = money(values.commission); elements.kpiCtr.textContent = values.ctr ? percent(values.ctr) : "—"; elements.kpiConversionRate.textContent = values.clicks ? percent(values.conversionRate) : "—"; elements.kpiCtrDetail.textContent = values.ctr ? "Theo views đã ingest" : "Chưa ingest views"; elements.kpiConversionRateDetail.textContent = values.clicks ? "Orders / clicks" : "Chưa có clicks"; ["Clicks", "Orders", "Gmv", "Commission"].forEach((name) => { const key = name.toLowerCase(); const change = pick(details, [key, `${key}Change`], ""); elements[`kpi${name}Detail`].textContent = change ? String(change) : "Trong khoảng đã chọn"; }); }
@@ -134,18 +131,89 @@ async function loadPoc() { if (!elements.pocCasesBody) return; try { state.poc =
 async function updatePoc(caseKey, status) { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); if (!elements.pocContentId.value.trim()) return showToast("Nhập Content / project ID trước khi ghi POC.", true); const run = pocLatestRuns().get(caseKey) || {}; const buttons = [...document.querySelectorAll(`[data-poc-case="${CSS.escape(caseKey)}"]`)]; buttons.forEach((button) => { button.disabled = true; }); try { await request("/api/affiliate/poc", { method: "POST", body: JSON.stringify(pocPayload(caseKey, status, run)) }); showToast(status === "running" ? `Đã bắt đầu case ${caseKey}.` : `Đã ghi ${pocStatusLabel(status)} cho case ${caseKey}.`); await loadPoc(); } catch (error) { showToast(error.message, true); } finally { renderPoc(); } }
 function clearPocRunFields() { [elements.pocPageId, elements.pocPostId, elements.pocCommentId, elements.pocEvidenceUrl, elements.pocNotes].forEach((element) => { if (element) element.value = ""; }); if (elements.pocBannerObserved) elements.pocBannerObserved.value = ""; }
 
+function poolItems() { const value = state.pool || {}; return list(value.products || value.items || value.data || value); }
+function clearPoolForm() {
+  state.poolEditingId = "";
+  [elements.poolProductName, elements.poolOriginUrl, elements.poolAffiliateUrl, elements.poolCommission, elements.poolNote].forEach((element) => { if (element) element.value = ""; });
+  if (elements.poolPriority) elements.poolPriority.value = "0";
+  if (elements.poolProductEnabled) elements.poolProductEnabled.value = "true";
+  if (elements.savePoolProductButton) elements.savePoolProductButton.textContent = "Thêm vào Pool";
+  if (elements.cancelPoolEditButton) elements.cancelPoolEditButton.hidden = true;
+}
+function renderPool() {
+  if (!elements.poolProductsBody) return;
+  const items = poolItems();
+  const enabled = items.filter((item) => Boolean(item.enabled)).length;
+  if (!state.brand) elements.poolStatus.textContent = "Chọn Brand để quản lý sản phẩm trong Pool.";
+  else if (!items.length) elements.poolStatus.textContent = "Pool đang trống · thêm sản phẩm đã chọn và link rút gọn.";
+  else elements.poolStatus.textContent = `${count(enabled)}/${count(items.length)} sản phẩm đang bật cho Brand này.`;
+  if (!items.length) { elements.poolProductsBody.innerHTML = '<tr><td colspan="5" class="table-empty">Chưa có sản phẩm trong Pool.</td></tr>'; return; }
+  elements.poolProductsBody.innerHTML = items.map((item) => {
+    const id = String(item.id || "");
+    const name = String(item.name || "Shopee product");
+    const origin = String(item.origin_url || "");
+    const affiliate = String(item.affiliate_url || "");
+    const status = item.enabled ? "Đang bật" : "Tạm tắt";
+    return `<tr><td><div class="pool-product-copy"><strong title="${escapeHtml(name)}">${escapeHtml(name)}</strong><small title="${escapeHtml(origin)}">${escapeHtml(origin)}</small></div></td><td class="metric-cell">${escapeHtml(percent(item.commission_rate))}</td><td><a class="pool-link" href="${escapeHtml(affiliate)}" target="_blank" rel="noreferrer" title="${escapeHtml(affiliate)}">${escapeHtml(affiliate)}</a></td><td><span class="record-status ${item.enabled ? "active" : "paused"}">${escapeHtml(status)}</span></td><td><div class="pool-actions"><button class="button tiny secondary" type="button" data-pool-edit="${escapeHtml(id)}">Sửa</button><button class="button tiny danger" type="button" data-pool-delete="${escapeHtml(id)}">Xoá</button></div></td></tr>`;
+  }).join("");
+}
+async function loadPool() {
+  if (!elements.poolProductsBody) return;
+  if (!state.brand) { state.pool = {}; renderPool(); return; }
+  try { state.pool = await request(`/api/affiliate/pool${queryString({ brand: state.brand })}`); renderPool(); }
+  catch (error) { state.pool = {}; renderPool(); if (!unavailable(error)) showToast(`Không tải Pool: ${error.message}`, true); }
+}
+function poolPayload() {
+  return {
+    brand: state.brand,
+    id: state.poolEditingId,
+    name: elements.poolProductName.value.trim(),
+    originUrl: elements.poolOriginUrl.value.trim(),
+    affiliateUrl: elements.poolAffiliateUrl.value.trim(),
+    commissionRate: Number(elements.poolCommission.value || 0),
+    priority: Number(elements.poolPriority.value || 0),
+    enabled: elements.poolProductEnabled.value === "true",
+    note: elements.poolNote.value.trim(),
+  };
+}
+async function savePoolProduct() {
+  if (!state.brand) return showToast("Hãy chọn Brand trước.", true);
+  elements.savePoolProductButton.disabled = true;
+  try { await request("/api/affiliate/pool", { method: "POST", body: JSON.stringify(poolPayload()) }); showToast(state.poolEditingId ? "Đã cập nhật sản phẩm trong Pool." : "Đã thêm sản phẩm vào Pool."); clearPoolForm(); await loadPool(); }
+  catch (error) { showToast(error.message, true); }
+  finally { renderPool(); elements.savePoolProductButton.disabled = !state.brand; }
+}
+function editPoolProduct(id) {
+  const item = poolItems().find((entry) => String(entry.id) === String(id));
+  if (!item) return;
+  state.poolEditingId = String(item.id || "");
+  elements.poolProductName.value = item.name || "";
+  elements.poolOriginUrl.value = item.origin_url || "";
+  elements.poolAffiliateUrl.value = item.affiliate_url || "";
+  elements.poolCommission.value = number(item.commission_rate) <= 1 ? number(item.commission_rate) * 100 : number(item.commission_rate);
+  elements.poolPriority.value = number(item.priority);
+  elements.poolProductEnabled.value = item.enabled ? "true" : "false";
+  elements.poolNote.value = item.note || "";
+  elements.savePoolProductButton.textContent = "Lưu thay đổi";
+  elements.cancelPoolEditButton.hidden = false;
+  elements.poolProductName.focus();
+}
+async function deletePoolProduct(id) {
+  if (!state.brand || !id || !confirm("Xoá sản phẩm này khỏi Pool của Brand?")) return;
+  try { await request(`/api/affiliate/pool/${encodeURIComponent(id)}${queryString({ brand: state.brand })}`, { method: "DELETE" }); if (state.poolEditingId === String(id)) clearPoolForm(); showToast("Đã xoá sản phẩm khỏi Pool."); await loadPool(); }
+  catch (error) { showToast(error.message, true); }
+}
 async function loadContext() { try { let context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); if (state.brand && context.selected_brand !== state.brand) { context = await request(`/api/affiliate/context${queryString({ brand: state.brand })}`); state.context = context; renderBrands(); } renderConnections(); renderSettings(); renderBackfill(); return true; } catch (error) { state.context = {}; renderBrands(); renderConnections(); renderSettings(); renderBackfill(); elements.syncState.textContent = unavailable(error) ? "API affiliate chưa được bật" : "Không đọc được cấu hình"; return false; } }
 async function loadData() { const params = { brand: state.brand, period: state.period, status: state.status === "all" ? "" : state.status, q: state.query }; const [overviewResult, productsResult] = await Promise.allSettled([request(`/api/affiliate/overview${queryString(params)}`), request(`/api/affiliate/products${queryString(params)}`)]); const unavailableApi = [overviewResult, productsResult].some((result) => result.status === "rejected" && unavailable(result.reason)); state.overview = overviewResult.status === "fulfilled" ? overviewResult.value : {}; state.products = productsResult.status === "fulfilled" ? productsResult.value : []; state.records = collectRecords(); renderKpis(); renderRecords(); if (overviewResult.status === "rejected" && !unavailable(overviewResult.reason)) showToast(`Không tải overview: ${overviewResult.reason.message}`, true); if (productsResult.status === "rejected" && !unavailable(productsResult.reason)) showToast(`Không tải danh sách: ${productsResult.reason.message}`, true); elements.syncState.textContent = unavailableApi ? "API affiliate chưa được bật" : (pick(state.overview, ["updatedAt", "syncedAt"], "Đã đồng bộ dữ liệu")); }
-async function refresh() { elements.refreshButton.disabled = true; elements.syncState.textContent = "Đang đồng bộ..."; await loadContext(); await loadData(); await loadPoc(); elements.refreshButton.disabled = false; }
+async function refresh() { elements.refreshButton.disabled = true; elements.syncState.textContent = "Đang đồng bộ..."; await loadContext(); await loadPool(); await loadData(); await loadPoc(); elements.refreshButton.disabled = false; }
 async function createLink(productId) { const record = state.records.find((item) => String(item.id) === String(productId)); if (!record) return; const button = document.querySelector(`[data-create-link="${CSS.escape(String(productId))}"]`); if (button) { button.disabled = true; button.textContent = "Đang tạo..."; } try { const result = await request("/api/affiliate/link", { method: "POST", body: JSON.stringify({ brand: state.brand, productId, product: record.raw }) }); const link = result.link; const url = typeof link === "string" ? link : pick(link, ["affiliate_url", "url", "shortUrl"], pick(result, ["url", "shortUrl"])); if (url) { try { await navigator.clipboard?.writeText(url); } catch (_) {} showToast("Đã tạo và copy link affiliate."); } else showToast(result.message || "Đã gửi yêu cầu tạo link."); await loadData(); } catch (error) { showToast(unavailable(error) ? "Tính năng tạo link sẽ sẵn sàng khi API affiliate được bật." : error.message, true); } finally { if (button?.isConnected) { button.disabled = false; button.textContent = "Tạo link"; } } }
 
 function settingsPayload() { const enabled = Boolean(elements.affiliateEnabled.checked); return { brand: state.brand, enabled, mode: enabled ? elements.affiliateMode.value : "off", placement: elements.affiliatePlacement.value, productsPerPost: Number(elements.affiliateProductsPerPost.value || 1), minRelevance: Number(elements.affiliateMinRelevance.value || 0.75), minCommission: Number(elements.affiliateMinCommission.value || 5) }; }
 async function saveAffiliateSettings() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); elements.saveAffiliateSettingsButton.disabled = true; try { await request("/api/affiliate/settings", { method: "POST", body: JSON.stringify(settingsPayload()) }); showToast("Đã lưu chính sách Affiliate cho Brand."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
-async function saveAddLiveTagConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); elements.saveAddLiveTagButton.disabled = true; try { const affiliateId = elements.addLiveTagAffiliateId.value.trim(); const payload = { brand: state.brand, enabled: Boolean(elements.addLiveTagEnabled.checked) }; if (affiliateId) payload.affiliateId = affiliateId; await request("/api/affiliate/addlivetag/config", { method: "POST", body: JSON.stringify(payload) }); showToast("Đã lưu cấu hình AddLiveTag thử nghiệm."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function saveShopeeConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); const secret = elements.shopeeSecret.value.trim(); if (!secret) return showToast("Nhập lại App Secret để lưu kết nối.", true); elements.saveShopeeConfigButton.disabled = true; try { await request("/api/social/shopee/config", { method: "POST", body: JSON.stringify({ brand: state.brand, appId: elements.shopeeAppId.value.trim(), secret, apiBaseUrl: elements.shopeeApiBaseUrl.value.trim(), displayName: elements.shopeeDisplayName.value.trim(), settings: settingsPayload() }) }); showToast("Đã lưu kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function disconnectShopee() { if (!state.brand || !confirm(`Gỡ kết nối Shopee Affiliate của Brand “${state.brand}”?`)) return; elements.disconnectShopeeButton.disabled = true; try { await request("/api/social/shopee/disconnect", { method: "POST", body: JSON.stringify({ brand: state.brand }) }); showToast("Đã gỡ kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 
-elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; state.backfill = {}; clearPocRunFields(); renderBackfill(); refresh(); });
+elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; state.backfill = {}; state.pool = {}; clearPoolForm(); clearPocRunFields(); renderPool(); renderBackfill(); refresh(); });
 elements.periodSelect.addEventListener("change", () => { state.period = elements.periodSelect.value; loadData(); });
 elements.statusSelect.addEventListener("change", () => { state.status = elements.statusSelect.value; loadData(); });
 elements.searchInput.addEventListener("input", () => { state.query = elements.searchInput.value; renderRecords(); clearTimeout(state.searchTimer); state.searchTimer = setTimeout(loadData, 300); });
@@ -155,9 +223,11 @@ elements.pocCasesBody?.addEventListener("click", (event) => { const button = eve
 elements.pocContentId?.addEventListener("change", loadPoc);
 elements.pocPageId?.addEventListener("change", loadPoc);
 elements.saveAffiliateSettingsButton?.addEventListener("click", saveAffiliateSettings);
-elements.saveAddLiveTagButton?.addEventListener("click", saveAddLiveTagConfig);
 elements.saveShopeeConfigButton?.addEventListener("click", saveShopeeConfig);
 elements.disconnectShopeeButton?.addEventListener("click", disconnectShopee);
+elements.savePoolProductButton?.addEventListener("click", savePoolProduct);
+elements.cancelPoolEditButton?.addEventListener("click", clearPoolForm);
+elements.poolProductsBody?.addEventListener("click", (event) => { const edit = event.target.closest("[data-pool-edit]"); const remove = event.target.closest("[data-pool-delete]"); if (edit) editPoolProduct(edit.dataset.poolEdit); else if (remove) deletePoolProduct(remove.dataset.poolDelete); });
 elements.backfillPreviewButton?.addEventListener("click", () => runBackfill(true));
 elements.backfillRunButton?.addEventListener("click", () => runBackfill(false));
 elements.backfillLimit?.addEventListener("input", invalidateBackfillPreview);

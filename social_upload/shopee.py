@@ -286,12 +286,10 @@ def search_product_offers(
     sort_type: int = DEFAULT_PRODUCT_OFFER_SORT_TYPE,
     page: int = 1,
 ) -> list[dict]:
-    """Search ProductOfferV2 using the current AddLiveTag/Shopee schema.
+    """Search ProductOfferV2 using the current Shopee Affiliate schema.
 
-    AddLiveTag's ``product_offer.php`` documents the official GraphQL fields
-    as ``productId``, ``soldCount`` and ``ratingStar``.  Keep the raw payload
-    intact so the provider-neutral normalizer can also accept older aliases
-    returned by existing fixtures or saved data.
+    Keep the raw payload intact so the provider-neutral normalizer can also
+    accept older aliases returned by existing fixtures or saved data.
     """
     keyword = re.sub(r"\s+", " ", str(keyword or "")).strip()
     if len(keyword) < 2:
