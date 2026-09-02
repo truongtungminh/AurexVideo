@@ -11,7 +11,6 @@ from urllib.request import Request, urlopen
 from .config import canonical_brand, read_social_config, social_brand_route, write_social_config
 from .affiliate import (
     affiliate_comment_text,
-    affiliate_comment_fallback_text,
     caption_with_affiliate,
     finalize_affiliate_publish,
     prepare_affiliate_for_publish,
@@ -311,27 +310,17 @@ def post_facebook_source_comment(
     access_token: str,
     *,
     attempts: int = 4,
-    attachment_url: str = "",
-    fallback_message: str = "",
 ) -> tuple[str, str]:
     attempts = max(1, min(int(attempts or 1), 4))
-    attachment_url = str(attachment_url or "").strip()
-    fallback_message = str(fallback_message or "").strip()
-    current_message = str(message or "")
-    fallback_used = False
     last_error = ""
-    attempt = 0
-    while attempt < attempts:
+    for attempt in range(attempts):
         try:
-            fields = {
-                "message": current_message,
-                "access_token": access_token,
-            }
-            if attachment_url:
-                fields["attachment_url"] = attachment_url
             comment_data = http_form_request(
                 facebook_post_comment_url(facebook, object_id),
-                fields,
+                {
+                    "message": message,
+                    "access_token": access_token,
+                },
             )
             comment_id = str(comment_data.get("id") or "").strip()
             if comment_id:
@@ -339,33 +328,9 @@ def post_facebook_source_comment(
             last_error = f"Facebook comment response did not include an id: {comment_data}"
         except RuntimeError as exc:
             last_error = str(exc)
-            # Some Page/Graph combinations do not accept link attachments on
-            # comments.  In that case keep the attribution URL and fall back
-            # to the plain-text form once; do not retry the rejected field.
-            if attachment_url and fallback_message and not fallback_used and _is_attachment_url_error(last_error):
-                attachment_url = ""
-                current_message = fallback_message
-                fallback_used = True
-                continue
-        attempt += 1
-        if attempt < attempts:
+        if attempt < attempts - 1:
             time.sleep(3)
     return "", last_error
-
-
-def _is_attachment_url_error(error: object) -> bool:
-    text = str(error or "").casefold()
-    status = re.search(r"\bhttp\s+(\d{3})\b", text)
-    if status and int(status.group(1)) >= 500:
-        # A 5xx response is ambiguous: Meta may have accepted the comment
-        # before the connection failed, so never create a second comment just
-        # to try the fallback representation.
-        return False
-    if "attachment_url" in text:
-        return True
-    return "attachment" in text and any(
-        marker in text for marker in ("unsupported", "unknown", "invalid", "not allowed", "does not exist")
-    )
 
 
 def facebook_caption_for_project(project: str, fallback_caption: str) -> tuple[str, str]:
@@ -509,8 +474,6 @@ def facebook_upload_video(payload: dict) -> dict:
                 comment_target_id,
                 affiliate_comment_text(affiliate_url),
                 access_token,
-                attachment_url=affiliate_url,
-                fallback_message=affiliate_comment_fallback_text(affiliate_url),
             )
         affiliate_status = "published" if video_state == "PUBLISHED" and not affiliate_comment_error else "comment_failed" if affiliate_comment_error else "draft"
         if video_state == "SCHEDULED":

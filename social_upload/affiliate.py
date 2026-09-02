@@ -677,20 +677,12 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
 
 
 def affiliate_comment_text(affiliate_url: str, *, fallback: bool = False) -> str:
-    """Return the compact text used with Facebook's link attachment field.
+    """Return a clickable plain-text affiliate comment.
 
-    Facebook comments are plain text, so putting the tracking URL in the
-    message makes the provider's query string visible.  The caller sends the
-    same URL as ``attachment_url``; the URL is kept in the message fallback
-    for Graph versions or Page routes that reject link attachments.
+    Keep the tracking URL in ``message``.  Facebook Page comment routes can
+    reject the optional ``attachment_url`` field even when the Page token can
+    read and comment on the post.
     """
-    del affiliate_url
-    label = "Sản phẩm gợi ý trên Shopee" if fallback else "Sản phẩm liên quan trong video"
-    return f"🛒 {label}:\n👉 Xem sản phẩm trên Shopee"
-
-
-def affiliate_comment_fallback_text(affiliate_url: str, *, fallback: bool = False) -> str:
-    """Return a clickable plain-text fallback when Meta rejects attachments."""
     label = "Sản phẩm gợi ý trên Shopee" if fallback else "Sản phẩm liên quan trong video"
     return f"🛒 {label}:\n{affiliate_url}"
 
