@@ -123,6 +123,33 @@ class FacebookBackfillTests(unittest.TestCase):
         request.assert_called_once()
         sleep.assert_not_called()
 
+    def test_affiliate_comment_uses_link_attachment_and_keeps_plain_text_fallback(self):
+        requests = []
+
+        def fake_form(_url, fields):
+            requests.append(dict(fields))
+            if "attachment_url" in fields:
+                raise RuntimeError("HTTP 400: (#100) Invalid parameter attachment_url")
+            return {"id": "comment-1"}
+
+        with patch("social_upload.facebook.http_form_request", side_effect=fake_form) as request:
+            comment_id, error = post_facebook_source_comment(
+                {"graph_version": "v25.0"},
+                "page-1_1",
+                "🛒 Sản phẩm liên quan trong video:\n👉 Xem sản phẩm trên Shopee",
+                "page-token",
+                attempts=1,
+                attachment_url="https://s.shopee.vn/an_redir?tracking=1",
+                fallback_message="🛒 Sản phẩm liên quan trong video:\nhttps://s.shopee.vn/an_redir?tracking=1",
+            )
+
+        self.assertEqual(comment_id, "comment-1")
+        self.assertEqual(error, "")
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("attachment_url", requests[0])
+        self.assertNotIn("attachment_url", requests[1])
+        self.assertIn("https://s.shopee.vn/an_redir?tracking=1", requests[1]["message"])
+
     def test_read_page_posts_follows_graph_owned_paging_for_each_edge(self):
         next_feed = "https://graph.facebook.com/v25.0/page-1/feed?after=feed-2&access_token=page-token"
         next_reels = "https://graph.facebook.com/v25.0/page-1/video_reels?after=reel-2&access_token=page-token"
@@ -407,7 +434,9 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["commented"], 1)
         self.assertEqual(result["items"][0]["status"], "commented")
-        self.assertEqual(post_comment.call_args.args[2], "🛒 Sản phẩm liên quan trong video:\nhttps://s.shopee.vn/abc")
+        self.assertEqual(post_comment.call_args.args[2], "🛒 Sản phẩm liên quan trong video:\n👉 Xem sản phẩm trên Shopee")
+        self.assertEqual(post_comment.call_args.kwargs["attachment_url"], "https://s.shopee.vn/abc")
+        self.assertIn("https://s.shopee.vn/abc", post_comment.call_args.kwargs["fallback_message"])
         self.assertEqual(post_comment.call_args.kwargs["attempts"], 1)
         self.assertFalse(create_link.call_args.kwargs["reuse_product_offer_url"])
         self.assertTrue(any(call.kwargs.get("affiliate_url") == "https://s.shopee.vn/abc" for call in update_record.call_args_list))
