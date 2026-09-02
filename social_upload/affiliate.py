@@ -804,6 +804,7 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         "status": "prepared",
         **{f"sub_id_{index}": value for index, value in enumerate(link_result.get("sub_ids") or [], 1)},
     })
+    auto_comment = bool(raw.get("autoComment", raw.get("auto_comment", placement in {"first_comment", "caption_and_comment"})))
     job = affiliate_store.record_publish_job({
         "content_id": project,
         "brand_id": brand,
@@ -811,10 +812,13 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         "link_id": str(link_row.get("id") or ""),
         "platform": "facebook",
         "page_id": page_id,
+        "auto_comment": auto_comment,
+        "content_record_id": str(record.get("id") or ""),
+        "affiliate_url": str(link_row.get("affiliate_url") or ""),
+        "product_name": str(product.get("name") or "Shopee product"),
         "placement": placement,
         "status": "prepared",
     })
-    auto_comment = bool(raw.get("autoComment", raw.get("auto_comment", placement in {"first_comment", "caption_and_comment"})))
     return {
         "enabled": True,
         "mode": mode,
@@ -964,8 +968,10 @@ def finalize_affiliate_publish(
             page_id=page_id,
             post_id=post_id,
             comment_id=comment_id,
+            auto_comment=bool(prepared.get("auto_comment")),
             status=status,
             error=error,
+            next_comment_attempt_at="",
         )
     return {
         "enabled": True,
@@ -974,6 +980,8 @@ def finalize_affiliate_publish(
         "auto_comment": bool(prepared.get("auto_comment")),
         "product": prepared.get("product") or {},
         "link": prepared.get("link") or {},
+        "record_id": record_id,
+        "job_id": job_id,
         "comment_id": comment_id,
         "status": status,
         "error": error,

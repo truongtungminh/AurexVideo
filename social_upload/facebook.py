@@ -283,6 +283,25 @@ def facebook_object_metadata(facebook: dict, object_id: str, access_token: str, 
     )
 
 
+def facebook_object_is_published(metadata: dict) -> bool:
+    """Return true only for an explicit Graph-published signal.
+
+    Scheduled videos can have an id long before they are visible.  A permalink
+    or a non-empty id alone is therefore intentionally insufficient to post a
+    deferred affiliate comment.
+    """
+    if not isinstance(metadata, dict):
+        return False
+    for key in ("is_published", "published"):
+        value = metadata.get(key)
+        if value is True or str(value or "").strip().casefold() == "true":
+            return True
+    return any(
+        str(metadata.get(key) or "").strip().casefold() in {"published", "posted", "live"}
+        for key in ("status", "video_status", "publishing_status")
+    )
+
+
 def wait_for_facebook_object_ready(
     facebook: dict,
     object_id: str,

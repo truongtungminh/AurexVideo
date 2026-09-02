@@ -155,7 +155,14 @@ CREATE TABLE IF NOT EXISTS affiliate_publish_jobs (
     platform TEXT NOT NULL DEFAULT 'facebook',
     page_id TEXT NOT NULL DEFAULT '',
     post_id TEXT NOT NULL DEFAULT '',
+    scheduled_at TEXT NOT NULL DEFAULT '',
     comment_id TEXT NOT NULL DEFAULT '',
+    auto_comment INTEGER NOT NULL DEFAULT 0,
+    content_record_id TEXT NOT NULL DEFAULT '',
+    affiliate_url TEXT NOT NULL DEFAULT '',
+    product_name TEXT NOT NULL DEFAULT '',
+    comment_attempts INTEGER NOT NULL DEFAULT 0,
+    next_comment_attempt_at TEXT NOT NULL DEFAULT '',
     placement TEXT NOT NULL DEFAULT 'first_comment',
     status TEXT NOT NULL DEFAULT 'queued',
     error TEXT NOT NULL DEFAULT '',
@@ -232,10 +239,20 @@ def _row_dict(row: sqlite3.Row | None) -> dict:
     return dict(row) if row is not None else {}
 
 
+class _AffiliateConnection(sqlite3.Connection):
+    """Commit/rollback and close connections used by the store's ``with`` blocks."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def _connect() -> sqlite3.Connection:
     path = Path(AFFILIATE_DB_PATH).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(path), timeout=10)
+    connection = sqlite3.connect(str(path), timeout=10, factory=_AffiliateConnection)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA busy_timeout = 5000")
@@ -379,11 +396,43 @@ def _migrate_product_pool_affiliate_unique(connection: sqlite3.Connection) -> No
     )
 
 
+def _migrate_affiliate_publish_jobs_comment_fields(connection: sqlite3.Connection) -> None:
+    """Add deferred-comment fields without rewriting existing job history.
+
+    Old scheduled jobs did not persist whether a comment was explicitly
+    enabled. They default to disabled rather than risk posting a comment a
+    Brand did not opt into.
+    """
+    columns = {
+        str(row["name"] or "")
+        for row in connection.execute("PRAGMA table_info('affiliate_publish_jobs')").fetchall()
+    }
+    additions = {
+        "auto_comment": "INTEGER NOT NULL DEFAULT 0",
+        "content_record_id": "TEXT NOT NULL DEFAULT ''",
+        "scheduled_at": "TEXT NOT NULL DEFAULT ''",
+        "affiliate_url": "TEXT NOT NULL DEFAULT ''",
+        "product_name": "TEXT NOT NULL DEFAULT ''",
+        "comment_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "next_comment_attempt_at": "TEXT NOT NULL DEFAULT ''",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            connection.execute(f"ALTER TABLE affiliate_publish_jobs ADD COLUMN {name} {definition}")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_affiliate_publish_jobs_deferred_comment
+            ON affiliate_publish_jobs (platform, status, next_comment_attempt_at, updated_at DESC)
+        """
+    )
+
+
 def init_db() -> None:
     with _connect() as connection:
         connection.executescript(SCHEMA)
         _migrate_affiliate_links_brand_scope(connection)
         _migrate_product_pool_affiliate_unique(connection)
+        _migrate_affiliate_publish_jobs_comment_fields(connection)
     try:
         os.chmod(Path(AFFILIATE_DB_PATH), 0o600)
     except OSError:
@@ -919,7 +968,14 @@ def record_publish_job(job: dict) -> dict:
         str(job.get("platform") or "facebook"),
         str(job.get("page_id") or ""),
         str(job.get("post_id") or ""),
+        str(job.get("scheduled_at") or ""),
         str(job.get("comment_id") or ""),
+        int(bool(job.get("auto_comment"))),
+        str(job.get("content_record_id") or job.get("record_id") or ""),
+        str(job.get("affiliate_url") or ""),
+        str(job.get("product_name") or "")[:500],
+        max(0, int(job.get("comment_attempts") or 0)),
+        str(job.get("next_comment_attempt_at") or ""),
         str(job.get("placement") or "first_comment"),
         str(job.get("status") or "queued"),
         str(job.get("error") or "")[:1000],
@@ -930,9 +986,10 @@ def record_publish_job(job: dict) -> dict:
         connection.execute(
             """
             INSERT INTO affiliate_publish_jobs
-              (id, content_id, brand_id, provider, link_id, platform, page_id, post_id, comment_id,
+              (id, content_id, brand_id, provider, link_id, platform, page_id, post_id, scheduled_at, comment_id,
+               auto_comment, content_record_id, affiliate_url, product_name, comment_attempts, next_comment_attempt_at,
                placement, status, error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
@@ -942,16 +999,77 @@ def record_publish_job(job: dict) -> dict:
 
 def update_publish_job(job_id: str, **values: object) -> dict:
     init_db()
-    allowed = {"page_id", "post_id", "comment_id", "status", "error", "link_id"}
+    allowed = {
+        "page_id", "post_id", "scheduled_at", "comment_id", "status", "error", "link_id", "auto_comment",
+        "content_record_id", "affiliate_url", "product_name", "comment_attempts", "next_comment_attempt_at",
+    }
     updates = {key: values[key] for key in allowed if key in values}
     if not updates:
         return {}
+    if "auto_comment" in updates:
+        updates["auto_comment"] = int(bool(updates["auto_comment"]))
+    if "comment_attempts" in updates:
+        updates["comment_attempts"] = max(0, int(updates["comment_attempts"] or 0))
+    if "error" in updates:
+        updates["error"] = str(updates["error"] or "")[:1000]
     updates["updated_at"] = _now()
     assignments = ", ".join(f"{key} = ?" for key in updates)
     with _connect() as connection:
         connection.execute(f"UPDATE affiliate_publish_jobs SET {assignments} WHERE id = ?", (*updates.values(), str(job_id)))
         row = connection.execute("SELECT * FROM affiliate_publish_jobs WHERE id = ?", (str(job_id),)).fetchone()
-    return _row_dict(row)
+    result = _row_dict(row)
+    if result:
+        result["auto_comment"] = bool(result.get("auto_comment"))
+    return result
+
+
+def get_publish_job(job_id: str) -> dict:
+    init_db()
+    with _connect() as connection:
+        row = connection.execute("SELECT * FROM affiliate_publish_jobs WHERE id = ?", (str(job_id),)).fetchone()
+    result = _row_dict(row)
+    if result:
+        result["auto_comment"] = bool(result.get("auto_comment"))
+    return result
+
+
+def list_pending_facebook_comment_jobs(*, limit: int = 50, now: str = "") -> list[dict]:
+    """Return scheduled Facebook jobs that still need a possible first comment."""
+    init_db()
+    limit = max(1, min(int(limit or 50), 200))
+    now = str(now or _now())
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT j.*,
+                   COALESCE(NULLIF(j.affiliate_url, ''), l.affiliate_url, '') AS resolved_affiliate_url,
+                   COALESCE(NULLIF(j.product_name, ''), NULLIF(c.product_name, ''), NULLIF(p.name, ''), '')
+                       AS resolved_product_name
+            FROM affiliate_publish_jobs j
+            LEFT JOIN affiliate_links l ON l.id = j.link_id
+            LEFT JOIN affiliate_products p ON p.id = l.product_id
+            LEFT JOIN content_affiliate_products c ON c.id = j.content_record_id
+            WHERE j.platform = 'facebook'
+              AND j.comment_id = ''
+              AND j.auto_comment = 1
+              AND j.placement IN ('first_comment', 'caption_and_comment')
+              AND j.status IN ('scheduled', 'comment_retry')
+              AND j.scheduled_at != ''
+              AND j.scheduled_at <= ?
+              AND (j.next_comment_attempt_at = '' OR j.next_comment_attempt_at <= ?)
+            ORDER BY j.updated_at ASC, j.created_at ASC
+            LIMIT ?
+            """,
+            (now, now, limit),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = _row_dict(row)
+        item["auto_comment"] = bool(item.get("auto_comment"))
+        item["affiliate_url"] = str(item.pop("resolved_affiliate_url", "") or "")
+        item["product_name"] = str(item.pop("resolved_product_name", "") or "")
+        result.append(item)
+    return result
 
 
 def upsert_daily_stats(
