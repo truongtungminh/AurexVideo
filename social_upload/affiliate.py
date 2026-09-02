@@ -89,7 +89,14 @@ def build_sub_ids(
 
 def normalize_product(raw: dict, query: str = "") -> dict:
     name = str(raw.get("name") or raw.get("productName") or raw.get("product_name") or "").strip()
-    provider_product_id = str(raw.get("provider_product_id") or raw.get("itemId") or raw.get("item_id") or "").strip()
+    provider_product_id = str(
+        raw.get("provider_product_id")
+        or raw.get("productId")
+        or raw.get("itemId")
+        or raw.get("item_id")
+        or ""
+    ).strip()
+    shop_id = str(raw.get("shop_id") or raw.get("shopId") or "").strip()
     origin_url = str(
         raw.get("origin_url")
         or raw.get("original_url")
@@ -97,10 +104,16 @@ def normalize_product(raw: dict, query: str = "") -> dict:
         or raw.get("product_link")
         or raw.get("productUrl")
         or raw.get("product_url")
-        or raw.get("offerLink")
         or raw.get("offer_url")
         or ""
     ).strip()
+    if not origin_url and re.fullmatch(r"[1-9][0-9]{0,31}", shop_id) and re.fullmatch(
+        r"[1-9][0-9]{0,31}", provider_product_id
+    ):
+        origin_url = f"https://shopee.vn/product/{shop_id}/{provider_product_id}"
+    if not origin_url:
+        # Legacy payloads sometimes expose only the provider's offer URL.
+        origin_url = str(raw.get("offerLink") or raw.get("offer_url") or "").strip()
     explicit_relevance = raw.get("relevance_score", raw.get("relevanceScore", raw.get("relevance")))
     relevance = _fraction(explicit_relevance) if explicit_relevance is not None else _token_relevance(query, name)
     historical_conversion = _fraction(
@@ -112,15 +125,15 @@ def normalize_product(raw: dict, query: str = "") -> dict:
     return {
         "provider": "shopee",
         "provider_product_id": provider_product_id,
-        "shop_id": str(raw.get("shop_id") or raw.get("shopId") or "").strip(),
+        "shop_id": shop_id,
         "name": name or "Shopee product",
         "origin_url": origin_url,
         "offer_url": str(raw.get("offer_url") or raw.get("offerLink") or "").strip(),
         "image_url": str(raw.get("image_url") or raw.get("imageUrl") or "").strip(),
-        "price_min": _float(raw.get("price_min", raw.get("priceMin"))),
-        "price_max": _float(raw.get("price_max", raw.get("priceMax"))),
+        "price_min": _float(raw.get("price_min") or raw.get("priceMin") or raw.get("price")),
+        "price_max": _float(raw.get("price_max") or raw.get("priceMax") or raw.get("price")),
         "commission_rate": _fraction(raw.get("commission_rate", raw.get("commissionRate"))),
-        "sales": max(0.0, _float(raw.get("sales"))),
+        "sales": max(0.0, _float(raw.get("sales") if raw.get("sales") not in (None, "") else raw.get("soldCount"))),
         "rating": max(0.0, min(5.0, _float(raw.get("rating", raw.get("ratingStar"))))),
         "discount_rate": max(0.0, min(100.0, _float(raw.get("discount_rate", raw.get("priceDiscountRate"))))),
         "shop_quality": _fraction(raw.get("shop_quality", raw.get("shopQuality"))),
@@ -379,7 +392,13 @@ def discover_products(brand: str, query: str, *, limit: int = 10, persist: bool 
     for raw_product in raw_products:
         if not isinstance(raw_product, dict):
             continue
-        provider_id = str(raw_product.get("provider_product_id") or raw_product.get("itemId") or raw_product.get("item_id") or "").strip()
+        provider_id = str(
+            raw_product.get("provider_product_id")
+            or raw_product.get("productId")
+            or raw_product.get("itemId")
+            or raw_product.get("item_id")
+            or ""
+        ).strip()
         origin_url = str(raw_product.get("origin_url") or raw_product.get("productLink") or raw_product.get("product_link") or "").strip()
         if "historical_conversion" not in raw_product and "historicalConversion" not in raw_product:
             raw_product = {

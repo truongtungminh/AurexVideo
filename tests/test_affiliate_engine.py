@@ -14,9 +14,10 @@ from social_upload.affiliate import (
     discover_products,
     ingest_conversion_rows,
     list_saved_products,
+    normalize_product,
     rank_products,
 )
-from social_upload.shopee import generate_short_link, update_shopee_config
+from social_upload.shopee import generate_short_link, search_product_offers, update_shopee_config
 
 
 class _FakeResponse:
@@ -105,6 +106,50 @@ class AffiliateEngineTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(ranked[0]["ranking_score"], 0.84, places=6)
+
+    def test_product_offer_schema_builds_canonical_origin_url(self):
+        product = normalize_product(
+            {
+                "productId": 23160060997,
+                "productName": "Đồng hồ thông minh",
+                "shopId": 78022732,
+                "commissionRate": "12.5",
+                "price": 499000,
+                "imageUrl": "https://example.com/watch.jpg",
+                "offerLink": "https://s.shopee.vn/offer",
+                "soldCount": 42,
+                "ratingStar": 4.8,
+            },
+            "đồng hồ thông minh",
+        )
+
+        self.assertEqual(product["provider_product_id"], "23160060997")
+        self.assertEqual(product["origin_url"], "https://shopee.vn/product/78022732/23160060997")
+        self.assertEqual(product["offer_url"], "https://s.shopee.vn/offer")
+        self.assertEqual(product["sales"], 42)
+        self.assertAlmostEqual(product["commission_rate"], 0.125)
+
+    def test_product_offer_query_matches_documented_graphql_fields(self):
+        captured = {}
+
+        def fake_graphql(_connection, query, variables):
+            captured["query"] = query
+            captured["variables"] = variables
+            return {"data": {"productOfferV2": {"nodes": [{"productId": 1}]}}}
+
+        with patch("social_upload.shopee._graphql_request", fake_graphql):
+            products = search_product_offers(
+                {"app_id": "app-123", "secret": "s" * 32, "_brand_connection": True},
+                "đồng hồ",
+                limit=3,
+            )
+
+        self.assertEqual(products, [{"productId": 1}])
+        self.assertIn("productId", captured["query"])
+        self.assertIn("soldCount", captured["query"])
+        self.assertIn("ratingStar", captured["query"])
+        self.assertNotIn("itemId", captured["query"])
+        self.assertEqual(captured["variables"], {"keyword": "đồng hồ", "sortType": 2, "page": 1, "limit": 3})
 
     def test_discover_products_can_skip_catalog_persistence(self):
         config = {}

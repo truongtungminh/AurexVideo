@@ -30,6 +30,7 @@ from . import affiliate_store
 DEFAULT_SHOPEE_API_BASE_URL = "https://open-api.affiliate.shopee.vn/graphql"
 MAX_SUB_IDS = 5
 MAX_PRODUCT_LIMIT = 50
+DEFAULT_PRODUCT_OFFER_SORT_TYPE = 2
 SHOPEE_HOSTS = {
     "shopee.vn",
     "www.shopee.vn",
@@ -277,30 +278,61 @@ def generate_short_link(connection: dict, origin_url: str, sub_ids: list[str] | 
     return link
 
 
-def search_product_offers(connection: dict, keyword: str, limit: int = 10) -> list[dict]:
+def search_product_offers(
+    connection: dict,
+    keyword: str,
+    limit: int = 10,
+    *,
+    sort_type: int = DEFAULT_PRODUCT_OFFER_SORT_TYPE,
+    page: int = 1,
+) -> list[dict]:
+    """Search ProductOfferV2 using the current AddLiveTag/Shopee schema.
+
+    AddLiveTag's ``product_offer.php`` documents the official GraphQL fields
+    as ``productId``, ``soldCount`` and ``ratingStar``.  Keep the raw payload
+    intact so the provider-neutral normalizer can also accept older aliases
+    returned by existing fixtures or saved data.
+    """
     keyword = re.sub(r"\s+", " ", str(keyword or "")).strip()
     if len(keyword) < 2:
         raise ValueError("Từ khoá sản phẩm Shopee cần ít nhất 2 ký tự.")
     limit = max(1, min(int(limit or 10), MAX_PRODUCT_LIMIT))
+    sort_type = int(sort_type or DEFAULT_PRODUCT_OFFER_SORT_TYPE)
+    if sort_type not in {1, 2, 3}:
+        raise ValueError("Shopee productOfferV2 sortType phải là 1, 2 hoặc 3.")
+    page = max(1, int(page or 1))
     query = """
-      query ProductOfferV2($keyword: String!, $limit: Int!) {
-        productOfferV2(keyword: $keyword, limit: $limit) {
+      query ProductOfferV2($keyword: String!, $sortType: Int, $page: Int, $limit: Int!) {
+        productOfferV2(keyword: $keyword, sortType: $sortType, page: $page, limit: $limit) {
           nodes {
+            productId
             productName
-            itemId
-            shopId
             commissionRate
-            sales
+            price
             priceMin
             priceMax
             imageUrl
-            productLink
             offerLink
+            shopId
+            shopName
+            soldCount
+            ratingStar
+            periodStartTime
+            periodEndTime
+          }
+          pageInfo {
+            page
+            limit
+            hasNextPage
           }
         }
       }
     """
-    result = _graphql_request(connection, query, {"keyword": keyword, "limit": limit})
+    result = _graphql_request(
+        connection,
+        query,
+        {"keyword": keyword, "sortType": sort_type, "page": page, "limit": limit},
+    )
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
     offers = data.get("productOfferV2") if isinstance(data, dict) else {}
     nodes = offers.get("nodes") if isinstance(offers, dict) else offers
