@@ -290,16 +290,26 @@ def facebook_object_is_published(metadata: dict) -> bool:
     or a non-empty id alone is therefore intentionally insufficient to post a
     deferred affiliate comment.
     """
-    if not isinstance(metadata, dict):
+    boolean_keys = {"is_published", "published"}
+    status_keys = {"status", "video_status", "publishing_status"}
+
+    def published_signal(value: object, key: str = "") -> bool:
+        normalized_key = str(key or "").strip().casefold()
+        if isinstance(value, dict):
+            return any(published_signal(child, child_key) for child_key, child in value.items())
+        if isinstance(value, (list, tuple)):
+            return any(published_signal(child) for child in value)
+        if normalized_key in boolean_keys:
+            if value is True or value == 1:
+                return True
+            return str(value or "").strip().casefold() in {"1", "true", "yes"}
+        if normalized_key in status_keys:
+            if value is True or value == 1:
+                return True
+            return str(value or "").strip().casefold() in {"published", "posted", "live"}
         return False
-    for key in ("is_published", "published"):
-        value = metadata.get(key)
-        if value is True or str(value or "").strip().casefold() == "true":
-            return True
-    return any(
-        str(metadata.get(key) or "").strip().casefold() in {"published", "posted", "live"}
-        for key in ("status", "video_status", "publishing_status")
-    )
+
+    return isinstance(metadata, dict) and published_signal(metadata)
 
 
 def wait_for_facebook_object_ready(
@@ -508,6 +518,7 @@ def facebook_upload_video(payload: dict) -> dict:
             comment_id=affiliate_comment_id,
             error=affiliate_comment_error,
             status=affiliate_status,
+            scheduled_at=scheduled_publish_at or "",
         )
 
     reel_url = permalink_url or (f"https://www.facebook.com/reel/{video_id}" if video_id and video_state == "PUBLISHED" else "")

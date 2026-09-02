@@ -22,6 +22,51 @@ from aurexvideo_paths import CONFIG_ROOT
 
 AFFILIATE_DB_PATH = Path(CONFIG_ROOT).expanduser().resolve() / "affiliate.sqlite3"
 
+UNCATEGORIZED_PRODUCT_CATEGORY = "Chưa phân loại"
+AFFILIATE_PRODUCT_CATEGORIES = (
+    "Thời Trang Nữ",
+    "Thời Trang Nam",
+    "Sắc Đẹp",
+    "Sức Khỏe",
+    "Phụ Kiện Thời Trang",
+    "Thiết Bị Điện Gia Dụng",
+    "Giày Dép Nam",
+    "Điện Thoại & Phụ Kiện",
+    "Du lịch & Hành lý",
+    "Túi Ví Nữ",
+    "Giày Dép Nữ",
+    "Túi Ví Nam",
+    "Đồng Hồ",
+    "Thiết Bị Âm Thanh",
+    "Thực phẩm và đồ uống",
+    "Chăm Sóc Thú Cưng",
+    "Mẹ & Bé",
+    "Thời trang trẻ em & trẻ sơ sinh",
+    "Gaming & Console",
+    "Cameras & Flycam",
+    "Nhà cửa & Đời sống",
+    "Thể Thao & Dã Ngoại",
+    "Văn Phòng Phẩm",
+    "Sở thích & Sưu tầm",
+    "Ô tô",
+    "Mô tô, xe máy",
+    "Voucher & Dịch vụ",
+    "Sách & Tạp Chí",
+    "Máy tính & Laptop",
+    "Deal Gần bạn",
+    UNCATEGORIZED_PRODUCT_CATEGORY,
+)
+AFFILIATE_PRODUCT_CATEGORY_SET = frozenset(AFFILIATE_PRODUCT_CATEGORIES)
+
+
+def normalize_product_category(value: object, *, empty_means_all: bool = False) -> str:
+    category = str(value or "").strip()
+    if not category:
+        return "" if empty_means_all else UNCATEGORIZED_PRODUCT_CATEGORY
+    if category not in AFFILIATE_PRODUCT_CATEGORY_SET:
+        raise ValueError("Danh mục Pool Shopee không hợp lệ.")
+    return category
+
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -81,6 +126,7 @@ CREATE TABLE IF NOT EXISTS affiliate_product_pool (
     provider_product_id TEXT NOT NULL DEFAULT '',
     shop_id TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'Chưa phân loại',
     origin_url TEXT NOT NULL,
     affiliate_url TEXT NOT NULL,
     image_url TEXT NOT NULL DEFAULT '',
@@ -162,6 +208,7 @@ CREATE TABLE IF NOT EXISTS affiliate_publish_jobs (
     affiliate_url TEXT NOT NULL DEFAULT '',
     product_name TEXT NOT NULL DEFAULT '',
     comment_attempts INTEGER NOT NULL DEFAULT 0,
+    publish_check_attempts INTEGER NOT NULL DEFAULT 0,
     next_comment_attempt_at TEXT NOT NULL DEFAULT '',
     placement TEXT NOT NULL DEFAULT 'first_comment',
     status TEXT NOT NULL DEFAULT 'queued',
@@ -354,6 +401,7 @@ def _migrate_product_pool_affiliate_unique(connection: sqlite3.Connection) -> No
             provider_product_id TEXT NOT NULL DEFAULT '',
             shop_id TEXT NOT NULL DEFAULT '',
             name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'Chưa phân loại',
             origin_url TEXT NOT NULL,
             affiliate_url TEXT NOT NULL,
             image_url TEXT NOT NULL DEFAULT '',
@@ -396,6 +444,29 @@ def _migrate_product_pool_affiliate_unique(connection: sqlite3.Connection) -> No
     )
 
 
+def _migrate_product_pool_category(connection: sqlite3.Connection) -> None:
+    """Add categories to existing Pool rows without dropping legacy data."""
+    columns = {
+        str(row["name"] or "")
+        for row in connection.execute("PRAGMA table_info('affiliate_product_pool')").fetchall()
+    }
+    if "category" not in columns:
+        connection.execute(
+            "ALTER TABLE affiliate_product_pool "
+            "ADD COLUMN category TEXT NOT NULL DEFAULT 'Chưa phân loại'"
+        )
+    connection.execute(
+        "UPDATE affiliate_product_pool SET category = ? WHERE category IS NULL OR TRIM(category) = ''",
+        (UNCATEGORIZED_PRODUCT_CATEGORY,),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_affiliate_product_pool_category
+            ON affiliate_product_pool (brand_id, category, enabled, updated_at DESC)
+        """
+    )
+
+
 def _migrate_affiliate_publish_jobs_comment_fields(connection: sqlite3.Connection) -> None:
     """Add deferred-comment fields without rewriting existing job history.
 
@@ -414,6 +485,7 @@ def _migrate_affiliate_publish_jobs_comment_fields(connection: sqlite3.Connectio
         "affiliate_url": "TEXT NOT NULL DEFAULT ''",
         "product_name": "TEXT NOT NULL DEFAULT ''",
         "comment_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "publish_check_attempts": "INTEGER NOT NULL DEFAULT 0",
         "next_comment_attempt_at": "TEXT NOT NULL DEFAULT ''",
     }
     for name, definition in additions.items():
@@ -432,6 +504,7 @@ def init_db() -> None:
         connection.executescript(SCHEMA)
         _migrate_affiliate_links_brand_scope(connection)
         _migrate_product_pool_affiliate_unique(connection)
+        _migrate_product_pool_category(connection)
         _migrate_affiliate_publish_jobs_comment_fields(connection)
     try:
         os.chmod(Path(AFFILIATE_DB_PATH), 0o600)
@@ -702,6 +775,7 @@ def upsert_product_pool(product: dict) -> dict:
         "provider_product_id": str(product.get("provider_product_id") or product.get("product_id") or "").strip(),
         "shop_id": str(product.get("shop_id") or product.get("shopId") or "").strip(),
         "name": name,
+        "category": normalize_product_category(product.get("category")),
         "origin_url": origin_url,
         "affiliate_url": affiliate_url,
         "image_url": str(product.get("image_url") or product.get("imageUrl") or "").strip(),
@@ -742,7 +816,7 @@ def upsert_product_pool(product: dict) -> dict:
                 """
                 UPDATE affiliate_product_pool SET
                     brand_id = ?, provider = ?, provider_product_id = ?, shop_id = ?, name = ?,
-                    origin_url = ?, affiliate_url = ?, image_url = ?, price_min = ?, price_max = ?,
+                    category = ?, origin_url = ?, affiliate_url = ?, image_url = ?, price_min = ?, price_max = ?,
                     commission_rate = ?, sales = ?, rating = ?, discount_rate = ?, shop_quality = ?,
                     priority = ?, enabled = ?, note = ?, raw_json = ?, updated_at = ?
                 WHERE id = ?
@@ -753,10 +827,10 @@ def upsert_product_pool(product: dict) -> dict:
             connection.execute(
                 """
                 INSERT INTO affiliate_product_pool
-                  (id, brand_id, provider, provider_product_id, shop_id, name, origin_url, affiliate_url,
+                  (id, brand_id, provider, provider_product_id, shop_id, name, category, origin_url, affiliate_url,
                    image_url, price_min, price_max, commission_rate, sales, rating, discount_rate,
                    shop_quality, priority, enabled, note, raw_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 values,
             )
@@ -783,6 +857,7 @@ def list_product_pool(
     brand_id: str,
     *,
     query: str = "",
+    category: str = "",
     enabled_only: bool = False,
     limit: int = 100,
 ) -> list[dict]:
@@ -793,6 +868,10 @@ def list_product_pool(
     params: list[object] = [str(brand_id or ""), "shopee"]
     if enabled_only:
         filters.append("enabled = 1")
+    category = normalize_product_category(category, empty_means_all=True)
+    if category:
+        filters.append("category = ?")
+        params.append(category)
     needle = str(query or "").strip()
     if needle:
         filters.append("(name LIKE ? OR origin_url LIKE ? OR affiliate_url LIKE ? OR note LIKE ?)")
@@ -825,6 +904,27 @@ def delete_product_pool(pool_id: str, *, brand_id: str) -> dict:
             (pool_id, brand_id),
         )
     return {"ok": True, "id": pool_id, "deleted": True}
+
+
+def delete_product_pool_bulk(*, brand_id: str, category: str = "") -> dict:
+    """Delete only one Brand's Pool, optionally narrowed to one category."""
+    init_db()
+    brand_id = str(brand_id or "").strip()
+    if not brand_id:
+        raise ValueError("Pool Shopee cần Brand.")
+    category = normalize_product_category(category, empty_means_all=True)
+    filters = ["brand_id = ?", "provider = 'shopee'"]
+    params: list[object] = [brand_id]
+    if category:
+        filters.append("category = ?")
+        params.append(category)
+    with _connect() as connection:
+        cursor = connection.execute(
+            f"DELETE FROM affiliate_product_pool WHERE {' AND '.join(filters)}",
+            tuple(params),
+        )
+        deleted = max(0, int(cursor.rowcount or 0))
+    return {"ok": True, "brand": brand_id, "category": category, "deleted": deleted, "count": deleted}
 
 
 def product_conversion_rates(provider: str = "shopee") -> dict[str, float]:
@@ -975,6 +1075,7 @@ def record_publish_job(job: dict) -> dict:
         str(job.get("affiliate_url") or ""),
         str(job.get("product_name") or "")[:500],
         max(0, int(job.get("comment_attempts") or 0)),
+        max(0, int(job.get("publish_check_attempts") or 0)),
         str(job.get("next_comment_attempt_at") or ""),
         str(job.get("placement") or "first_comment"),
         str(job.get("status") or "queued"),
@@ -987,9 +1088,9 @@ def record_publish_job(job: dict) -> dict:
             """
             INSERT INTO affiliate_publish_jobs
               (id, content_id, brand_id, provider, link_id, platform, page_id, post_id, scheduled_at, comment_id,
-               auto_comment, content_record_id, affiliate_url, product_name, comment_attempts, next_comment_attempt_at,
-               placement, status, error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               auto_comment, content_record_id, affiliate_url, product_name, comment_attempts, publish_check_attempts,
+               next_comment_attempt_at, placement, status, error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
@@ -1002,6 +1103,7 @@ def update_publish_job(job_id: str, **values: object) -> dict:
     allowed = {
         "page_id", "post_id", "scheduled_at", "comment_id", "status", "error", "link_id", "auto_comment",
         "content_record_id", "affiliate_url", "product_name", "comment_attempts", "next_comment_attempt_at",
+        "publish_check_attempts",
     }
     updates = {key: values[key] for key in allowed if key in values}
     if not updates:
@@ -1010,6 +1112,8 @@ def update_publish_job(job_id: str, **values: object) -> dict:
         updates["auto_comment"] = int(bool(updates["auto_comment"]))
     if "comment_attempts" in updates:
         updates["comment_attempts"] = max(0, int(updates["comment_attempts"] or 0))
+    if "publish_check_attempts" in updates:
+        updates["publish_check_attempts"] = max(0, int(updates["publish_check_attempts"] or 0))
     if "error" in updates:
         updates["error"] = str(updates["error"] or "")[:1000]
     updates["updated_at"] = _now()

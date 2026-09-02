@@ -14,10 +14,13 @@ from .metadata import record_scheduled_social_failure
 from .remote_worker import flush_tiktok_watch_outbox
 
 _LOCK = threading.RLock()
+_FACEBOOK_COMMENT_LOCK = threading.Lock()
 _STARTED = False
 _STOP = threading.Event()
 FACEBOOK_COMMENT_RETRY_LIMIT = 5
 FACEBOOK_COMMENT_POLL_LIMIT = 50
+FACEBOOK_PUBLISH_CHECK_RETRY_LIMIT = 5
+FACEBOOK_PUBLISH_CHECK_BACKOFF_MAX_SECONDS = 900
 
 
 def _data_root() -> Path:
@@ -66,6 +69,12 @@ def _comment_retry_is_transient(error: object) -> bool:
     return any(f"http {status}" in message for status in range(500, 600))
 
 
+def _facebook_comment_next_attempt(now: datetime, attempts: int, *, base_seconds: int = 30) -> str:
+    exponent = max(0, min(int(attempts or 1) - 1, 8))
+    wait_seconds = min(FACEBOOK_PUBLISH_CHECK_BACKOFF_MAX_SECONDS, base_seconds * (2 ** exponent))
+    return _iso(now + timedelta(seconds=wait_seconds))
+
+
 def _update_scheduled_affiliate_record(job: dict, *, status: str, comment_id: str = "", error: str = "") -> None:
     """Mirror deferred-comment state to the associated content record when known."""
     record_id = str(job.get("content_record_id") or "").strip()
@@ -84,6 +93,17 @@ def _update_scheduled_affiliate_record(job: dict, *, status: str, comment_id: st
 
 
 def poll_facebook_scheduled_affiliate_comments() -> dict:
+    """Run at most one deferred Facebook comment poller in this process."""
+    empty = {"checked": 0, "pending": 0, "commented": 0, "retried": 0, "failed": 0, "skipped": 0}
+    if not _FACEBOOK_COMMENT_LOCK.acquire(blocking=False):
+        return empty
+    try:
+        return _poll_facebook_scheduled_affiliate_comments()
+    finally:
+        _FACEBOOK_COMMENT_LOCK.release()
+
+
+def _poll_facebook_scheduled_affiliate_comments() -> dict:
     """Post opted-in affiliate comments after Graph explicitly marks a Reel published.
 
     This deliberately operates from the persisted job snapshot. It never
@@ -135,25 +155,24 @@ def poll_facebook_scheduled_affiliate_comments() -> dict:
             )
         except (RuntimeError, ValueError) as exc:
             error = str(exc)[:1000]
-            attempts = int(job.get("comment_attempts") or 0) + 1
-            if _comment_retry_is_transient(error) and attempts < FACEBOOK_COMMENT_RETRY_LIMIT:
-                wait_seconds = min(300, 30 * (2 ** (attempts - 1)))
-                next_attempt = _iso(now + timedelta(seconds=wait_seconds))
+            attempts = int(job.get("publish_check_attempts") or 0) + 1
+            if _comment_retry_is_transient(error) and attempts < FACEBOOK_PUBLISH_CHECK_RETRY_LIMIT:
+                next_attempt = _facebook_comment_next_attempt(now, attempts)
                 affiliate_store.update_publish_job(
                     job_id,
-                    status="comment_retry",
+                    status="scheduled",
                     error=error,
-                    comment_attempts=attempts,
+                    publish_check_attempts=attempts,
                     next_comment_attempt_at=next_attempt,
                 )
-                _update_scheduled_affiliate_record(job, status="comment_retry", error=error)
+                _update_scheduled_affiliate_record(job, status="scheduled", error=error)
                 summary["retried"] += 1
             else:
                 affiliate_store.update_publish_job(
                     job_id,
                     status="comment_failed",
                     error=error,
-                    comment_attempts=attempts,
+                    publish_check_attempts=attempts,
                     next_comment_attempt_at="",
                 )
                 _update_scheduled_affiliate_record(job, status="comment_failed", error=error)
@@ -163,8 +182,14 @@ def poll_facebook_scheduled_affiliate_comments() -> dict:
         if not facebook_module.facebook_object_is_published(metadata):
             # A Graph id is expected before a scheduled Reel is visible; it is
             # not sufficient proof that comments are accepted yet.
-            if str(job.get("status") or "") != "scheduled" or str(job.get("error") or ""):
-                affiliate_store.update_publish_job(job_id, status="scheduled", error="", next_comment_attempt_at="")
+            attempts = int(job.get("publish_check_attempts") or 0) + 1
+            affiliate_store.update_publish_job(
+                job_id,
+                status="scheduled",
+                error="",
+                publish_check_attempts=attempts,
+                next_comment_attempt_at=_facebook_comment_next_attempt(now, attempts),
+            )
             summary["pending"] += 1
             continue
 
@@ -185,6 +210,8 @@ def poll_facebook_scheduled_affiliate_comments() -> dict:
                 comment_id=comment_id,
                 status="published",
                 error="",
+                comment_attempts=0,
+                publish_check_attempts=0,
                 next_comment_attempt_at="",
             )
             _update_scheduled_affiliate_record(job, status="published", comment_id=comment_id)
@@ -194,8 +221,7 @@ def poll_facebook_scheduled_affiliate_comments() -> dict:
         error = str(error or "Facebook comment did not return an id.")[:1000]
         attempts = int(job.get("comment_attempts") or 0) + 1
         if _comment_retry_is_transient(error) and attempts < FACEBOOK_COMMENT_RETRY_LIMIT:
-            wait_seconds = min(300, 30 * (2 ** (attempts - 1)))
-            next_attempt = _iso(now + timedelta(seconds=wait_seconds))
+            next_attempt = _facebook_comment_next_attempt(now, attempts)
             affiliate_store.update_publish_job(
                 job_id,
                 status="comment_retry",
