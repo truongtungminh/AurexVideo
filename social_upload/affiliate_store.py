@@ -480,6 +480,9 @@ def _pool_row_result(row: sqlite3.Row | None) -> dict:
     except (TypeError, json.JSONDecodeError):
         result["raw"] = {}
     result["enabled"] = bool(result.get("enabled"))
+    result["link_provider"] = "pool"
+    raw = result.get("raw") if isinstance(result.get("raw"), dict) else {}
+    result["raw"] = {**raw, "_aurex_link_provider": "pool"}
     return result
 
 
