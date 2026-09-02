@@ -236,6 +236,7 @@ class AddLiveTagTests(unittest.TestCase):
                 "affiliate-1",
                 ["brand-name", "page_1", "video-1", "product.2", "first-comment"],
                 endpoint=DEFAULT_SHORT_LINK_API_URL,
+                allow_unverified_api=True,
             )
 
         self.assertEqual(link, "https://s.shopee.vn/abc123")
@@ -252,6 +253,14 @@ class AddLiveTagTests(unittest.TestCase):
             "sub4": "product2",
             "sub5": "firstcomment",
         })
+
+    def test_short_link_api_is_blocked_without_explicit_unverified_opt_in(self):
+        with self.assertRaisesRegex(AddLiveTagApiError, "chưa xác nhận"):
+            generate_short_link(
+                "https://shopee.vn/product-1",
+                "affiliate-1",
+                endpoint=DEFAULT_SHORT_LINK_API_URL,
+            )
 
     def test_short_link_api_retries_without_rejected_sub_ids(self):
         requests = []
@@ -280,6 +289,7 @@ class AddLiveTagTests(unittest.TestCase):
                 "affiliate-1",
                 ["brand-name"],
                 endpoint=DEFAULT_SHORT_LINK_API_URL,
+                allow_unverified_api=True,
             )
 
         self.assertEqual(link, "https://s.shopee.vn/fallback123")
@@ -296,6 +306,7 @@ class AddLiveTagTests(unittest.TestCase):
                     "https://shopee.vn/product-1",
                     "affiliate-1",
                     endpoint=DEFAULT_SHORT_LINK_API_URL,
+                    allow_unverified_api=True,
                 )
 
     def test_short_link_rejects_invalid_provider_response(self):

@@ -827,8 +827,15 @@ def generate_short_link(
     *,
     endpoint: str = DEFAULT_SHORT_LINK_URL,
     timeout: int = 30,
+    allow_unverified_api: bool = False,
 ) -> str:
-    """Create a clean Shopee short link through AddLiveTag's wrapper."""
+    """Create a Shopee-hosted short link through AddLiveTag's wrapper.
+
+    The default legacy endpoint accepts the Brand Affiliate ID and echoes it
+    in the returned URL.  The API-handler trial endpoint is intentionally
+    opt-in because its clean slug does not identify which AddLiveTag account
+    owns the link.
+    """
     endpoint = _validated_endpoint(endpoint, hosts=SHORT_LINK_HOSTS, label="Short-link endpoint")
     endpoint = _canonical_short_link_endpoint(endpoint)
     origin_url = validate_shopee_url(origin_url)
@@ -838,6 +845,10 @@ def generate_short_link(
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", affiliate_id):
         raise ValueError("AddLiveTag affiliate_id không hợp lệ.")
     if _is_short_link_api_endpoint(endpoint):
+        if not allow_unverified_api:
+            raise AddLiveTagApiError(
+                "AddLiveTag API handler chưa xác nhận đúng Affiliate ID; hãy dùng endpoint /short-link.php."
+            )
         return _generate_api_short_link(origin_url, sub_ids, endpoint=endpoint, timeout=timeout)
     payload = _request_json(
         endpoint,
