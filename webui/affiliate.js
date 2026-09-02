@@ -2,6 +2,7 @@ const state = { context: {}, overview: {}, products: [], records: [], pool: {}, 
 const elements = Object.fromEntries([
   "brandSelect", "periodSelect", "searchInput", "statusSelect", "refreshButton", "syncState", "shopeeState", "shopeeBadge", "facebookState", "facebookBadge",
   "kpiClicks", "kpiClicksDetail", "kpiOrders", "kpiOrdersDetail", "kpiGmv", "kpiGmvDetail", "kpiCommission", "kpiCommissionDetail", "kpiCtr", "kpiCtrDetail", "kpiConversionRate", "kpiConversionRateDetail", "recordsBody", "recordsCount", "toast",
+  "affiliateConfirm", "affiliateConfirmTitle", "affiliateConfirmMessage", "affiliateConfirmClose", "affiliateConfirmCancel", "affiliateConfirmAccept",
   "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint",
   "affiliateEnabled", "affiliateMode", "affiliatePlacement", "affiliateProductsPerPost", "affiliateMinRelevance", "affiliateMinCommission", "saveAffiliateSettingsButton",
   "poolAffiliateUrl", "poolProductEnabled", "savePoolProductButton", "cancelPoolEditButton", "poolProductsBody", "poolStatus",
@@ -11,6 +12,24 @@ const elements = Object.fromEntries([
 
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char])); }
 function showToast(message, error = false) { elements.toast.textContent = message; elements.toast.className = `toast visible${error ? " error" : ""}`; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => { elements.toast.className = "toast"; }, 3400); }
+let confirmationResolver = null;
+function finishConfirmation(accepted) {
+  if (!confirmationResolver) return;
+  const resolve = confirmationResolver;
+  confirmationResolver = null;
+  elements.affiliateConfirm.hidden = true;
+  resolve(Boolean(accepted));
+}
+function askConfirmation({ title, message, acceptLabel = "Xác nhận", danger = false }) {
+  if (confirmationResolver) return Promise.resolve(false);
+  elements.affiliateConfirmTitle.textContent = title;
+  elements.affiliateConfirmMessage.textContent = message;
+  elements.affiliateConfirmAccept.textContent = acceptLabel;
+  elements.affiliateConfirmAccept.className = `button${danger ? " danger" : ""}`;
+  elements.affiliateConfirm.hidden = false;
+  elements.affiliateConfirmAccept.focus();
+  return new Promise((resolve) => { confirmationResolver = resolve; });
+}
 function queryString(params) { const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)); return query.size ? `?${query}` : ""; }
 async function request(url, options = {}) { const response = await fetch(url, { cache: "no-store", headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options }); const payload = await response.json().catch(() => ({})); if (!response.ok) { const error = new Error(payload.error || `HTTP ${response.status}`); error.status = response.status; throw error; } return payload; }
 function unavailable(error) { return error?.status === 404 || error?.status === 501; }
@@ -95,7 +114,12 @@ async function runBackfill(dryRun = true) {
   if (!dryRun) {
     const eligible = number(state.backfill?.eligible);
     if (!eligible) return showToast("Hãy chạy preview và có bài đủ điều kiện trước.", true);
-    if (!confirm(`AurexVideo sẽ comment link lên tối đa ${eligible} bài của Brand “${state.brand}”. Tiếp tục?`)) return;
+    const accepted = await askConfirmation({
+      title: "Comment link lên các bài đã chọn?",
+      message: `AurexVideo sẽ comment link lên tối đa ${eligible} bài của Brand “${state.brand}”. Bạn có muốn tiếp tục không?`,
+      acceptLabel: "Comment ngay",
+    });
+    if (!accepted) return;
   }
   elements.backfillPreviewButton.disabled = true;
   elements.backfillRunButton.disabled = true;
@@ -188,7 +212,14 @@ function editPoolProduct(id) {
   elements.poolAffiliateUrl.focus();
 }
 async function deletePoolProduct(id) {
-  if (!state.brand || !id || !confirm("Xoá sản phẩm này khỏi Pool của Brand?")) return;
+  if (!state.brand || !id) return;
+  const accepted = await askConfirmation({
+    title: "Xoá link khỏi Pool?",
+    message: `Link này sẽ bị xoá khỏi Pool Shopee của Brand “${state.brand}”. Bạn có chắc muốn tiếp tục không?`,
+    acceptLabel: "Xoá link",
+    danger: true,
+  });
+  if (!accepted) return;
   try { await request(`/api/affiliate/pool/${encodeURIComponent(id)}${queryString({ brand: state.brand })}`, { method: "DELETE" }); if (state.poolEditingId === String(id)) clearPoolForm(); showToast("Đã xoá sản phẩm khỏi Pool."); await loadPool(); }
   catch (error) { showToast(error.message, true); }
 }
@@ -200,7 +231,7 @@ async function createLink(productId) { const record = state.records.find((item) 
 function settingsPayload() { const enabled = Boolean(elements.affiliateEnabled.checked); return { brand: state.brand, enabled, mode: enabled ? elements.affiliateMode.value : "off", placement: elements.affiliatePlacement.value, productsPerPost: Number(elements.affiliateProductsPerPost.value || 1), minRelevance: Number(elements.affiliateMinRelevance.value || 0.75), minCommission: Number(elements.affiliateMinCommission.value || 5) }; }
 async function saveAffiliateSettings() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); elements.saveAffiliateSettingsButton.disabled = true; try { await request("/api/affiliate/settings", { method: "POST", body: JSON.stringify(settingsPayload()) }); showToast("Đã lưu chính sách Affiliate cho Brand."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 async function saveShopeeConfig() { if (!state.brand) return showToast("Hãy chọn Brand trước.", true); const secret = elements.shopeeSecret.value.trim(); if (!secret) return showToast("Nhập lại App Secret để lưu kết nối.", true); elements.saveShopeeConfigButton.disabled = true; try { await request("/api/social/shopee/config", { method: "POST", body: JSON.stringify({ brand: state.brand, appId: elements.shopeeAppId.value.trim(), secret, apiBaseUrl: elements.shopeeApiBaseUrl.value.trim(), displayName: elements.shopeeDisplayName.value.trim(), settings: settingsPayload() }) }); showToast("Đã lưu kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
-async function disconnectShopee() { if (!state.brand || !confirm(`Gỡ kết nối Shopee Affiliate của Brand “${state.brand}”?`)) return; elements.disconnectShopeeButton.disabled = true; try { await request("/api/social/shopee/disconnect", { method: "POST", body: JSON.stringify({ brand: state.brand }) }); showToast("Đã gỡ kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
+async function disconnectShopee() { if (!state.brand) return; const accepted = await askConfirmation({ title: "Gỡ kết nối Shopee?", message: `Kết nối Shopee Affiliate của Brand “${state.brand}” sẽ bị gỡ khỏi cấu hình local. Bạn có chắc muốn tiếp tục không?`, acceptLabel: "Gỡ kết nối", danger: true }); if (!accepted) return; elements.disconnectShopeeButton.disabled = true; try { await request("/api/social/shopee/disconnect", { method: "POST", body: JSON.stringify({ brand: state.brand }) }); showToast("Đã gỡ kết nối Shopee Affiliate."); await refresh(); } catch (error) { showToast(error.message, true); } finally { renderSettings(); } }
 
 elements.brandSelect.addEventListener("change", () => { state.brand = elements.brandSelect.value; state.backfill = {}; state.pool = {}; clearPoolForm(); clearPocRunFields(); renderPool(); renderBackfill(); refresh(); });
 elements.periodSelect.addEventListener("change", () => { state.period = elements.periodSelect.value; loadData(); });
@@ -209,6 +240,11 @@ elements.searchInput.addEventListener("input", () => { state.query = elements.se
 elements.refreshButton.addEventListener("click", refresh);
 elements.recordsBody.addEventListener("click", (event) => { const button = event.target.closest("[data-create-link]"); if (button) createLink(button.dataset.createLink); });
 elements.pocCasesBody?.addEventListener("click", (event) => { const button = event.target.closest("[data-poc-case]"); if (button) updatePoc(button.dataset.pocCase, button.dataset.pocStatus); });
+elements.affiliateConfirmClose?.addEventListener("click", () => finishConfirmation(false));
+elements.affiliateConfirmCancel?.addEventListener("click", () => finishConfirmation(false));
+elements.affiliateConfirmAccept?.addEventListener("click", () => finishConfirmation(true));
+elements.affiliateConfirm?.addEventListener("click", (event) => { if (event.target === elements.affiliateConfirm) finishConfirmation(false); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && confirmationResolver) finishConfirmation(false); });
 elements.pocContentId?.addEventListener("change", loadPoc);
 elements.pocPageId?.addEventListener("change", loadPoc);
 elements.saveAffiliateSettingsButton?.addEventListener("click", saveAffiliateSettings);
