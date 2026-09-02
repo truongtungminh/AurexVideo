@@ -676,7 +676,7 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     }
 
 
-def affiliate_comment_text(affiliate_url: str) -> str:
+def affiliate_comment_text(affiliate_url: str, *, fallback: bool = False) -> str:
     """Return the compact text used with Facebook's link attachment field.
 
     Facebook comments are plain text, so putting the tracking URL in the
@@ -685,12 +685,14 @@ def affiliate_comment_text(affiliate_url: str) -> str:
     for Graph versions or Page routes that reject link attachments.
     """
     del affiliate_url
-    return "🛒 Sản phẩm liên quan trong video:\n👉 Xem sản phẩm trên Shopee"
+    label = "Sản phẩm gợi ý trên Shopee" if fallback else "Sản phẩm liên quan trong video"
+    return f"🛒 {label}:\n👉 Xem sản phẩm trên Shopee"
 
 
-def affiliate_comment_fallback_text(affiliate_url: str) -> str:
+def affiliate_comment_fallback_text(affiliate_url: str, *, fallback: bool = False) -> str:
     """Return a clickable plain-text fallback when Meta rejects attachments."""
-    return f"🛒 Sản phẩm liên quan trong video:\n{affiliate_url}"
+    label = "Sản phẩm gợi ý trên Shopee" if fallback else "Sản phẩm liên quan trong video"
+    return f"🛒 {label}:\n{affiliate_url}"
 
 
 def caption_with_affiliate(caption: str, affiliate_url: str) -> str:
