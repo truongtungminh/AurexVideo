@@ -75,7 +75,8 @@ function renderBackfill() {
   else if (result.scanned !== undefined) elements.backfillStatus.textContent = `${dryRun ? "Preview" : "Đã chạy"}: ${count(scanned)} bài · ${count(eligible)} đủ điều kiện · ${count(result.commented)} đã comment · ${count(result.skipped)} bỏ qua`;
   else elements.backfillStatus.textContent = "Chạy preview để xem bài nào đủ điều kiện.";
   elements.backfillPreviewButton.disabled = !state.brand;
-  elements.backfillRunButton.disabled = !state.brand || !dryRun || eligible < 1;
+  const previewToken = String(result.preview_token || result.previewToken || "").trim();
+  elements.backfillRunButton.disabled = !state.brand || !dryRun || eligible < 1 || !previewToken;
   if (!items.length) { elements.backfillResultsBody.innerHTML = `<tr><td colspan="5" class="table-empty">${result.scanned !== undefined ? "Không có bài phù hợp trong khoảng đã chọn." : "Chưa chạy preview."}</td></tr>`; return; }
   elements.backfillResultsBody.innerHTML = items.map((item) => {
     const post = item.post || item;
@@ -103,7 +104,8 @@ async function runBackfill(dryRun = true) {
   elements.backfillRunButton.disabled = true;
   elements.backfillStatus.textContent = dryRun ? "Đang quét bài và chọn sản phẩm..." : "Đang tạo link và comment...";
   try {
-    state.backfill = await request("/api/affiliate/backfill", { method: "POST", body: JSON.stringify({ brand: state.brand, limit, lookbackDays, dryRun, ...(dryRun ? {} : { confirm: "COMMENT" }) }) });
+    const previewToken = String(state.backfill?.preview_token || state.backfill?.previewToken || "").trim();
+    state.backfill = await request("/api/affiliate/backfill", { method: "POST", body: JSON.stringify({ brand: state.brand, limit, lookbackDays, dryRun, ...(dryRun ? {} : { confirm: "COMMENT", previewToken }) }) });
     renderBackfill();
     showToast(dryRun ? `Preview xong: ${number(state.backfill.eligible)} bài đủ điều kiện.` : `Đã xử lý ${number(state.backfill.commented)} comment.`);
   } catch (error) { state.backfill = { error: error.message }; showToast(error.message, true); }
