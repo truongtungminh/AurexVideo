@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS affiliate_links (
     placement TEXT NOT NULL DEFAULT 'first_comment',
     status TEXT NOT NULL DEFAULT 'created',
     created_at TEXT NOT NULL,
-    UNIQUE (affiliate_url)
+    UNIQUE (brand_id, affiliate_url)
 );
 
 CREATE TABLE IF NOT EXISTS content_affiliate_products (
@@ -242,9 +242,74 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def _affiliate_links_has_brand_scoped_unique(connection: sqlite3.Connection) -> bool:
+    """Return whether the link table already uses Brand-scoped uniqueness."""
+    for index in connection.execute("PRAGMA index_list('affiliate_links')").fetchall():
+        if not int(index["unique"] or 0):
+            continue
+        columns = [
+            str(column["name"] or "")
+            for column in connection.execute(
+                f"PRAGMA index_info('{str(index['name']).replace(chr(39), chr(39) * 2)}')"
+            ).fetchall()
+        ]
+        if columns == ["brand_id", "affiliate_url"]:
+            return True
+    return False
+
+
+def _migrate_affiliate_links_brand_scope(connection: sqlite3.Connection) -> None:
+    """Migrate the original global URL unique key without losing link history."""
+    if _affiliate_links_has_brand_scoped_unique(connection):
+        return
+
+    connection.execute("DROP INDEX IF EXISTS idx_affiliate_links_content")
+    connection.execute("ALTER TABLE affiliate_links RENAME TO affiliate_links_legacy")
+    connection.execute(
+        """
+        CREATE TABLE affiliate_links (
+            id TEXT PRIMARY KEY,
+            content_id TEXT NOT NULL,
+            brand_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            product_id TEXT NOT NULL DEFAULT '',
+            origin_url TEXT NOT NULL,
+            affiliate_url TEXT NOT NULL,
+            sub_id_1 TEXT NOT NULL DEFAULT '',
+            sub_id_2 TEXT NOT NULL DEFAULT '',
+            sub_id_3 TEXT NOT NULL DEFAULT '',
+            sub_id_4 TEXT NOT NULL DEFAULT '',
+            sub_id_5 TEXT NOT NULL DEFAULT '',
+            placement TEXT NOT NULL DEFAULT 'first_comment',
+            status TEXT NOT NULL DEFAULT 'created',
+            created_at TEXT NOT NULL,
+            UNIQUE (brand_id, affiliate_url)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO affiliate_links
+          (id, content_id, brand_id, provider, product_id, origin_url, affiliate_url,
+           sub_id_1, sub_id_2, sub_id_3, sub_id_4, sub_id_5, placement, status, created_at)
+        SELECT id, content_id, brand_id, provider, product_id, origin_url, affiliate_url,
+               sub_id_1, sub_id_2, sub_id_3, sub_id_4, sub_id_5, placement, status, created_at
+        FROM affiliate_links_legacy
+        """
+    )
+    connection.execute("DROP TABLE affiliate_links_legacy")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_affiliate_links_content
+            ON affiliate_links (brand_id, content_id, created_at DESC)
+        """
+    )
+
+
 def init_db() -> None:
     with _connect() as connection:
         connection.executescript(SCHEMA)
+        _migrate_affiliate_links_brand_scope(connection)
     try:
         os.chmod(Path(AFFILIATE_DB_PATH), 0o600)
     except OSError:
@@ -693,14 +758,17 @@ def record_link(link: dict) -> dict:
               (id, content_id, brand_id, provider, product_id, origin_url, affiliate_url,
                sub_id_1, sub_id_2, sub_id_3, sub_id_4, sub_id_5, placement, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (affiliate_url) DO UPDATE SET
-              content_id = excluded.content_id, brand_id = excluded.brand_id,
+            ON CONFLICT (brand_id, affiliate_url) DO UPDATE SET
+              content_id = excluded.content_id,
               product_id = excluded.product_id, placement = excluded.placement,
               status = excluded.status
             """,
             values,
         )
-        row = connection.execute("SELECT * FROM affiliate_links WHERE affiliate_url = ?", (values[6],)).fetchone()
+        row = connection.execute(
+            "SELECT * FROM affiliate_links WHERE brand_id = ? AND affiliate_url = ?",
+            (values[2], values[6]),
+        ).fetchone()
     return _row_dict(row)
 
 

@@ -252,6 +252,40 @@ def _pool_product_row(row: dict, query: str = "") -> dict:
     return product
 
 
+def _authoritative_pool_product(
+    brand: str,
+    product_id: str,
+    settings: dict | None = None,
+    *,
+    metadata: dict | None = None,
+) -> dict:
+    """Load one enabled Pool row again and discard all client-supplied URLs."""
+    pool_id = str(product_id or "").strip()
+    if not pool_id:
+        return {}
+    row = affiliate_store.get_product_pool(pool_id, brand_id=canonical_brand(brand))
+    if not row or not bool(row.get("enabled")):
+        return {}
+    try:
+        origin_url = validate_shopee_url(str(row.get("origin_url") or "").strip())
+    except (TypeError, ValueError):
+        return {}
+    affiliate_url = str(row.get("affiliate_url") or "").strip()
+    if not _valid_pool_affiliate_url(affiliate_url):
+        return {}
+    commission_rate = _fraction(row.get("commission_rate"))
+    minimum = _fraction((settings or {}).get("min_commission", (settings or {}).get("minCommission", 0.05)))
+    if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < minimum:
+        return {}
+    product = _pool_product_row({**row, "origin_url": origin_url, "affiliate_url": affiliate_url})
+    product["commission_rate"] = commission_rate
+    if isinstance(metadata, dict):
+        for key in ("relevance_score", "ranking_score", "_aurex_selection_mode", "_aurex_selection_reason"):
+            if metadata.get(key) is not None:
+                product[key] = metadata[key]
+    return product
+
+
 def select_pool_product(
     brand: str,
     query: str = "",
@@ -529,7 +563,7 @@ def create_affiliate_link(
             if not bool(pool_row.get("enabled")):
                 raise ValueError("Sản phẩm Pool đang tắt; hãy bật lại trước khi dùng.")
             product = _pool_product_row(pool_row)
-            origin_url = str(origin_url or product.get("origin_url") or "").strip()
+            origin_url = str(product.get("origin_url") or "").strip()
             affiliate_url = str(product.get("affiliate_url") or "").strip()
         origin_url = str(
             origin_url
@@ -588,7 +622,7 @@ def create_affiliate_link(
         if not bool(pool_row.get("enabled")):
             raise ValueError("Sản phẩm Pool đang tắt; hãy bật lại trước khi dùng.")
         product = _pool_product_row(pool_row)
-        origin_url = str(origin_url or product.get("origin_url") or "").strip()
+        origin_url = str(product.get("origin_url") or "").strip()
         affiliate_url = str(product.get("affiliate_url") or "").strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
@@ -643,10 +677,12 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         raise ValueError("Shopee native tag mới là POC; hãy dùng comment hoặc caption cho lần đăng này.")
     query = str(raw.get("query") or raw.get("affiliateQuery") or "").strip() or _project_query(project)
     product_id = str(raw.get("productId") or raw.get("product_id") or raw.get("affiliateProductId") or "").strip()
-    product = affiliate_store.get_product(product_id) if product_id else {}
-    origin_url = str(raw.get("originUrl") or raw.get("origin_url") or "").strip() or str(product.get("origin_url") or "")
     product_payload = raw.get("product") if isinstance(raw.get("product"), dict) else None
-    if not product and product_payload:
+    # AUTO never reads the global provider catalog.  It is deliberately
+    # resolved from the current Brand-owned Pool below.
+    product = affiliate_store.get_product(product_id) if product_id and mode != "auto" else {}
+    origin_url = str(raw.get("originUrl") or raw.get("origin_url") or "").strip() or str(product.get("origin_url") or "")
+    if product_payload and (mode == "auto" or not product):
         product = dict(product_payload)
         if not product_id:
             product_id = str(product.get("id") or product.get("pool_id") or "").strip()
@@ -669,13 +705,17 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         ).strip()
     ranking_score = _float(raw.get("rankingScore"))
     relevance_score = _float(raw.get("relevanceScore"))
-    if mode == "auto" and not product and not affiliate_url:
-        pool_rows = affiliate_store.list_product_pool(brand, enabled_only=False, limit=200)
-        if not pool_rows:
-            raise ValueError("Pool Shopee chưa có sản phẩm cho Brand; hãy thêm sản phẩm và link rút gọn trước.")
-        if not any(bool(row.get("enabled")) for row in pool_rows):
-            raise ValueError("Pool Shopee chưa có sản phẩm đang bật cho Brand.")
-        product = select_pool_product(brand, query, settings=settings, selection_seed=project)
+    if mode == "auto":
+        # A client may send stale/manual provider fields.  They are hints only;
+        # the exact Pool row is reloaded by Brand and supplies both URLs.
+        product = _authoritative_pool_product(
+            brand,
+            product_id,
+            settings,
+            metadata=product_payload,
+        )
+        if not product:
+            product = select_pool_product(brand, query, settings=settings, selection_seed=project)
         if not product:
             raise ValueError("Pool Shopee không có sản phẩm đạt mức hoa hồng tối thiểu của Brand.")
         product_id = str(product.get("id") or "").strip()
