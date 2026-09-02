@@ -7,7 +7,7 @@ import os
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .metadata import record_scheduled_social_failure
@@ -16,6 +16,8 @@ from .remote_worker import flush_tiktok_watch_outbox
 _LOCK = threading.RLock()
 _STARTED = False
 _STOP = threading.Event()
+FACEBOOK_COMMENT_RETRY_LIMIT = 5
+FACEBOOK_COMMENT_POLL_LIMIT = 50
 
 
 def _data_root() -> Path:
@@ -48,6 +50,172 @@ def _utc_now() -> datetime:
 
 def _parse(value: str) -> datetime:
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _comment_retry_is_transient(error: object) -> bool:
+    message = str(error or "").casefold()
+    if any(marker in message for marker in (
+        "timeout", "timed out", "temporar", "rate limit", "too many requests",
+        "connection", "service unavailable", "internal error", "network",
+    )):
+        return True
+    return any(f"http {status}" in message for status in range(500, 600))
+
+
+def _update_scheduled_affiliate_record(job: dict, *, status: str, comment_id: str = "", error: str = "") -> None:
+    """Mirror deferred-comment state to the associated content record when known."""
+    record_id = str(job.get("content_record_id") or "").strip()
+    if not record_id:
+        return
+    from . import affiliate_store
+
+    affiliate_store.update_content_product(
+        record_id,
+        page_id=str(job.get("page_id") or ""),
+        facebook_post_id=str(job.get("post_id") or ""),
+        facebook_comment_id=comment_id,
+        status=status,
+        error=error,
+    )
+
+
+def poll_facebook_scheduled_affiliate_comments() -> dict:
+    """Post opted-in affiliate comments after Graph explicitly marks a Reel published.
+
+    This deliberately operates from the persisted job snapshot. It never
+    chooses an active Page: each job is revalidated against its Brand route.
+    """
+    from . import affiliate_store
+    from . import facebook as facebook_module
+
+    now = _utc_now()
+    jobs = affiliate_store.list_pending_facebook_comment_jobs(
+        limit=FACEBOOK_COMMENT_POLL_LIMIT,
+        now=_iso(now),
+    )
+    summary = {"checked": len(jobs), "pending": 0, "commented": 0, "retried": 0, "failed": 0, "skipped": 0}
+    if not jobs:
+        return summary
+
+    config = facebook_module.read_social_config()
+    facebook = facebook_module.facebook_config(config)
+    for job in jobs:
+        job_id = str(job.get("id") or "").strip()
+        placement = str(job.get("placement") or "").strip().lower()
+        if not bool(job.get("auto_comment")) or placement not in {"first_comment", "caption_and_comment"}:
+            affiliate_store.update_publish_job(job_id, status="scheduled_no_comment", error="", next_comment_attempt_at="")
+            summary["skipped"] += 1
+            continue
+
+        affiliate_url = str(job.get("affiliate_url") or "").strip()
+        post_id = str(job.get("post_id") or "").strip()
+        if not affiliate_url or not post_id:
+            error = "Scheduled affiliate comment thiếu link hoặc Facebook object id."
+            affiliate_store.update_publish_job(job_id, status="comment_failed", error=error, next_comment_attempt_at="")
+            _update_scheduled_affiliate_record(job, status="comment_failed", error=error)
+            summary["failed"] += 1
+            continue
+
+        try:
+            page = facebook_module.facebook_upload_page(
+                config,
+                facebook,
+                {"brand": str(job.get("brand_id") or ""), "pageId": str(job.get("page_id") or "")},
+            )
+            access_token = facebook_module.facebook_page_access_token(facebook, page)
+            metadata = facebook_module.facebook_object_metadata(
+                facebook,
+                post_id,
+                access_token,
+                fields="id,status,is_published",
+            )
+        except (RuntimeError, ValueError) as exc:
+            error = str(exc)[:1000]
+            attempts = int(job.get("comment_attempts") or 0) + 1
+            if _comment_retry_is_transient(error) and attempts < FACEBOOK_COMMENT_RETRY_LIMIT:
+                wait_seconds = min(300, 30 * (2 ** (attempts - 1)))
+                next_attempt = _iso(now + timedelta(seconds=wait_seconds))
+                affiliate_store.update_publish_job(
+                    job_id,
+                    status="comment_retry",
+                    error=error,
+                    comment_attempts=attempts,
+                    next_comment_attempt_at=next_attempt,
+                )
+                _update_scheduled_affiliate_record(job, status="comment_retry", error=error)
+                summary["retried"] += 1
+            else:
+                affiliate_store.update_publish_job(
+                    job_id,
+                    status="comment_failed",
+                    error=error,
+                    comment_attempts=attempts,
+                    next_comment_attempt_at="",
+                )
+                _update_scheduled_affiliate_record(job, status="comment_failed", error=error)
+                summary["failed"] += 1
+            continue
+
+        if not facebook_module.facebook_object_is_published(metadata):
+            # A Graph id is expected before a scheduled Reel is visible; it is
+            # not sufficient proof that comments are accepted yet.
+            if str(job.get("status") or "") != "scheduled" or str(job.get("error") or ""):
+                affiliate_store.update_publish_job(job_id, status="scheduled", error="", next_comment_attempt_at="")
+            summary["pending"] += 1
+            continue
+
+        comment_target = facebook_module.facebook_full_post_id(facebook, post_id, page)
+        comment_id, error = facebook_module.post_facebook_source_comment(
+            facebook,
+            comment_target,
+            facebook_module.affiliate_comment_text(
+                affiliate_url,
+                product_name=str(job.get("product_name") or ""),
+            ),
+            access_token,
+            attempts=1,
+        )
+        if comment_id:
+            affiliate_store.update_publish_job(
+                job_id,
+                comment_id=comment_id,
+                status="published",
+                error="",
+                next_comment_attempt_at="",
+            )
+            _update_scheduled_affiliate_record(job, status="published", comment_id=comment_id)
+            summary["commented"] += 1
+            continue
+
+        error = str(error or "Facebook comment did not return an id.")[:1000]
+        attempts = int(job.get("comment_attempts") or 0) + 1
+        if _comment_retry_is_transient(error) and attempts < FACEBOOK_COMMENT_RETRY_LIMIT:
+            wait_seconds = min(300, 30 * (2 ** (attempts - 1)))
+            next_attempt = _iso(now + timedelta(seconds=wait_seconds))
+            affiliate_store.update_publish_job(
+                job_id,
+                status="comment_retry",
+                error=error,
+                comment_attempts=attempts,
+                next_comment_attempt_at=next_attempt,
+            )
+            _update_scheduled_affiliate_record(job, status="comment_retry", error=error)
+            summary["retried"] += 1
+        else:
+            affiliate_store.update_publish_job(
+                job_id,
+                status="comment_failed",
+                error=error,
+                comment_attempts=attempts,
+                next_comment_attempt_at="",
+            )
+            _update_scheduled_affiliate_record(job, status="comment_failed", error=error)
+            summary["failed"] += 1
+    return summary
 
 
 def schedule_upload(platform: str, payload: dict, scheduled_at: str) -> dict:
@@ -131,6 +299,12 @@ def _worker() -> None:
         try:
             flush_tiktok_watch_outbox()
         except Exception:
+            pass
+        try:
+            poll_facebook_scheduled_affiliate_comments()
+        except Exception:
+            # The scheduler must keep executing unrelated local jobs if an
+            # affiliate DB or Graph request is temporarily unavailable.
             pass
         now = _utc_now()
         due = []
