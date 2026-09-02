@@ -3,10 +3,12 @@ from __future__ import annotations
 """Read-only AddLiveTag adapter for explicit Shopee product references.
 
 The product-data endpoint is used only to enrich a Shopee item the caller has
-already selected.  The short-link endpoint below is an *experimental web
-endpoint*, not the official Shopee Affiliate API.  It is deliberately opt-in:
-callers must supply an affiliate id and this module never writes config or
-sends cookies, API keys, or other credentials.
+already selected.  The default short-link route is AddLiveTag's
+``shopee-affiliate-api/api_handler.php`` wrapper for ``generateShortLink``;
+the older public ``/short-link.php`` helper is retained only for compatibility
+because it returns a long redirect URL.  This module is deliberately opt-in:
+callers must supply an affiliate id and it never writes config or sends
+cookies, API keys, or other credentials.
 """
 
 import json
@@ -22,8 +24,10 @@ from .shopee import validate_shopee_url
 
 
 DEFAULT_PRODUCT_DATA_URL = "https://data.addlivetag.com/product-data/product-data.php"
-DEFAULT_SHORT_LINK_URL = "https://addlivetag.com/short-link.php"
+DEFAULT_SHORT_LINK_URL = "https://addlivetag.com/shopee-affiliate-api/api_handler.php"
 DEFAULT_SEARCH_URL = "https://addlivetag.com/live/search.php"
+SHORT_LINK_API_PATH = "/shopee-affiliate-api/api_handler.php"
+SHORT_LINK_DOC_PATH = "/shopee-affiliate-api/short_link.php"
 PRODUCT_DATA_HOSTS = {"data.addlivetag.com"}
 SHORT_LINK_HOSTS = {"addlivetag.com", "www.addlivetag.com"}
 SEARCH_HOSTS = SHORT_LINK_HOSTS
@@ -444,6 +448,46 @@ def _request_json(endpoint: str, params: Mapping[str, str], *, timeout: object, 
     return payload
 
 
+def _request_json_post(
+    endpoint: str,
+    payload: Mapping[str, object],
+    *,
+    timeout: object,
+    default_timeout: int,
+) -> dict:
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    request = Request(
+        endpoint,
+        data=encoded,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "AurexVideo/addlivetag-readonly",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=_timeout(timeout, default_timeout)) as response:
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+    except HTTPError as exc:
+        try:
+            exc.close()
+        except OSError:
+            pass
+        raise AddLiveTagApiError(f"AddLiveTag HTTP {exc.code}.") from exc
+    except (TimeoutError, URLError, OSError) as exc:
+        raise AddLiveTagApiError("AddLiveTag request failed.") from exc
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise AddLiveTagApiError("AddLiveTag response vượt quá giới hạn cho phép.")
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AddLiveTagApiError("AddLiveTag trả về JSON không hợp lệ.") from exc
+    if not isinstance(parsed, dict):
+        raise AddLiveTagApiError("AddLiveTag trả về dữ liệu không hợp lệ.")
+    return parsed
+
+
 def extract_shopee_reference(text: object) -> dict[str, str]:
     """Extract one explicit Shopee URL or explicitly-labelled numeric item id.
 
@@ -564,6 +608,11 @@ def normalize_config(value: object = None, *, environ: Mapping[str, str] | None 
         affiliate_id = str(environment.get("ADDLIVETAG_AFFILIATE_ID") or "").strip()
     if affiliate_id and not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", affiliate_id):
         raise ValueError("AddLiveTag affiliate_id không hợp lệ.")
+    short_link_endpoint = _canonical_short_link_endpoint(_validated_endpoint(
+        source.get("short_link_url") or source.get("shortLinkUrl") or DEFAULT_SHORT_LINK_URL,
+        hosts=SHORT_LINK_HOSTS,
+        label="Short-link endpoint",
+    ))
     return {
         "affiliate_id": affiliate_id,
         "product_data_url": _validated_endpoint(
@@ -571,25 +620,33 @@ def normalize_config(value: object = None, *, environ: Mapping[str, str] | None 
             hosts=PRODUCT_DATA_HOSTS,
             label="Product-data endpoint",
         ),
-        "short_link_url": _validated_endpoint(
-            source.get("short_link_url") or source.get("shortLinkUrl") or DEFAULT_SHORT_LINK_URL,
-            hosts=SHORT_LINK_HOSTS,
-            label="Short-link endpoint",
-        ),
+        "short_link_url": short_link_endpoint,
     }
 
 
-def _sub_id_params(sub_ids: object) -> dict[str, str]:
+def _sub_id_values(sub_ids: object) -> list[object]:
     if sub_ids is None:
-        values: list[object] = []
+        return []
     elif isinstance(sub_ids, Mapping):
-        values = [sub_ids.get(f"subid{index}", sub_ids.get(str(index), "")) for index in range(1, 6)]
+        values = []
+        for index in range(1, 6):
+            if f"subid{index}" in sub_ids:
+                values.append(sub_ids.get(f"subid{index}"))
+            elif f"sub{index}" in sub_ids:
+                values.append(sub_ids.get(f"sub{index}"))
+            else:
+                values.append(sub_ids.get(str(index), ""))
     elif isinstance(sub_ids, (str, bytes, bytearray)):
         values = [sub_ids]
     else:
         values = list(sub_ids)
     if len(values) > 5:
         raise ValueError("AddLiveTag chỉ nhận tối đa 5 SubID.")
+    return values
+
+
+def _sub_id_params(sub_ids: object) -> dict[str, str]:
+    values = _sub_id_values(sub_ids)
     params = {}
     for index, value in enumerate(values, start=1):
         sub_id = str(value or "").strip()
@@ -601,6 +658,116 @@ def _sub_id_params(sub_ids: object) -> dict[str, str]:
     return params
 
 
+def _addlivetag_sub_id_params(sub_ids: object) -> dict[str, str]:
+    """Map Aurex tracking values to the handler's ``sub1`` ... ``sub5`` fields.
+
+    The AddLiveTag wrapper currently rejects punctuation in some Sub IDs even
+    though the underlying documentation describes them as strings.  Keep the
+    original values in Aurex's local link record, but send a compact ASCII
+    form to the provider so a normal Brand/page/content slug does not make the
+    short-link request fail.
+    """
+    params = {}
+    for index, value in enumerate(_sub_id_values(sub_ids), start=1):
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        compact = re.sub(r"[^A-Za-z0-9]", "", raw)[:64]
+        if compact:
+            params[f"sub{index}"] = compact
+    return params
+
+
+def _canonical_short_link_endpoint(endpoint: str) -> str:
+    parsed = urlparse(endpoint)
+    if parsed.path.rstrip("/").casefold() != SHORT_LINK_DOC_PATH:
+        return endpoint
+    return urlunparse(("https", parsed.netloc, SHORT_LINK_API_PATH, "", "", ""))
+
+
+def _is_short_link_api_endpoint(endpoint: str) -> bool:
+    return urlparse(endpoint).path.rstrip("/").casefold() == SHORT_LINK_API_PATH
+
+
+def _provider_response_text(value: object, *, depth: int = 0) -> str:
+    """Flatten provider error metadata for classification without returning it."""
+    if depth >= 10:
+        return ""
+    if isinstance(value, Mapping):
+        parts = []
+        for key, item in value.items():
+            parts.append(str(key))
+            parts.append(_provider_response_text(item, depth=depth + 1))
+        return " ".join(parts)
+    if isinstance(value, list):
+        return " ".join(_provider_response_text(item, depth=depth + 1) for item in value[:50])
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    return ""
+
+
+def _short_link_error_message(payload: Mapping[str, object]) -> str:
+    provider_text = _provider_response_text(payload).casefold()
+    if "rate limit" in provider_text or "rate_limit" in provider_text:
+        return "AddLiveTag Short Link API đang vượt giới hạn thử nghiệm."
+    if "invalid sub id" in provider_text or "invalid subid" in provider_text:
+        return "AddLiveTag Short Link API từ chối Sub ID."
+    return "AddLiveTag không tạo được short link."
+
+
+def _payload_has_invalid_sub_id(payload: Mapping[str, object]) -> bool:
+    provider_text = _provider_response_text(payload).casefold()
+    return "invalid sub id" in provider_text or "invalid subid" in provider_text
+
+
+def _extract_short_link(payload: Mapping[str, object]) -> str:
+    if payload.get("success") is not True:
+        return ""
+    candidates = [payload.get("affiliateLink"), payload.get("shortLink")]
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        candidates.append(data.get("shortLink"))
+        generated = data.get("generateShortLink")
+        if isinstance(generated, Mapping):
+            candidates.append(generated.get("shortLink"))
+        nested = data.get("data")
+        if isinstance(nested, Mapping):
+            generated = nested.get("generateShortLink")
+            if isinstance(generated, Mapping):
+                candidates.append(generated.get("shortLink"))
+    return next((str(value).strip() for value in candidates if str(value or "").strip()), "")
+
+
+def _generate_api_short_link(origin_url: str, sub_ids: object, *, endpoint: str, timeout: int) -> str:
+    sub_id_params = _addlivetag_sub_id_params(sub_ids)
+    params = {"originUrl": origin_url, **sub_id_params}
+    payload = _request_json_post(
+        endpoint,
+        {"api_type": "generateShortLink", "params": params},
+        timeout=timeout,
+        default_timeout=30,
+    )
+    if sub_id_params and _payload_has_invalid_sub_id(payload):
+        # Some AddLiveTag accounts accept the mutation but reject the optional
+        # Sub IDs.  Preserve the usable clean link as a fallback; Aurex still
+        # stores its original five local tracking dimensions on the link row.
+        payload = _request_json_post(
+            endpoint,
+            {"api_type": "generateShortLink", "params": {"originUrl": origin_url}},
+            timeout=timeout,
+            default_timeout=30,
+        )
+    if payload.get("success") is not True:
+        raise AddLiveTagApiError(_short_link_error_message(payload))
+    link = _extract_short_link(payload)
+    if not link:
+        raise AddLiveTagApiError(_short_link_error_message(payload))
+    try:
+        return validate_shopee_url(link)
+    except ValueError as exc:
+        raise AddLiveTagApiError("AddLiveTag trả về short link Shopee không hợp lệ.") from exc
+
+
 def generate_short_link(
     origin_url: str,
     affiliate_id: str,
@@ -609,14 +776,17 @@ def generate_short_link(
     endpoint: str = DEFAULT_SHORT_LINK_URL,
     timeout: int = 30,
 ) -> str:
-    """Call AddLiveTag's experimental web short-link endpoint for a Shopee URL."""
+    """Create a clean Shopee short link through AddLiveTag's wrapper."""
     endpoint = _validated_endpoint(endpoint, hosts=SHORT_LINK_HOSTS, label="Short-link endpoint")
+    endpoint = _canonical_short_link_endpoint(endpoint)
     origin_url = validate_shopee_url(origin_url)
     affiliate_id = str(affiliate_id or "").strip()
     if not affiliate_id:
         raise ValueError("AddLiveTag cần affiliate_id tường minh để tạo short link.")
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", affiliate_id):
         raise ValueError("AddLiveTag affiliate_id không hợp lệ.")
+    if _is_short_link_api_endpoint(endpoint):
+        return _generate_api_short_link(origin_url, sub_ids, endpoint=endpoint, timeout=timeout)
     payload = _request_json(
         endpoint,
         {"url": origin_url, "aff_id": affiliate_id, **_sub_id_params(sub_ids)},
