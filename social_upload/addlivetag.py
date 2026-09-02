@@ -19,7 +19,7 @@ import re
 from collections.abc import Mapping, Sequence
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 from .shopee import validate_shopee_url
@@ -34,6 +34,8 @@ SHORT_LINK_DOC_PATH = "/shopee-affiliate-api/short_link.php"
 PRODUCT_DATA_HOSTS = {"data.addlivetag.com"}
 SHORT_LINK_HOSTS = {"addlivetag.com", "www.addlivetag.com"}
 SEARCH_HOSTS = SHORT_LINK_HOSTS
+AFFILIATE_ID_QUERY_KEYS = ("affiliate_id", "affiliateId", "aff_id")
+AFFILIATE_SOURCE_QUERY_KEYS = ("mmp_pid", "utm_source")
 MAX_RESPONSE_BYTES = 512 * 1024
 MAX_TIMEOUT_SECONDS = 30
 MAX_SEARCH_RESULTS = 100
@@ -741,6 +743,56 @@ def _extract_short_link(payload: Mapping[str, object]) -> str:
     return next((str(value).strip() for value in candidates if str(value or "").strip()), "")
 
 
+def validate_addlivetag_attribution(
+    link: object,
+    affiliate_id: object,
+    *,
+    require_attribution: bool = False,
+) -> str:
+    """Validate a Shopee-hosted link against the selected Brand's Affiliate ID.
+
+    AddLiveTag's legacy endpoint echoes the attribution in the returned
+    ``s.shopee.vn/an_redir`` URL.  Checking that echo prevents a cached or
+    misconfigured provider link from silently crediting another account.  The
+    API-handler route can return a clean slug without query metadata, so its
+    attribution is only required when the caller explicitly opts into the
+    strict check.
+    """
+    try:
+        normalized = validate_shopee_url(str(link or "").strip())
+    except ValueError as exc:
+        raise AddLiveTagApiError("AddLiveTag trả về short link Shopee không hợp lệ.") from exc
+
+    expected = str(affiliate_id or "").strip()
+    if not expected and not require_attribution:
+        return normalized
+    if not expected or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", expected):
+        raise ValueError("AddLiveTag affiliate_id không hợp lệ.")
+
+    query = parse_qs(urlparse(normalized).query, keep_blank_values=True)
+    observed = False
+    expected_source = f"an_{expected}"
+    for key in AFFILIATE_ID_QUERY_KEYS:
+        for value in query.get(key, []):
+            value = str(value or "").strip()
+            if not value:
+                continue
+            observed = True
+            if value.casefold() != expected.casefold():
+                raise AddLiveTagApiError("AddLiveTag trả về link thuộc Affiliate ID khác Brand.")
+    for key in AFFILIATE_SOURCE_QUERY_KEYS:
+        for value in query.get(key, []):
+            value = str(value or "").strip()
+            if not value:
+                continue
+            observed = True
+            if value.casefold() != expected_source.casefold():
+                raise AddLiveTagApiError("AddLiveTag trả về link thuộc Affiliate ID khác Brand.")
+    if require_attribution and not observed:
+        raise AddLiveTagApiError("AddLiveTag chưa xác nhận Affiliate ID của Brand trên link Shopee.")
+    return normalized
+
+
 def _generate_api_short_link(origin_url: str, sub_ids: object, *, endpoint: str, timeout: int) -> str:
     sub_id_params = _addlivetag_sub_id_params(sub_ids)
     params = {"originUrl": origin_url, **sub_id_params}
@@ -765,10 +817,7 @@ def _generate_api_short_link(origin_url: str, sub_ids: object, *, endpoint: str,
     link = _extract_short_link(payload)
     if not link:
         raise AddLiveTagApiError(_short_link_error_message(payload))
-    try:
-        return validate_shopee_url(link)
-    except ValueError as exc:
-        raise AddLiveTagApiError("AddLiveTag trả về short link Shopee không hợp lệ.") from exc
+    return validate_addlivetag_attribution(link, "", require_attribution=False)
 
 
 def generate_short_link(
@@ -799,7 +848,4 @@ def generate_short_link(
     if payload.get("success") is not True:
         raise AddLiveTagApiError("AddLiveTag không tạo được short link.")
     link = str(payload.get("affiliateLink") or "").strip()
-    try:
-        return validate_shopee_url(link)
-    except ValueError as exc:
-        raise AddLiveTagApiError("AddLiveTag trả về short link Shopee không hợp lệ.") from exc
+    return validate_addlivetag_attribution(link, affiliate_id, require_attribution=True)

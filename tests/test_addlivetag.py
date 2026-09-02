@@ -18,6 +18,7 @@ from social_upload.addlivetag import (
     normalize_config,
     normalize_product_payload,
     search_addlivetag_products,
+    validate_addlivetag_attribution,
 )
 
 
@@ -192,7 +193,10 @@ class AddLiveTagTests(unittest.TestCase):
         def fake_urlopen(request, timeout):
             captured["url"] = request.full_url
             captured["timeout"] = timeout
-            return _FakeResponse({"success": True, "affiliateLink": "https://s.shopee.vn/abc123"})
+            return _FakeResponse({
+                "success": True,
+                "affiliateLink": "https://s.shopee.vn/abc123?affiliate_id=affiliate-1",
+            })
 
         with patch("social_upload.addlivetag.urlopen", fake_urlopen):
             link = generate_short_link(
@@ -200,7 +204,7 @@ class AddLiveTagTests(unittest.TestCase):
                 "affiliate-1",
                 ["brand", "page", "video", "item", "comment"],
             )
-        self.assertEqual(link, "https://s.shopee.vn/abc123")
+        self.assertEqual(link, "https://s.shopee.vn/abc123?affiliate_id=affiliate-1")
         self.assertEqual(captured["timeout"], 30.0)
         query = parse_qs(urlparse(captured["url"]).query)
         self.assertEqual(query["aff_id"], ["affiliate-1"])
@@ -301,6 +305,33 @@ class AddLiveTagTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(AddLiveTagApiError, "không hợp lệ"):
                 generate_short_link("https://shopee.vn/product-1", "affiliate-1")
+
+    def test_short_link_rejects_a_different_affiliate_id(self):
+        with patch(
+            "social_upload.addlivetag.urlopen",
+            return_value=_FakeResponse({
+                "success": True,
+                "affiliateLink": "https://s.shopee.vn/abc123?affiliate_id=another-account",
+            }),
+        ):
+            with self.assertRaisesRegex(AddLiveTagApiError, "khác Brand"):
+                generate_short_link("https://shopee.vn/product-1", "affiliate-1")
+
+    def test_attribution_validator_requires_evidence_only_when_requested(self):
+        self.assertEqual(
+            validate_addlivetag_attribution(
+                "https://s.shopee.vn/abc123?mmp_pid=an_affiliate-1",
+                "affiliate-1",
+                require_attribution=True,
+            ),
+            "https://s.shopee.vn/abc123?mmp_pid=an_affiliate-1",
+        )
+        with self.assertRaisesRegex(AddLiveTagApiError, "chưa xác nhận"):
+            validate_addlivetag_attribution(
+                "https://s.shopee.vn/abc123",
+                "affiliate-1",
+                require_attribution=True,
+            )
 
     def test_normalize_config_prefers_selected_brand_value_then_environment(self):
         value = normalize_config({"affiliate_id": "brand-a"}, environ={"ADDLIVETAG_AFFILIATE_ID": "global"})

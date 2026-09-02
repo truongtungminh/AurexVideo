@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import web_server
 from social_upload import affiliate_store
+from social_upload.addlivetag import AddLiveTagApiError
 from social_upload.affiliate import (
     create_affiliate_link,
     prepare_affiliate_for_publish,
@@ -78,9 +79,9 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
         with (
             patch("social_upload.affiliate._project_query", return_value="áo len"),
             patch("social_upload.affiliate.fetch_product_data", return_value=RAW_PRODUCT_DATA),
-            patch(
+                patch(
                 "social_upload.affiliate.generate_addlivetag_short_link",
-                return_value="https://s.shopee.vn/addlive-test",
+                return_value="https://s.shopee.vn/addlive-test?affiliate_id=aff-123",
             ) as short_link,
         ):
             result = prepare_affiliate_for_publish(
@@ -92,7 +93,7 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result["mode"], "auto")
         self.assertEqual(result["link_provider"], "addlivetag")
-        self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/addlive-test")
+        self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/addlive-test?affiliate_id=aff-123")
         short_link.assert_called_once()
         self.assertEqual(short_link.call_args.args[1], "aff-123")
 
@@ -111,7 +112,10 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
                 )
 
     def test_existing_addlivetag_product_can_create_link_from_dashboard(self):
-        with patch("social_upload.affiliate.generate_addlivetag_short_link", return_value="https://s.shopee.vn/dashboard-test"):
+        with patch(
+            "social_upload.affiliate.generate_addlivetag_short_link",
+            return_value="https://s.shopee.vn/dashboard-test?affiliate_id=aff-123",
+        ):
             resolved = resolve_addlivetag_product("knowzy", "dashboard", origin_url=PRODUCT_URL)
             result = create_affiliate_link(
                 brand="knowzy",
@@ -120,7 +124,18 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
                 page_id="page-1",
             )
 
-        self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/dashboard-test")
+        self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/dashboard-test?affiliate_id=aff-123")
+
+    def test_addlivetag_rejects_an_explicit_link_from_another_account(self):
+        with self.assertRaisesRegex(AddLiveTagApiError, "khác Brand"):
+            create_affiliate_link(
+                brand="knowzy",
+                content_id="wrong-account",
+                origin_url=PRODUCT_URL,
+                affiliate_url="https://s.shopee.vn/wrong?affiliate_id=another-account",
+                link_provider="addlivetag",
+                page_id="page-1",
+            )
 
     def test_save_addlivetag_settings_is_brand_scoped_and_does_not_return_id(self):
         saved = {}

@@ -18,6 +18,7 @@ from .addlivetag import (
     fetch_product_data,
     generate_short_link as generate_addlivetag_short_link,
     normalize_product_payload,
+    validate_addlivetag_attribution,
 )
 from .config import canonical_brand, read_social_config, resolve_social_brand_connection
 from .shopee import (
@@ -457,7 +458,10 @@ def create_affiliate_link(
         raise ValueError("Affiliate placement không hợp lệ.")
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(origin_url or product.get("origin_url") or "").strip()
-    affiliate_url = str(affiliate_url or (product.get("offer_url") if reuse_product_offer_url else "") or "").strip()
+    # An explicitly supplied URL is authoritative.  A cached product offer is
+    # only reusable for the official provider; AddLiveTag product-data offers
+    # are not guaranteed to be generated for this Brand's Affiliate ID.
+    affiliate_url = str(affiliate_url or "").strip()
     if not product and isinstance(product_payload, dict):
         candidate = normalize_product(product_payload)
         if candidate.get("origin_url") or candidate.get("offer_url"):
@@ -473,14 +477,28 @@ def create_affiliate_link(
             or product_payload.get("product_link")
             or ""
         ).strip()
-        if reuse_product_offer_url:
+        if not link_provider:
+            payload_provider = product_payload.get("link_provider") or product_payload.get("linkProvider")
+            payload_raw = product_payload.get("raw")
+            if isinstance(payload_raw, dict):
+                payload_provider = payload_provider or payload_raw.get("_aurex_link_provider")
+            link_provider = str(payload_provider or "").strip().lower()
+        if reuse_product_offer_url and link_provider != "addlivetag" and not affiliate_url:
             affiliate_url = str(
-                affiliate_url
-                or product_payload.get("affiliate_url")
+                product_payload.get("affiliate_url")
                 or product_payload.get("affiliateUrl")
                 or product_payload.get("shortUrl")
                 or ""
             ).strip()
+    raw_product = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+    link_provider = str(
+        link_provider
+        or product.get("link_provider")
+        or raw_product.get("_aurex_link_provider")
+        or ""
+    ).strip().lower()
+    if reuse_product_offer_url and link_provider != "addlivetag" and not affiliate_url:
+        affiliate_url = str(product.get("offer_url") or "").strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
     if origin_url and not _valid_shopee_link(origin_url):
@@ -494,20 +512,29 @@ def create_affiliate_link(
         if isinstance(facebook_route, dict):
             page_id = str(facebook_route.get("page_id") or facebook_route.get("connection_id") or "").strip()
     sub_ids = build_sub_ids(brand, page_id, content_id, product_id or product.get("provider_product_id"), placement)
+    addlivetag_affiliate_id = ""
+    if link_provider == "addlivetag":
+        addlivetag_affiliate_id = str(_raw_addlivetag_settings(config, brand).get("affiliate_id") or "").strip()
+        if not addlivetag_affiliate_id:
+            raise ValueError("AddLiveTag cần Affiliate ID để tạo link; nhập tại Affiliate Dashboard.")
+        if affiliate_url:
+            # Never publish a cached/manual AddLiveTag URL unless the URL
+            # itself confirms the selected Brand's tracking identity.
+            affiliate_url = validate_addlivetag_attribution(
+                affiliate_url,
+                addlivetag_affiliate_id,
+                require_attribution=True,
+            )
     if not affiliate_url:
-        raw_product = product.get("raw") if isinstance(product.get("raw"), dict) else {}
-        link_provider = str(
-            link_provider
-            or product.get("link_provider")
-            or raw_product.get("_aurex_link_provider")
-            or ""
-        ).strip().lower()
         if link_provider == "addlivetag":
-            addlivetag = addlivetag_brand_context(config, brand)
-            affiliate_id = str(_raw_addlivetag_settings(config, brand).get("affiliate_id") or "").strip()
-            if not affiliate_id:
-                raise ValueError("AddLiveTag cần Affiliate ID để tạo link; nhập tại Affiliate Dashboard.")
-            affiliate_url = generate_addlivetag_short_link(origin_url, affiliate_id, sub_ids)
+            affiliate_url = generate_addlivetag_short_link(origin_url, addlivetag_affiliate_id, sub_ids)
+            # Keep the guard here as well because tests, adapters, or a future
+            # provider wrapper may bypass generate_short_link's own check.
+            affiliate_url = validate_addlivetag_attribution(
+                affiliate_url,
+                addlivetag_affiliate_id,
+                require_attribution=True,
+            )
         else:
             _, connection = resolve_social_brand_connection(config, brand, "shopee")
             affiliate_url = generate_short_link(connection, origin_url, sub_ids)
@@ -548,8 +575,20 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
     product_id = str(raw.get("productId") or raw.get("product_id") or raw.get("affiliateProductId") or "").strip()
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(raw.get("originUrl") or raw.get("origin_url") or "").strip() or str(product.get("origin_url") or "")
-    affiliate_url = str(raw.get("affiliateUrl") or raw.get("affiliate_url") or product.get("offer_url") or "").strip()
     link_provider = str(raw.get("linkProvider") or raw.get("link_provider") or "").strip().lower()
+    if not link_provider and product:
+        product_raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+        link_provider = str(
+            product.get("link_provider")
+            or product_raw.get("_aurex_link_provider")
+            or ""
+        ).strip().lower()
+    # An AddLiveTag product's cached offer may belong to the provider's
+    # default account.  It must be regenerated with this Brand's ID instead
+    # of being silently reused.
+    affiliate_url = str(raw.get("affiliateUrl") or raw.get("affiliate_url") or "").strip()
+    if not affiliate_url and link_provider != "addlivetag":
+        affiliate_url = str(product.get("offer_url") or "").strip()
     item_id = str(raw.get("itemId") or raw.get("item_id") or "").strip()
     ranking_score = _float(raw.get("rankingScore"))
     relevance_score = _float(raw.get("relevanceScore"))
