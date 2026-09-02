@@ -40,13 +40,19 @@ class AffiliateBackfillApiTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload, expected)
-        runner.assert_called_once_with("knowzy", limit=7, lookback_days=14, dry_run=True, page_id="")
+        runner.assert_called_once_with("knowzy", limit=7, lookback_days=14, dry_run=True, page_id="", preview_token="")
 
     def test_execute_requires_explicit_comment_confirmation(self):
         status, payload = self._post({"brand": "knowzy", "dryRun": False})
 
         self.assertEqual(status, 400)
         self.assertIn("xác nhận COMMENT", payload["error"])
+
+    def test_execute_requires_preview_token_after_confirmation(self):
+        status, payload = self._post({"brand": "knowzy", "dryRun": False, "confirm": "COMMENT"})
+
+        self.assertEqual(status, 400)
+        self.assertIn("preview", payload["error"])
 
     def test_execute_forwards_page_and_confirmation(self):
         expected = {"ok": True, "dry_run": False, "commented": 1}
@@ -58,11 +64,12 @@ class AffiliateBackfillApiTests(unittest.TestCase):
                 "lookback_days": 90,
                 "dry_run": False,
                 "confirm": "comment",
+                "previewToken": "preview-1",
             })
 
         self.assertEqual(status, 200)
         self.assertEqual(payload, expected)
-        runner.assert_called_once_with("knowzy", limit=3, lookback_days=90, dry_run=False, page_id="page-1")
+        runner.assert_called_once_with("knowzy", limit=3, lookback_days=90, dry_run=False, page_id="page-1", preview_token="preview-1")
 
 
 if __name__ == "__main__":

@@ -309,6 +309,18 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertFalse(product)
         self.assertIn("Affiliate ID", reason)
 
+    def test_fallback_excludes_missing_or_zero_commission_even_when_threshold_is_zero(self):
+        candidates = backfill._fallback_candidates(
+            [
+                {"provider_product_id": "missing", "name": "Thiếu commission", "origin_url": "https://shopee.vn/product/1/21"},
+                {"provider_product_id": "zero", "name": "Commission bằng 0", "origin_url": "https://shopee.vn/product/1/22", "commission_rate": 0},
+                {"provider_product_id": "positive", "name": "Commission hợp lệ", "origin_url": "https://shopee.vn/product/1/23", "commission_rate": 0.05},
+            ],
+            {"min_commission": 0},
+        )
+
+        self.assertEqual([candidate["provider_product_id"] for candidate in candidates], ["positive"])
+
     def test_connected_discovery_is_read_only_for_backfill_preview(self):
         context = {**CONTEXT, "addlivetag": {"enabled": False}, "connection": {"connected": True}}
         discovered = {"products": [{"id": "p-1", "name": "Bình giữ nhiệt", "origin_url": "https://shopee.vn/product/1/2", "commission_rate": 0.2}]}
@@ -322,6 +334,37 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(product["id"], "p-1")
         discover.assert_called_once_with("knowzy", "bình giữ nhiệt dân văn phòng", limit=10, persist=False)
         upsert.assert_not_called()
+
+    def test_addlivetag_fallback_runs_when_official_discovery_has_no_acceptable_product(self):
+        context = {**CONTEXT, "connection": {"connected": True}}
+        candidate = {
+            "provider_product_id": "fallback-1",
+            "name": "Sản phẩm fallback hoa hồng cao",
+            "origin_url": "https://shopee.vn/product/1/31",
+            "commission_rate": 0.20,
+            "link_provider": "addlivetag",
+        }
+
+        def fake_search(keyword, *, limit):
+            self.assertEqual(limit, 20)
+            return [] if keyword == "keyword" else [candidate]
+
+        with (
+            patch.object(backfill, "discover_products", return_value={"products": []}) as discover,
+            patch.object(backfill.affiliate_store, "list_products", return_value=[]),
+            patch.object(backfill, "_product_search_queries", return_value=["keyword"]),
+            patch.object(backfill, "search_addlivetag_products", side_effect=fake_search),
+        ):
+            product, reason = backfill._select_product(
+                "knowzy",
+                "Nội dung không có sản phẩm phù hợp",
+                context,
+                selection_seed="page-1_2",
+            )
+
+        self.assertEqual(product["provider_product_id"], "fallback-1")
+        self.assertIn("hoa hồng cao", reason)
+        discover.assert_called_once()
 
     def test_policy_uses_relevance_before_commission(self):
         selected = backfill._policy_product(
@@ -374,6 +417,7 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["eligible"], 1)
         self.assertEqual(result["commented"], 0)
+        self.assertTrue(result["preview_token"])
         self.assertEqual(result["items"][0]["status"], "eligible")
         self.assertEqual(result["items"][0]["post_id"], "page-1_1")
         self.assertEqual(result["items"][0]["permalink_url"], "https://www.facebook.com/page-1_1")
@@ -452,7 +496,8 @@ class FacebookBackfillTests(unittest.TestCase):
             patch.object(backfill.affiliate_store, "overview", return_value={"products": [existing]}),
             patch.object(backfill, "post_facebook_source_comment") as post_comment,
         ):
-            result = backfill.run_affiliate_backfill("knowzy", dry_run=False)
+            preview_token = backfill._create_backfill_preview("knowzy", "page-1", 20, 30, {})
+            result = backfill.run_affiliate_backfill("knowzy", dry_run=False, preview_token=preview_token)
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["skipped"], 1)
@@ -471,6 +516,13 @@ class FacebookBackfillTests(unittest.TestCase):
             self.fail(f"unexpected URL {url}")
 
         cached = [{"id": "p-1", "name": "Bình giữ nhiệt tốt", "origin_url": "https://shopee.vn/product/1/2", "offer_url": "https://shopee.vn/brand-a-affiliate", "commission_rate": 0.2}]
+        preview_token = backfill._create_backfill_preview(
+            "knowzy",
+            "page-1",
+            20,
+            30,
+            {"page-1_1": {"product": cached[0]}},
+        )
         with (
             patch.object(backfill, "read_social_config", return_value=CONFIG),
             patch.object(backfill, "brand_context", return_value=CONTEXT),
@@ -483,7 +535,7 @@ class FacebookBackfillTests(unittest.TestCase):
             patch.object(backfill, "create_affiliate_link", return_value={"link": {"affiliate_url": "https://s.shopee.vn/abc"}}) as create_link,
             patch.object(backfill, "post_facebook_source_comment", return_value=("comment-1", "")) as post_comment,
         ):
-            result = backfill.run_affiliate_backfill("knowzy", dry_run=False)
+            result = backfill.run_affiliate_backfill("knowzy", dry_run=False, preview_token=preview_token)
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["commented"], 1)
@@ -495,6 +547,51 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertFalse(create_link.call_args.kwargs["reuse_product_offer_url"])
         self.assertTrue(any(call.kwargs.get("affiliate_url") == "https://s.shopee.vn/abc" for call in update_record.call_args_list))
         self.assertTrue(any(call.kwargs.get("status") == "commented" for call in update_record.call_args_list))
+
+    def test_execute_uses_the_previewed_product_instead_of_reselecting_catalog(self):
+        def fake_get(url, fields):
+            if url.endswith("/feed"):
+                return {"data": [graph_post()]}
+            if url.endswith("/video_reels"):
+                return {"data": []}
+            if url.endswith("/comments"):
+                return {"data": []}
+            self.fail(f"unexpected URL {url}")
+
+        preview_product = {
+            "id": "preview-product",
+            "name": "Bình giữ nhiệt đã preview",
+            "origin_url": "https://shopee.vn/product/1/2",
+            "commission_rate": 0.20,
+            "relevance_score": 1.0,
+            "link_provider": "addlivetag",
+            "raw": {"_aurex_link_provider": "addlivetag"},
+        }
+        preview_token = backfill._create_backfill_preview(
+            "knowzy",
+            "page-1",
+            20,
+            30,
+            {"page-1_1": {"product": preview_product}},
+        )
+        with (
+            patch.object(backfill, "read_social_config", return_value=CONFIG),
+            patch.object(backfill, "brand_context", return_value=CONTEXT),
+            patch.object(backfill, "http_get_request", side_effect=fake_get),
+            patch.object(backfill.affiliate_store, "overview", return_value={"products": []}),
+            patch.object(backfill.affiliate_store, "upsert_product", side_effect=lambda product: {**product, "id": "preview-product"}),
+            patch.object(backfill.affiliate_store, "record_content_product", return_value={"id": "record-1"}),
+            patch.object(backfill.affiliate_store, "update_content_product"),
+            patch.object(backfill, "create_affiliate_link", return_value={"link": {"affiliate_url": "https://s.shopee.vn/preview"}}) as create_link,
+            patch.object(backfill, "post_facebook_source_comment", return_value=("comment-1", "")),
+            patch.object(backfill, "_select_product", side_effect=AssertionError("execute must consume preview selection")),
+        ):
+            result = backfill.run_affiliate_backfill("knowzy", dry_run=False, preview_token=preview_token)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["commented"], 1)
+        self.assertEqual(create_link.call_args.kwargs["product_id"], "preview-product")
+        self.assertEqual(create_link.call_args.kwargs["origin_url"], "https://shopee.vn/product/1/2")
 
 
 if __name__ == "__main__":

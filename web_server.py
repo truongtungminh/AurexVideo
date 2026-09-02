@@ -10112,12 +10112,16 @@ class WebHandler(SimpleHTTPRequestHandler):
                 )
                 if not dry_run and str(payload.get("confirm") or "").strip().upper() != "COMMENT":
                     raise ValueError("Hãy chạy preview trước và xác nhận COMMENT để ghi comment thật.")
+                preview_token = str(payload.get("previewToken") or payload.get("preview_token") or "").strip()
+                if not dry_run and not preview_token:
+                    raise ValueError("Hãy chạy preview trước để khóa sản phẩm rồi mới comment thật.")
                 result = run_affiliate_backfill(
                     brand,
                     limit=payload.get("limit", 20),
                     lookback_days=payload.get("lookbackDays", payload.get("lookback_days", 30)),
                     dry_run=dry_run,
                     page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
+                    preview_token=preview_token,
                 )
                 self.send_json(200, result)
             except Exception as exc:

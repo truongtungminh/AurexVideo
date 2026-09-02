@@ -8,6 +8,7 @@ guards live here so other callers get the same safety contract.
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 import re
 import secrets
@@ -99,6 +100,95 @@ def _safe_error(error: object) -> str:
     except ValueError:
         pass
     return text.strip()[:300] or "Provider request failed."
+
+
+def _prune_backfill_previews(now: float | None = None) -> None:
+    now = float(now if now is not None else time.monotonic())
+    expired = []
+    for token, preview in _BACKFILL_PREVIEWS.items():
+        try:
+            created_at = float(preview.get("created_at") or 0)
+        except (AttributeError, TypeError, ValueError):
+            created_at = 0
+        if now - created_at > _PREVIEW_TTL_SECONDS:
+            expired.append(token)
+    for token in expired:
+        _BACKFILL_PREVIEWS.pop(token, None)
+    while len(_BACKFILL_PREVIEWS) > _MAX_PREVIEWS:
+        oldest = min(
+            _BACKFILL_PREVIEWS,
+            key=lambda token: float(_BACKFILL_PREVIEWS[token].get("created_at") or 0),
+        )
+        _BACKFILL_PREVIEWS.pop(oldest, None)
+
+
+def _preview_product_payload(product: dict) -> dict:
+    """Keep only non-secret product fields needed to bind execute to preview."""
+    allowed = (
+        "id", "provider", "provider_product_id", "shop_id", "name", "origin_url",
+        "price_min", "price_max", "commission_rate", "sales", "rating", "discount_rate",
+        "shop_quality", "relevance_score", "ranking_score", "link_provider",
+        "_aurex_selection_mode", "_aurex_selection_reason",
+    )
+    payload = {key: product[key] for key in allowed if key in product and product[key] is not None}
+    raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+    safe_raw = {
+        key: raw[key]
+        for key in ("_aurex_link_provider", "_aurex_selection_mode")
+        if raw.get(key)
+    }
+    if safe_raw:
+        payload["raw"] = safe_raw
+    return payload
+
+
+def _create_backfill_preview(
+    brand: str,
+    page_id: str,
+    limit: int,
+    lookback_days: int,
+    selections: dict[str, dict],
+) -> str:
+    token = secrets.token_urlsafe(32)
+    with _BACKFILL_LOCK:
+        _prune_backfill_previews()
+        _BACKFILL_PREVIEWS[token] = {
+            "created_at": time.monotonic(),
+            "brand": brand,
+            "page_id": page_id,
+            "limit": int(limit),
+            "lookback_days": int(lookback_days),
+            "selections": selections,
+        }
+    return token
+
+
+def _read_backfill_preview(
+    token: object,
+    brand: str,
+    page_id: str,
+    limit: int,
+    lookback_days: int,
+) -> dict:
+    value = str(token or "").strip()
+    if not value or len(value) > 256:
+        raise ValueError("Hãy chạy preview trước khi comment thật.")
+    with _BACKFILL_LOCK:
+        _prune_backfill_previews()
+        preview = _BACKFILL_PREVIEWS.get(value)
+        if not isinstance(preview, dict):
+            raise ValueError("Preview đã hết hạn hoặc không còn hợp lệ; hãy chạy preview lại.")
+        if (
+            str(preview.get("brand") or "") != brand
+            or str(preview.get("page_id") or "") != page_id
+            or int(preview.get("limit") or 0) != int(limit)
+            or int(preview.get("lookback_days") or 0) != int(lookback_days)
+        ):
+            raise ValueError("Preview không khớp Brand, Fanpage hoặc khoảng quét hiện tại; hãy chạy preview lại.")
+        selections = preview.get("selections")
+        if not isinstance(selections, dict):
+            raise ValueError("Preview không có danh sách sản phẩm hợp lệ; hãy chạy preview lại.")
+        return {**preview, "selections": dict(selections)}
 
 
 def _parse_created_time(value: object) -> datetime | None:
@@ -292,8 +382,11 @@ def _fallback_candidates(products: Iterable[object], settings: dict) -> list[dic
             origin_url = validate_shopee_url(origin_url)
         except (TypeError, ValueError):
             continue
-        commission_rate = _fraction(product.get("commission_rate", product.get("commissionRate")))
-        if commission_rate < min_commission:
+        raw_commission_rate = product.get("commission_rate", product.get("commissionRate"))
+        if raw_commission_rate in (None, ""):
+            continue
+        commission_rate = _fraction(raw_commission_rate)
+        if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < min_commission:
             continue
         name = str(product.get("name") or product.get("productName") or product.get("product_name") or "").strip()
         if not name:
@@ -702,12 +795,15 @@ def _select_product(brand: str, text: str, context: dict, *, selection_seed: obj
         try:
             discovered = discover_products(brand, provider_query, limit=10, persist=False)
         except (RuntimeError, TypeError, ValueError) as exc:
-            return {}, f"Official Shopee discovery unavailable: {_safe_error(exc)}"
-        products = discovered.get("products") if isinstance(discovered, dict) else []
-        selected = _policy_product(_annotate_relevance(products or [], query), query, settings)
-        if not selected:
-            return {}, "Official Shopee has no product meeting Brand relevance or commission policy."
-        return _prepare_product_for_link(selected, context)
+            if not (addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured")):
+                return {}, f"Official Shopee discovery unavailable: {_safe_error(exc)}"
+        else:
+            products = discovered.get("products") if isinstance(discovered, dict) else []
+            selected = _policy_product(_annotate_relevance(products or [], query), query, settings)
+            if selected:
+                return _prepare_product_for_link(selected, context)
+            if not (addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured")):
+                return {}, "Official Shopee has no product meeting Brand relevance or commission policy."
 
     try:
         # Search locally after loading the bounded catalog: a full caption is
@@ -768,6 +864,26 @@ def _select_product(brand: str, text: str, context: dict, *, selection_seed: obj
     return {}, "AddLiveTag keyword search returned no usable products; random fallback cũng không tìm thấy sản phẩm đạt mức hoa hồng tối thiểu."
 
 
+def _preview_product_for_execute(selection: dict, text: str, context: dict) -> tuple[dict, str]:
+    """Revalidate the exact product selected by the preview token."""
+    product = selection.get("product") if isinstance(selection, dict) else {}
+    if not isinstance(product, dict):
+        return {}, "Preview không còn sản phẩm đã chọn; hãy chạy preview lại."
+    settings = context.get("settings") if isinstance(context.get("settings"), dict) else {}
+    selection_mode = str(product.get("_aurex_selection_mode") or selection.get("selection_mode") or "").strip()
+    if selection_mode == "random_high_commission":
+        candidates = _fallback_candidates([product], settings)
+        if not candidates:
+            return {}, "Sản phẩm fallback trong preview không còn đạt URL Shopee hoặc mức hoa hồng hiện tại."
+        selected, _ = _prepare_product_for_link(candidates[0], context)
+    else:
+        selected = _policy_product(_annotate_relevance([product], _post_preview(text)), _post_preview(text), settings)
+        if not selected:
+            return {}, "Sản phẩm trong preview không còn đạt Brand policy; hãy chạy preview lại."
+        selected, _ = _prepare_product_for_link(selected, context)
+    return selected, str(selection.get("reason") or product.get("_aurex_selection_reason") or "").strip()
+
+
 def _record_for_execute(brand: str, content_id: str, page_id: str, post_id: str, product: dict) -> dict:
     record = _existing_record(brand, content_id, page_id, post_id)
     if record:
@@ -796,11 +912,13 @@ def run_affiliate_backfill(
     lookback_days: int = 30,
     dry_run: bool = True,
     page_id: str = "",
+    preview_token: str = "",
 ) -> dict:
     """Inspect recent Brand Page posts and optionally add one affiliate comment.
 
-    ``dry_run`` is deliberately the default.  Execute mode requires successful
-    duplicate inspection before it can create a link or submit a comment.
+    ``dry_run`` is deliberately the default.  Execute mode requires a matching
+    preview token and successful duplicate inspection before it can create a
+    link or submit a comment.
     """
     result = {
         "ok": False,
@@ -813,7 +931,9 @@ def run_affiliate_backfill(
         "skipped": 0,
         "failed": 0,
         "items": [],
+        "preview_token": str(preview_token or "").strip() if not dry_run else "",
     }
+    preview_selections: dict[str, dict] = {}
     try:
         brand = canonical_brand(brand)
         if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
@@ -832,6 +952,16 @@ def run_affiliate_backfill(
         if requested_page_id and requested_page_id != resolved_page_id:
             raise ValueError(f"Facebook Page không khớp route của brand {brand}.")
         result.update({"brand": brand, "page_id": resolved_page_id})
+        preview_data = {}
+        if not dry_run:
+            preview_data = _read_backfill_preview(
+                preview_token,
+                brand,
+                resolved_page_id,
+                limit,
+                lookback_days,
+            )
+            preview_selections = preview_data["selections"]
         cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         posts = _read_page_posts(facebook, page, limit=limit, cutoff=cutoff)
         result["scanned"] = len(posts)
@@ -855,6 +985,11 @@ def run_affiliate_backfill(
                 result["skipped"] += 1
                 result["items"].append(item)
                 continue
+            if not dry_run and post_id not in preview_selections:
+                item["reason"] = "Bài này không nằm trong preview đã xác nhận; hãy chạy preview lại."
+                result["skipped"] += 1
+                result["items"].append(item)
+                continue
             try:
                 duplicate, duplicate_reason = _read_comments(facebook, page, post_id)
             except (RuntimeError, TypeError, ValueError) as exc:
@@ -870,12 +1005,20 @@ def run_affiliate_backfill(
                 result["skipped"] += 1
                 result["items"].append(item)
                 continue
-            product, reason = _select_product(
-                brand,
-                str(post.get("_text") or ""),
-                context,
-                selection_seed=content_id,
-            )
+            post_text = str(post.get("_text") or "")
+            if dry_run:
+                product, reason = _select_product(
+                    brand,
+                    post_text,
+                    context,
+                    selection_seed=content_id,
+                )
+            else:
+                product, reason = _preview_product_for_execute(
+                    preview_selections.get(post_id) or {},
+                    post_text,
+                    context,
+                )
             if not product:
                 item["reason"] = reason
                 result["skipped"] += 1
@@ -889,6 +1032,12 @@ def run_affiliate_backfill(
                 item["selection_mode"] = selection_mode
             if selection_note:
                 item["selection_reason"] = selection_note
+            if dry_run:
+                preview_selections[post_id] = {
+                    "product": _preview_product_payload(product),
+                    "reason": selection_note,
+                    "selection_mode": selection_mode,
+                }
             if dry_run:
                 dry_run_reason = "Dry run: no affiliate link or Facebook comment was created."
                 if selection_note:
@@ -960,5 +1109,13 @@ def run_affiliate_backfill(
                 item.update({"status": "failed", "reason": _safe_error(exc)})
                 result["failed"] += 1
             result["items"].append(item)
+    if dry_run:
+        result["preview_token"] = _create_backfill_preview(
+            brand,
+            resolved_page_id,
+            limit,
+            lookback_days,
+            preview_selections,
+        )
     result["ok"] = True
     return result
