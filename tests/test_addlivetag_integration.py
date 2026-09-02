@@ -79,7 +79,7 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
         with (
             patch("social_upload.affiliate._project_query", return_value="áo len"),
             patch("social_upload.affiliate.fetch_product_data", return_value=RAW_PRODUCT_DATA),
-                patch(
+            patch(
                 "social_upload.affiliate.generate_addlivetag_short_link",
                 return_value="https://s.shopee.vn/addlive-test?affiliate_id=aff-123",
             ) as short_link,
@@ -125,6 +125,29 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/dashboard-test?affiliate_id=aff-123")
+
+    def test_cached_addlivetag_offer_is_regenerated_for_the_selected_brand(self):
+        product = affiliate_store.upsert_product({
+            "provider": "shopee",
+            "provider_product_id": "1589295236",
+            "name": "Áo len thử nghiệm",
+            "origin_url": PRODUCT_URL,
+            "offer_url": "https://s.shopee.vn/default-account?affiliate_id=another-account",
+            "raw": {"_aurex_link_provider": "addlivetag"},
+        })
+        with patch(
+            "social_upload.affiliate.generate_addlivetag_short_link",
+            return_value="https://s.shopee.vn/brand-account?affiliate_id=aff-123",
+        ) as generate:
+            result = create_affiliate_link(
+                brand="knowzy",
+                content_id="dashboard-regenerate",
+                product_id=product["id"],
+                page_id="page-1",
+            )
+
+        self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/brand-account?affiliate_id=aff-123")
+        generate.assert_called_once()
 
     def test_addlivetag_rejects_an_explicit_link_from_another_account(self):
         with self.assertRaisesRegex(AddLiveTagApiError, "khác Brand"):
