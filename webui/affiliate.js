@@ -4,7 +4,7 @@ const elements = Object.fromEntries([
   "kpiClicks", "kpiClicksDetail", "kpiOrders", "kpiOrdersDetail", "kpiGmv", "kpiGmvDetail", "kpiCommission", "kpiCommissionDetail", "kpiCtr", "kpiCtrDetail", "kpiConversionRate", "kpiConversionRateDetail", "recordsBody", "recordsCount", "toast",
   "shopeeAppId", "shopeeSecret", "shopeeApiBaseUrl", "shopeeDisplayName", "saveShopeeConfigButton", "disconnectShopeeButton", "settingsHint",
   "affiliateEnabled", "affiliateMode", "affiliatePlacement", "affiliateProductsPerPost", "affiliateMinRelevance", "affiliateMinCommission", "saveAffiliateSettingsButton",
-  "poolProductName", "poolOriginUrl", "poolAffiliateUrl", "poolCommission", "poolPriority", "poolProductEnabled", "poolNote", "savePoolProductButton", "cancelPoolEditButton", "poolProductsBody", "poolStatus",
+  "poolAffiliateUrl", "poolProductEnabled", "savePoolProductButton", "cancelPoolEditButton", "poolProductsBody", "poolStatus",
   "pocSummary", "pocContentId", "pocPageId", "pocPostId", "pocCommentId", "pocBannerObserved", "pocEvidenceUrl", "pocNotes", "pocCasesBody",
   "backfillStatus", "backfillLimit", "backfillDays", "backfillPreviewButton", "backfillRunButton", "backfillResultsBody",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -134,8 +134,7 @@ function clearPocRunFields() { [elements.pocPageId, elements.pocPostId, elements
 function poolItems() { const value = state.pool || {}; return list(value.products || value.items || value.data || value); }
 function clearPoolForm() {
   state.poolEditingId = "";
-  [elements.poolProductName, elements.poolOriginUrl, elements.poolAffiliateUrl, elements.poolCommission, elements.poolNote].forEach((element) => { if (element) element.value = ""; });
-  if (elements.poolPriority) elements.poolPriority.value = "0";
+  if (elements.poolAffiliateUrl) elements.poolAffiliateUrl.value = "";
   if (elements.poolProductEnabled) elements.poolProductEnabled.value = "true";
   if (elements.savePoolProductButton) elements.savePoolProductButton.textContent = "Thêm vào Pool";
   if (elements.cancelPoolEditButton) elements.cancelPoolEditButton.hidden = true;
@@ -144,17 +143,15 @@ function renderPool() {
   if (!elements.poolProductsBody) return;
   const items = poolItems();
   const enabled = items.filter((item) => Boolean(item.enabled)).length;
-  if (!state.brand) elements.poolStatus.textContent = "Chọn Brand để quản lý sản phẩm trong Pool.";
-  else if (!items.length) elements.poolStatus.textContent = "Pool đang trống · thêm sản phẩm đã chọn và link rút gọn.";
-  else elements.poolStatus.textContent = `${count(enabled)}/${count(items.length)} sản phẩm đang bật cho Brand này.`;
-  if (!items.length) { elements.poolProductsBody.innerHTML = '<tr><td colspan="5" class="table-empty">Chưa có sản phẩm trong Pool.</td></tr>'; return; }
+  if (!state.brand) elements.poolStatus.textContent = "Chọn Brand để quản lý link trong Pool.";
+  else if (!items.length) elements.poolStatus.textContent = "Pool đang trống · dán các link affiliate đã chọn.";
+  else elements.poolStatus.textContent = `${count(enabled)}/${count(items.length)} link đang bật cho Brand này.`;
+  if (!items.length) { elements.poolProductsBody.innerHTML = '<tr><td colspan="3" class="table-empty">Chưa có link trong Pool.</td></tr>'; return; }
   elements.poolProductsBody.innerHTML = items.map((item) => {
     const id = String(item.id || "");
-    const name = String(item.name || "Shopee product");
-    const origin = String(item.origin_url || "");
     const affiliate = String(item.affiliate_url || "");
     const status = item.enabled ? "Đang bật" : "Tạm tắt";
-    return `<tr><td><div class="pool-product-copy"><strong title="${escapeHtml(name)}">${escapeHtml(name)}</strong><small title="${escapeHtml(origin)}">${escapeHtml(origin)}</small></div></td><td class="metric-cell">${escapeHtml(percent(item.commission_rate))}</td><td><a class="pool-link" href="${escapeHtml(affiliate)}" target="_blank" rel="noreferrer" title="${escapeHtml(affiliate)}">${escapeHtml(affiliate)}</a></td><td><span class="record-status ${item.enabled ? "active" : "paused"}">${escapeHtml(status)}</span></td><td><div class="pool-actions"><button class="button tiny secondary" type="button" data-pool-edit="${escapeHtml(id)}">Sửa</button><button class="button tiny danger" type="button" data-pool-delete="${escapeHtml(id)}">Xoá</button></div></td></tr>`;
+    return `<tr><td><a class="pool-link pool-link-wide" href="${escapeHtml(affiliate)}" target="_blank" rel="noreferrer" title="${escapeHtml(affiliate)}">${escapeHtml(affiliate)}</a></td><td><span class="record-status ${item.enabled ? "active" : "paused"}">${escapeHtml(status)}</span></td><td><div class="pool-actions"><button class="button tiny secondary" type="button" data-pool-edit="${escapeHtml(id)}">Sửa</button><button class="button tiny danger" type="button" data-pool-delete="${escapeHtml(id)}">Xoá</button></div></td></tr>`;
   }).join("");
 }
 async function loadPool() {
@@ -164,22 +161,19 @@ async function loadPool() {
   catch (error) { state.pool = {}; renderPool(); if (!unavailable(error)) showToast(`Không tải Pool: ${error.message}`, true); }
 }
 function poolPayload() {
-  return {
-    brand: state.brand,
-    id: state.poolEditingId,
-    name: elements.poolProductName.value.trim(),
-    originUrl: elements.poolOriginUrl.value.trim(),
-    affiliateUrl: elements.poolAffiliateUrl.value.trim(),
-    commissionRate: Number(elements.poolCommission.value || 0),
-    priority: Number(elements.poolPriority.value || 0),
-    enabled: elements.poolProductEnabled.value === "true",
-    note: elements.poolNote.value.trim(),
-  };
+  const links = String(elements.poolAffiliateUrl?.value || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (state.poolEditingId) {
+    return { brand: state.brand, id: state.poolEditingId, affiliateUrl: links[0] || "", enabled: elements.poolProductEnabled.value === "true" };
+  }
+  return { brand: state.brand, links };
 }
 async function savePoolProduct() {
   if (!state.brand) return showToast("Hãy chọn Brand trước.", true);
+  const links = String(elements.poolAffiliateUrl?.value || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (state.poolEditingId && links.length !== 1) return showToast("Khi sửa, chỉ để lại đúng một link trong ô nhập.", true);
+  if (!state.poolEditingId && !links.length) return showToast("Dán ít nhất một link affiliate, mỗi link một dòng.", true);
   elements.savePoolProductButton.disabled = true;
-  try { await request("/api/affiliate/pool", { method: "POST", body: JSON.stringify(poolPayload()) }); showToast(state.poolEditingId ? "Đã cập nhật sản phẩm trong Pool." : "Đã thêm sản phẩm vào Pool."); clearPoolForm(); await loadPool(); }
+  try { const result = await request("/api/affiliate/pool", { method: "POST", body: JSON.stringify(poolPayload()) }); showToast(state.poolEditingId ? "Đã cập nhật link trong Pool." : `Đã thêm ${count(result.count || links.length)} link vào Pool.`); clearPoolForm(); await loadPool(); }
   catch (error) { showToast(error.message, true); }
   finally { renderPool(); elements.savePoolProductButton.disabled = !state.brand; }
 }
@@ -187,16 +181,11 @@ function editPoolProduct(id) {
   const item = poolItems().find((entry) => String(entry.id) === String(id));
   if (!item) return;
   state.poolEditingId = String(item.id || "");
-  elements.poolProductName.value = item.name || "";
-  elements.poolOriginUrl.value = item.origin_url || "";
   elements.poolAffiliateUrl.value = item.affiliate_url || "";
-  elements.poolCommission.value = number(item.commission_rate) <= 1 ? number(item.commission_rate) * 100 : number(item.commission_rate);
-  elements.poolPriority.value = number(item.priority);
   elements.poolProductEnabled.value = item.enabled ? "true" : "false";
-  elements.poolNote.value = item.note || "";
   elements.savePoolProductButton.textContent = "Lưu thay đổi";
   elements.cancelPoolEditButton.hidden = false;
-  elements.poolProductName.focus();
+  elements.poolAffiliateUrl.focus();
 }
 async function deletePoolProduct(id) {
   if (!state.brand || !id || !confirm("Xoá sản phẩm này khỏi Pool của Brand?")) return;

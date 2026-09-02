@@ -288,7 +288,7 @@ class FacebookBackfillTests(unittest.TestCase):
             {"min_commission": 0},
         )
 
-        self.assertEqual([candidate["id"] for candidate in candidates], ["valid"])
+        self.assertEqual({candidate["id"] for candidate in candidates}, {"zero", "valid"})
 
     def test_policy_uses_relevance_before_commission(self):
         selected = backfill._policy_product(
@@ -435,7 +435,7 @@ class FacebookBackfillTests(unittest.TestCase):
             patch.object(backfill.affiliate_store, "upsert_product") as upsert,
             patch.object(backfill.affiliate_store, "record_content_product", return_value={"id": "record-1"}),
             patch.object(backfill.affiliate_store, "update_content_product") as update_record,
-            patch.object(backfill, "create_affiliate_link", return_value={"link": {"affiliate_url": "https://shp.today/preview"}}) as create_link,
+            patch.object(backfill, "create_affiliate_link", return_value={"link": {"affiliate_url": "https://shp.today/current"}}) as create_link,
             patch.object(backfill, "post_facebook_source_comment", return_value=("comment-1", "")) as post_comment,
             patch.object(backfill, "_select_product", side_effect=AssertionError("execute must consume preview selection")),
         ):
@@ -446,12 +446,12 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["status"], "commented")
         self.assertEqual(create_link.call_args.kwargs["product_id"], "preview-product")
         self.assertEqual(create_link.call_args.kwargs["origin_url"], "https://shopee.vn/product/9/10")
-        self.assertEqual(post_comment.call_args.args[2], "🛒 Sản phẩm liên quan trong video:\nhttps://shp.today/current")
+        self.assertEqual(post_comment.call_args.args[2], "🛒 Sản phẩm liên quan: Bình giữ nhiệt bản hiện tại\nhttps://shp.today/current")
         self.assertNotIn("attachment_url", post_comment.call_args.kwargs)
         self.assertEqual(post_comment.call_args.kwargs["attempts"], 1)
         self.assertFalse(upsert.called)
         get_pool.assert_called_once_with("preview-product", brand_id="knowzy")
-        self.assertTrue(any(call.kwargs.get("affiliate_url") == "https://shp.today/preview" for call in update_record.call_args_list))
+        self.assertTrue(any(call.kwargs.get("affiliate_url") == "https://shp.today/current" for call in update_record.call_args_list))
         self.assertTrue(any(call.kwargs.get("status") == "commented" for call in update_record.call_args_list))
 
 

@@ -14,6 +14,7 @@ from .affiliate import (
     caption_with_affiliate,
     finalize_affiliate_publish,
     prepare_affiliate_for_publish,
+    product_title_for_comment,
 )
 from .http import http_form_request, http_get_request
 from .metadata import (
@@ -472,7 +473,10 @@ def facebook_upload_video(payload: dict) -> dict:
             affiliate_comment_id, affiliate_comment_error = post_facebook_source_comment(
                 facebook,
                 comment_target_id,
-                affiliate_comment_text(affiliate_url),
+                affiliate_comment_text(
+                    affiliate_url,
+                    product_name=product_title_for_comment(affiliate.get("product")),
+                ),
                 access_token,
             )
         affiliate_status = "published" if video_state == "PUBLISHED" and not affiliate_comment_error else "comment_failed" if affiliate_comment_error else "draft"

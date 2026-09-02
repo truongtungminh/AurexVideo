@@ -39,6 +39,7 @@ from social_upload import (
     list_saved_products,
     save_affiliate_settings,
     save_product_pool,
+    save_product_pool_links,
     run_affiliate_backfill,
     shopee_status,
     update_shopee_config,
@@ -10075,8 +10076,15 @@ class WebHandler(SimpleHTTPRequestHandler):
                 brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
                 if not brand:
                     raise ValueError("Pool Shopee cần Brand.")
-                product = save_product_pool(brand, payload)
-                self.send_json(200, {"ok": True, "brand": brand, "product": product})
+                has_bulk_links = any(
+                    key in payload and payload.get(key) not in (None, "", [])
+                    for key in ("links", "affiliateUrls", "affiliate_urls", "linksText")
+                )
+                if has_bulk_links:
+                    self.send_json(200, save_product_pool_links(brand, payload))
+                else:
+                    product = save_product_pool(brand, payload)
+                    self.send_json(200, {"ok": True, "brand": brand, "product": product})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return

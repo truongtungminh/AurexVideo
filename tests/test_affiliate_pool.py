@@ -6,12 +6,15 @@ from unittest.mock import patch
 
 from social_upload import affiliate_store
 from social_upload.affiliate import (
+    affiliate_comment_text,
     create_affiliate_link,
     delete_product_pool,
     is_valid_affiliate_url,
     list_product_pool,
     prepare_affiliate_for_publish,
+    product_title_for_comment,
     save_product_pool,
+    save_product_pool_links,
     select_pool_product,
 )
 
@@ -71,6 +74,70 @@ class AffiliatePoolTests(unittest.TestCase):
         self.assertTrue(is_valid_affiliate_url(SHORT))
         self.assertTrue(is_valid_affiliate_url("https://s.shopee.vn/an_redir?origin_link=x"))
         self.assertFalse(is_valid_affiliate_url("http://shp.today/9Owj"))
+
+    def test_pool_accepts_only_pasted_affiliate_links_and_can_edit_one(self):
+        result = save_product_pool_links(
+            "knowzy",
+            {
+                "links": [
+                    "https://s.shopee.vn/1qbiRtcdTE",
+                    "https://s.shopee.vn/1gIIFadGoD",
+                    "https://s.shopee.vn/1Vys3Hdu9C",
+                ]
+            },
+        )
+        self.assertEqual(result["count"], 3)
+        items = list_product_pool("knowzy")["products"]
+        self.assertEqual({item["affiliate_url"] for item in items}, {
+            "https://s.shopee.vn/1qbiRtcdTE",
+            "https://s.shopee.vn/1gIIFadGoD",
+            "https://s.shopee.vn/1Vys3Hdu9C",
+        })
+        self.assertTrue(all(item["origin_url"] == "" for item in items))
+        self.assertTrue(all(item["name"] == "Shopee Pool link" for item in items))
+
+        updated = save_product_pool(
+            "knowzy",
+            {"id": items[0]["id"], "affiliateUrl": "https://s.shopee.vn/2VrPF7a67Q"},
+        )
+        self.assertEqual(updated["affiliate_url"], "https://s.shopee.vn/2VrPF7a67Q")
+        self.assertEqual(len(list_product_pool("knowzy")["products"]), 3)
+
+        selected = select_pool_product(
+            "knowzy",
+            "không có từ khóa nào khớp",
+            settings={"min_relevance": 0.75, "min_commission": 0.05},
+            selection_seed="post-1",
+        )
+        self.assertEqual(selected["link_provider"], "pool")
+        self.assertEqual(selected["_aurex_selection_mode"], "pool_random")
+
+    def test_comment_title_is_read_from_short_link_when_pool_has_no_name(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def geturl(self):
+                return "https://shopee.vn/product/1/2"
+
+            def read(self, _limit):
+                return b'<html><head><meta property="og:title" content="May hut bui cam tay | Shopee Viet Nam"></head></html>'
+
+        from social_upload import affiliate as affiliate_module
+
+        affiliate_module._fetch_product_title.cache_clear()
+        with patch("social_upload.affiliate.urlopen", return_value=FakeResponse()) as fetch:
+            title = product_title_for_comment({"name": "Shopee Pool link", "affiliate_url": "https://s.shopee.vn/1qbiRtcdTE"})
+
+        self.assertEqual(title, "May hut bui cam tay")
+        self.assertEqual(
+            affiliate_comment_text("https://s.shopee.vn/1qbiRtcdTE", product_name=title),
+            "🛒 Sản phẩm liên quan: May hut bui cam tay\nhttps://s.shopee.vn/1qbiRtcdTE",
+        )
+        fetch.assert_called_once()
 
     def test_pool_selection_prefers_matching_product_then_high_commission_fallback(self):
         save_product_pool("knowzy", {"name": "Máy hút bụi cầm tay", "originUrl": ORIGIN, "affiliateUrl": "https://shp.today/vacuum", "commissionRate": 8})
@@ -136,6 +203,7 @@ class AffiliatePoolTests(unittest.TestCase):
             "affiliate": {
                 "enabled": True,
                 "mode": "auto",
+                "query": "Bình giữ nhiệt",
                 "productId": "provider-catalog-product",
                 "linkProvider": "shopee",
                 "originUrl": "https://shopee.vn/product/client/999",

@@ -89,21 +89,18 @@
           <div><p class="eyebrow">Nguồn sản phẩm cố định</p><h2 id="poolTitle">Pool Shopee của Brand</h2></div>
           <p id="poolStatus" class="settings-hint">Chọn Brand để quản lý sản phẩm trong Pool.</p>
         </div>
-        <p class="pool-intro">Anh chọn sản phẩm một lần, dán link gốc và link rút gọn đã tạo sẵn (ví dụ <code>https://shp.today/...</code>). AUTO và quét bài đã đăng sẽ chỉ lấy sản phẩm đang bật trong Pool của Brand; không tự tìm nguồn khác.</p>
+        <p class="pool-intro">Dán các link affiliate Shopee anh đã chọn, mỗi link một dòng. Có thể dán nhiều link để thêm một lần; khi cần thay đổi, bấm Sửa trên đúng dòng. AUTO và quét bài đã đăng chỉ lấy link đang bật trong Pool của Brand.</p>
         <div class="pool-form-grid">
-          <label>Tên sản phẩm<input id="poolProductName" type="text" maxlength="300" autocomplete="off" placeholder="Ví dụ: Bình giữ nhiệt 500ml" /></label>
-          <label>Link gốc Shopee<input id="poolOriginUrl" type="url" autocomplete="off" placeholder="https://shopee.vn/product/shop/item" /></label>
-          <label>Link rút gọn / affiliate<input id="poolAffiliateUrl" type="url" autocomplete="off" placeholder="https://shp.today/9Owj" /></label>
-          <label>Hoa hồng (%)<input id="poolCommission" type="number" min="0" max="100" step="0.1" placeholder="10.5" /></label>
-          <label>Ưu tiên<input id="poolPriority" type="number" min="-100" max="100" step="1" value="0" /></label>
+          <label class="pool-links">Link affiliate Shopee <span>(mỗi link một dòng)</span><textarea id="poolAffiliateUrl" rows="6" maxlength="400000" autocomplete="off" placeholder="https://s.shopee.vn/1qbiRtcdTE
+https://s.shopee.vn/1gIIFadGoD
+https://s.shopee.vn/1Vys3Hdu9C"></textarea></label>
           <label>Trạng thái<select id="poolProductEnabled"><option value="true">Đang bật</option><option value="false">Tạm tắt</option></select></label>
-          <label class="pool-note">Ghi chú<textarea id="poolNote" rows="2" maxlength="1000" placeholder="Ví dụ: Link đã kiểm tra, dùng cho nhóm video gia dụng"></textarea></label>
         </div>
         <div class="settings-actions pool-actions"><button class="button" id="savePoolProductButton" type="button">Thêm vào Pool</button><button class="button secondary" id="cancelPoolEditButton" type="button" hidden>Huỷ sửa</button></div>
         <div class="pool-table-wrap">
           <table class="pool-table">
-            <thead><tr><th>Sản phẩm</th><th>Hoa hồng</th><th>Link rút gọn</th><th>Trạng thái</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
-            <tbody id="poolProductsBody"><tr><td colspan="5" class="table-empty">Chưa có sản phẩm trong Pool.</td></tr></tbody>
+            <thead><tr><th>Link affiliate Shopee</th><th>Trạng thái</th><th><span class="sr-only">Thao tác</span></th></tr></thead>
+            <tbody id="poolProductsBody"><tr><td colspan="3" class="table-empty">Chưa có link trong Pool.</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -113,7 +110,7 @@
           <div><p class="eyebrow">Bổ sung cho bài đã đăng</p><h2 id="backfillTitle">Tự chọn sản phẩm &amp; comment link</h2></div>
           <p id="backfillStatus" class="settings-hint">Chạy preview để xem bài nào đủ điều kiện.</p>
         </div>
-        <p class="backfill-intro">Quét các bài đã đăng trên đúng Fanpage của Brand, chọn sản phẩm phù hợp trong Pool và ưu tiên hoa hồng cao. Bài đã có comment/link affiliate sẽ được bỏ qua. Để chạy thật, bật policy AUTO và bảo đảm Pool có sản phẩm đang bật, có link gốc Shopee và link rút gọn hợp lệ. Nếu keyword không khớp, hệ thống chọn ngẫu nhiên có trọng số trong nhóm hoa hồng cao của chính Pool; preview sẽ khóa sản phẩm cho lần chạy thật hiện tại. Comment Facebook gửi link dưới dạng plain text để giữ attribution và tránh lỗi trường attachment deprecated.</p>
+        <p class="backfill-intro">Quét các bài đã đăng trên đúng Fanpage của Brand và chọn một link đang bật trong Pool. Bài đã có comment/link affiliate sẽ được bỏ qua. Nếu keyword không khớp, hệ thống chọn ngẫu nhiên trong danh sách Pool; preview sẽ khóa đúng link cho lần chạy thật hiện tại. Comment Facebook gửi link dưới dạng plain text để giữ attribution và tránh lỗi trường attachment deprecated.</p>
         <div class="backfill-controls">
           <label>Quét tối đa<input id="backfillLimit" type="number" min="1" max="50" step="1" value="10" /></label>
           <label>Trong số ngày gần nhất<input id="backfillDays" type="number" min="1" max="365" step="1" value="30" /></label>
