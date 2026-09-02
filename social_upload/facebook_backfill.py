@@ -10,7 +10,9 @@ from __future__ import annotations
 import hashlib
 import random
 import re
+import secrets
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -50,6 +52,7 @@ MAX_POST_PAGES = 5
 MAX_COMMENT_PAGES = 10
 POST_PREVIEW_LENGTH = 500
 _BACKFILL_LOCK = threading.RLock()
+_BACKFILL_PREVIEWS: dict[str, dict] = {}
 _SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my|ee)[^\s<>'\"]*", re.I)
 _COMMENT_MARKERS = ("sản phẩm liên quan", "sản phẩm gợi ý")
 _FALLBACK_SEARCH_QUERIES = (
@@ -62,6 +65,8 @@ _FALLBACK_SEARCH_QUERIES = (
 _FALLBACK_MIN_SEARCHES = 3
 _FALLBACK_MIN_POOL = 12
 _FALLBACK_SEARCH_LIMIT = 20
+_PREVIEW_TTL_SECONDS = 15 * 60
+_MAX_PREVIEWS = 32
 _SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*['\"]?\s*(?:=|:|%3d)\s*(?:bearer\s+)?['\"]?[^\s&,'\"]+")
 _MATCH_STOPWORDS = frozenset({
     "a", "an", "and", "cho", "click", "co", "có", "cua", "của", "de", "đã", "đang", "đây", "để",
