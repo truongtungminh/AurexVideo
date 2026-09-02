@@ -240,6 +240,7 @@ def _pool_product_row(row: dict, query: str = "") -> dict:
     product = normalize_product(row, query)
     product.update({
         "id": str(row.get("id") or ""),
+        "brand_id": str(row.get("brand_id") or ""),
         "affiliate_url": str(row.get("affiliate_url") or row.get("affiliateUrl") or "").strip(),
         "priority": int(_float(row.get("priority"), 0)),
         "enabled": bool(row.get("enabled", True)),
@@ -558,6 +559,8 @@ def create_affiliate_link(
                 product = candidate if link_provider == "pool" else affiliate_store.upsert_product(candidate)
                 product_id = str(product.get("id") or product_id)
                 origin_url = str(origin_url or product.get("origin_url") or "").strip()
+    if link_provider not in {"", "shopee", "pool"}:
+        link_provider = ""
     raw_product = product.get("raw") if isinstance(product.get("raw"), dict) else {}
     stored_link_provider = str(
         raw_product.get("_aurex_link_provider")
@@ -576,6 +579,17 @@ def create_affiliate_link(
         affiliate_url = str(
             (product.get("affiliate_url") if link_provider == "pool" else product.get("offer_url")) or ""
         ).strip()
+    if link_provider == "pool":
+        if not product_id:
+            raise ValueError("Cần chọn sản phẩm có ID trong Pool Shopee của Brand.")
+        pool_row = affiliate_store.get_product_pool(product_id, brand_id=brand)
+        if not pool_row:
+            raise ValueError("Sản phẩm Pool không thuộc Brand này hoặc đã bị xoá.")
+        if not bool(pool_row.get("enabled")):
+            raise ValueError("Sản phẩm Pool đang tắt; hãy bật lại trước khi dùng.")
+        product = _pool_product_row(pool_row)
+        origin_url = str(origin_url or product.get("origin_url") or "").strip()
+        affiliate_url = str(product.get("affiliate_url") or "").strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
     if origin_url and not _valid_shopee_link(origin_url):
