@@ -3,29 +3,21 @@ from __future__ import annotations
 """Provider-neutral orchestration for AurexVideo affiliate publishing."""
 
 import math
+import hashlib
+import random
 import re
 from collections import Counter
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import urlparse
 
 from . import affiliate_store
-from .addlivetag import (
-    DEFAULT_PRODUCT_DATA_URL,
-    DEFAULT_SHORT_LINK_URL,
-    AddLiveTagApiError,
-    extract_shopee_reference,
-    fetch_product_data,
-    generate_short_link as generate_addlivetag_short_link,
-    normalize_product_payload,
-    validate_addlivetag_attribution,
-)
 from .config import canonical_brand, read_social_config, resolve_social_brand_connection
 from .shopee import (
     SHOPEE_HOSTS,
     generate_short_link,
     search_product_offers,
     shopee_status_for_brand,
+    validate_shopee_url,
 )
 
 
@@ -204,158 +196,21 @@ def save_brand_settings(brand: str, values: dict | None = None) -> dict:
     return affiliate_store.upsert_settings(brand, settings)
 
 
-def _mask_affiliate_id(value: object) -> str:
-    affiliate_id = str(value or "").strip()
-    if len(affiliate_id) <= 4:
-        return "đã cấu hình" if affiliate_id else ""
-    return f"{affiliate_id[:2]}…{affiliate_id[-2:]}"
-
-
-def _raw_addlivetag_settings(config: dict | None, brand: str) -> dict:
-    config = config if isinstance(config, dict) else {}
-    affiliate = config.get("affiliate") if isinstance(config.get("affiliate"), dict) else {}
-    brands = affiliate.get("brands") if isinstance(affiliate.get("brands"), dict) else {}
-    value = brands.get(canonical_brand(brand)) if isinstance(brands, dict) else {}
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def addlivetag_brand_context(config: dict | None, brand: str) -> dict:
-    """Return non-secret AddLiveTag settings for one Brand.
-
-    Product Data is public and read-only.  The optional Affiliate ID is kept
-    Brand-scoped so the experimental short-link route cannot silently borrow
-    another Brand's tracking identity.
-    """
-    brand = canonical_brand(brand)
-    raw = _raw_addlivetag_settings(config, brand)
-    affiliate_id = str(raw.get("affiliate_id") or raw.get("affiliateId") or "").strip()
-    enabled = bool(raw.get("enabled")) if "enabled" in raw else bool(affiliate_id)
-    return {
-        "provider": "addlivetag",
-        "enabled": enabled,
-        "configured": bool(affiliate_id),
-        "available": True,
-        "affiliate_id_configured": bool(affiliate_id),
-        "masked_affiliate_id": _mask_affiliate_id(affiliate_id),
-        "product_data_url": DEFAULT_PRODUCT_DATA_URL,
-        "short_link_url": DEFAULT_SHORT_LINK_URL,
-        "message": (
-            "AddLiveTag đã bật cho AUTO; cần Affiliate ID để tạo link."
-            if enabled and not affiliate_id
-            else "AddLiveTag đang bật ở chế độ thử nghiệm."
-            if enabled
-            else "Bật resolver AddLiveTag để AUTO đọc URL/Item ID từ project."
-        ),
-    }
-
-
-def save_addlivetag_settings(brand: str, values: dict | None = None) -> dict:
-    """Persist the experimental Brand-scoped AddLiveTag switch and Affiliate ID."""
-    brand = canonical_brand(brand)
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
-        raise ValueError("Brand không hợp lệ.")
-    values = values if isinstance(values, dict) else {}
-    config = read_social_config()
-    affiliate = config.get("affiliate") if isinstance(config.get("affiliate"), dict) else {}
-    brands = affiliate.get("brands") if isinstance(affiliate.get("brands"), dict) else {}
-    current = _raw_addlivetag_settings(config, brand)
-    if any(key in values for key in ("affiliate_id", "affiliateId")):
-        affiliate_id = str(values.get("affiliate_id") or values.get("affiliateId") or "").strip()
-        if affiliate_id and (len(affiliate_id) > 128 or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", affiliate_id)):
-            raise ValueError("AddLiveTag Affiliate ID không hợp lệ.")
-    else:
-        affiliate_id = str(current.get("affiliate_id") or current.get("affiliateId") or "").strip()
-    enabled = bool(values.get("enabled")) if "enabled" in values else bool(current.get("enabled", bool(affiliate_id)))
-    brands[brand] = {"enabled": enabled, "affiliate_id": affiliate_id}
-    affiliate["brands"] = brands
-    config["affiliate"] = affiliate
-    from .config import write_social_config
-
-    write_social_config(config)
-    return addlivetag_brand_context(config, brand)
-
-
-def _project_shopee_reference(project: str, explicit_url: str = "", explicit_item_id: str = "") -> dict:
-    """Find an explicit Shopee URL/Item ID without inventing a product search."""
-    explicit_values = [str(explicit_url or "").strip(), str(explicit_item_id or "").strip()]
-    for value in explicit_values:
-        if not value:
-            continue
-        reference = extract_shopee_reference(value)
-        if reference:
-            return reference
-        raise ValueError("AddLiveTag cần Shopee URL hoặc Item ID hợp lệ.")
-
-    from .metadata import require_project
-
-    project_dir = require_project(project)
-    candidates = [
-        project_dir / "source" / "links.txt",
-        project_dir / "source" / "source.md",
-        project_dir / "script.txt",
-    ]
-    for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        reference = extract_shopee_reference(text)
-        if reference:
-            return reference
-    raise ValueError("AUTO AddLiveTag cần Shopee URL hoặc Item ID trong project/source.")
-
-
-def resolve_addlivetag_product(
-    brand: str,
-    project: str,
-    *,
-    origin_url: str = "",
-    item_id: str = "",
-) -> dict:
-    """Resolve one project-owned Shopee reference through AddLiveTag Product Data."""
-    config = read_social_config()
-    brand = canonical_brand(brand)
-    addlivetag = addlivetag_brand_context(config, brand)
-    if not addlivetag["enabled"]:
-        raise ValueError("AddLiveTag AUTO chưa được bật cho Brand này.")
-    reference = _project_shopee_reference(project, origin_url, item_id)
-    try:
-        payload = fetch_product_data(reference)
-        product = normalize_product_payload(payload, relevance_score=1.0)
-    except AddLiveTagApiError:
-        raise
-    except (TypeError, ValueError) as exc:
-        raise AddLiveTagApiError(f"AddLiveTag trả về sản phẩm không hợp lệ: {exc}") from exc
-    product["link_provider"] = "addlivetag"
-    product["ranking_score"] = 1.0
-    raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
-    product["raw"] = {**raw, "_aurex_link_provider": "addlivetag"}
-    saved = affiliate_store.upsert_product(product)
-    saved.update({"link_provider": "addlivetag", "relevance_score": 1.0, "ranking_score": 1.0})
-    saved["reference"] = reference
-    return {
-        "provider": "addlivetag",
-        "brand": brand,
-        "project": project,
-        "reference": reference,
-        "product": saved,
-        "can_create_link": bool(addlivetag.get("affiliate_id_configured")),
-        "message": addlivetag["message"],
-    }
-
-
 def brand_context(config: dict | None, brand: str) -> dict:
     config = read_social_config() if config is None else config
     brand = canonical_brand(brand)
     status = shopee_status_for_brand(config, brand)
     settings = normalize_settings(status.get("settings"))
+    pool_rows = affiliate_store.list_product_pool(brand, enabled_only=False, limit=200)
     return {
         "brand": brand,
         "provider": "shopee",
         "settings": settings,
-        "addlivetag": addlivetag_brand_context(config, brand),
+        "pool": {
+            "configured": bool(pool_rows),
+            "total": len(pool_rows),
+            "enabled": sum(1 for row in pool_rows if bool(row.get("enabled"))),
+        },
         "connection": {
             "configured": bool(status.get("configured")),
             "connected": bool(status.get("connected")),
@@ -368,6 +223,201 @@ def brand_context(config: dict | None, brand: str) -> dict:
             "message": str(status.get("message") or ""),
         },
     }
+
+
+def _valid_pool_affiliate_url(value: str) -> bool:
+    parsed = urlparse(str(value or "").strip())
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return parsed.scheme == "https" and host in {*SHOPEE_HOSTS, "shp.today", "www.shp.today"} and bool(parsed.path)
+
+
+def is_valid_affiliate_url(value: str) -> bool:
+    """Accept Shopee links and the user's own HTTPS short-link domain."""
+    return _valid_pool_affiliate_url(value)
+
+
+def _pool_product_row(row: dict, query: str = "") -> dict:
+    product = normalize_product(row, query)
+    product.update({
+        "id": str(row.get("id") or ""),
+        "affiliate_url": str(row.get("affiliate_url") or row.get("affiliateUrl") or "").strip(),
+        "priority": int(_float(row.get("priority"), 0)),
+        "enabled": bool(row.get("enabled", True)),
+        "note": str(row.get("note") or "").strip(),
+        "link_provider": "pool",
+    })
+    raw = product.get("raw") if isinstance(product.get("raw"), dict) else {}
+    product["raw"] = {**raw, "_aurex_link_provider": "pool"}
+    return product
+
+
+def select_pool_product(
+    brand: str,
+    query: str = "",
+    *,
+    settings: dict | None = None,
+    selection_seed: object = "",
+) -> dict:
+    """Select one usable product only from the Brand's curated pool.
+
+    A matching pool item wins on relevance.  When no item matches the
+    content threshold, the deterministic fallback chooses from the highest
+    commission band so preview and execute keep the same product.
+    """
+    brand = canonical_brand(brand)
+    settings = settings if isinstance(settings, dict) else affiliate_store.get_settings(brand)
+    min_relevance = _fraction(settings.get("min_relevance", settings.get("minRelevance", 0.75)))
+    min_commission = _fraction(settings.get("min_commission", settings.get("minCommission", 0.05)))
+    rows = affiliate_store.list_product_pool(brand, enabled_only=True, limit=200)
+    candidates: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        origin_url = str(row.get("origin_url") or "").strip()
+        affiliate_url = str(row.get("affiliate_url") or "").strip()
+        try:
+            origin_url = validate_shopee_url(origin_url)
+        except (TypeError, ValueError):
+            continue
+        if not _valid_pool_affiliate_url(affiliate_url):
+            continue
+        commission_rate = _fraction(row.get("commission_rate"))
+        if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < min_commission:
+            continue
+        candidate = _pool_product_row({**row, "origin_url": origin_url, "affiliate_url": affiliate_url}, query)
+        candidate["commission_rate"] = commission_rate
+        candidates.append(candidate)
+    if not candidates:
+        return {}
+
+    max_commission = max((product["commission_rate"] for product in candidates), default=0.0) or 1.0
+    max_priority = max((max(0, int(product.get("priority") or 0)) for product in candidates), default=0)
+    for product in candidates:
+        commission_score = product["commission_rate"] / max_commission
+        priority_score = (max(0, int(product.get("priority") or 0)) / max_priority) if max_priority else 0.0
+        product["ranking_score"] = round(
+            product["relevance_score"] * 0.55 + commission_score * 0.30 + priority_score * 0.15,
+            6,
+        )
+
+    matching = [product for product in candidates if product["relevance_score"] >= min_relevance]
+    if matching:
+        selected = sorted(
+            matching,
+            key=lambda product: (
+                -product["relevance_score"],
+                -int(product.get("priority") or 0),
+                -product["commission_rate"],
+                -product["ranking_score"],
+                product["name"].casefold(),
+            ),
+        )[0]
+        selected["_aurex_selection_mode"] = "pool_match"
+        selected["_aurex_selection_reason"] = "Đã chọn sản phẩm phù hợp từ Pool Shopee của Brand."
+    else:
+        ordered = sorted(
+            candidates,
+            key=lambda product: (
+                -product["commission_rate"],
+                -int(product.get("priority") or 0),
+                -product["ranking_score"],
+                product["name"].casefold(),
+            ),
+        )
+        top_count = min(len(ordered), max(3, (len(ordered) + 3) // 4))
+        finalists = ordered[:top_count]
+        weights = [max(0.0001, product["commission_rate"]) ** 2 for product in finalists]
+        seed = f"{brand}:{selection_seed or query}"
+        chooser = random.Random(int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16))
+        selected = finalists[-1]
+        target = chooser.random() * sum(weights)
+        for product, weight in zip(finalists, weights):
+            target -= weight
+            if target <= 0:
+                selected = product
+                break
+        selected["_aurex_selection_mode"] = "pool_high_commission"
+        selected["_aurex_selection_reason"] = "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+        selected["ranking_score"] = round(selected["commission_rate"] / max_commission, 6)
+    raw = selected.get("raw") if isinstance(selected.get("raw"), dict) else {}
+    selected["raw"] = {
+        **raw,
+        "_aurex_link_provider": "pool",
+        "_aurex_selection_mode": selected["_aurex_selection_mode"],
+    }
+    return dict(selected)
+
+
+def _pool_bool(value: object, default: bool = True) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, str):
+        return value.strip().casefold() not in {"0", "false", "no", "off", "disabled"}
+    return bool(value)
+
+
+def save_product_pool(brand: str, values: dict | None = None) -> dict:
+    """Validate and save one manually curated product for a Brand."""
+    brand = canonical_brand(brand)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+        raise ValueError("Brand không hợp lệ.")
+    values = values if isinstance(values, dict) else {}
+    name = str(values.get("name") or values.get("productName") or values.get("product_name") or "").strip()
+    if not name or len(name) > 300:
+        raise ValueError("Tên sản phẩm trong Pool phải từ 1 đến 300 ký tự.")
+    try:
+        origin_url = validate_shopee_url(str(values.get("originUrl") or values.get("origin_url") or "").strip())
+    except ValueError as exc:
+        raise ValueError("Link gốc phải là link Shopee HTTPS hợp lệ.") from exc
+    affiliate_url = str(values.get("affiliateUrl") or values.get("affiliate_url") or "").strip()
+    if len(affiliate_url) > 4000 or not _valid_pool_affiliate_url(affiliate_url):
+        raise ValueError("Link rút gọn phải là HTTPS của Shopee hoặc shp.today.")
+    commission_raw = values.get("commissionRate", values.get("commission_rate", 0))
+    commission_rate = _fraction(commission_raw)
+    if not math.isfinite(commission_rate):
+        raise ValueError("Hoa hồng không hợp lệ.")
+    priority = int(_float(values.get("priority"), 0))
+    priority = max(-100, min(100, priority))
+    pool_id = str(values.get("id") or values.get("poolId") or values.get("pool_id") or "").strip()
+    if pool_id and len(pool_id) > 128:
+        raise ValueError("Pool product ID không hợp lệ.")
+    return affiliate_store.upsert_product_pool({
+        "id": pool_id,
+        "brand_id": brand,
+        "provider": "shopee",
+        "provider_product_id": str(values.get("providerProductId") or values.get("provider_product_id") or "").strip(),
+        "shop_id": str(values.get("shopId") or values.get("shop_id") or "").strip(),
+        "name": name,
+        "origin_url": origin_url,
+        "affiliate_url": affiliate_url,
+        "commission_rate": commission_rate,
+        "priority": priority,
+        "enabled": _pool_bool(values.get("enabled"), True),
+        "note": str(values.get("note") or "").strip()[:1000],
+        "raw": {"source": "manual_pool"},
+    })
+
+
+def list_product_pool(brand: str, *, query: str = "", enabled_only: bool = False, limit: int = 100) -> dict:
+    brand = canonical_brand(brand)
+    rows = affiliate_store.list_product_pool(brand, query=query, enabled_only=enabled_only, limit=limit)
+    return {
+        "ok": True,
+        "brand": brand,
+        "products": rows,
+        "items": rows,
+        "configured": bool(rows),
+        "count": len(rows),
+    }
+
+
+def delete_product_pool(brand: str, pool_id: str) -> dict:
+    brand = canonical_brand(brand)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+        raise ValueError("Brand không hợp lệ.")
+    if not str(pool_id or "").strip():
+        raise ValueError("Cần chỉ định sản phẩm cần xoá khỏi Pool.")
+    return affiliate_store.delete_product_pool(str(pool_id).strip(), brand_id=brand)
 
 
 def _project_query(project: str) -> str:
@@ -459,17 +509,14 @@ def create_affiliate_link(
         raise ValueError("Affiliate placement không hợp lệ.")
     product = affiliate_store.get_product(product_id) if product_id else {}
     origin_url = str(origin_url or product.get("origin_url") or "").strip()
-    # An explicitly supplied URL is authoritative.  A cached product offer is
-    # only reusable for the official provider; AddLiveTag product-data offers
-    # are not guaranteed to be generated for this Brand's Affiliate ID.
     affiliate_url = str(affiliate_url or "").strip()
-    if not product and isinstance(product_payload, dict):
-        candidate = normalize_product(product_payload)
-        if candidate.get("origin_url") or candidate.get("offer_url"):
-            product = affiliate_store.upsert_product(candidate)
-            product_id = str(product.get("id") or product_id)
-            origin_url = str(origin_url or product.get("origin_url") or "").strip()
     if isinstance(product_payload, dict):
+        payload_provider = product_payload.get("link_provider") or product_payload.get("linkProvider")
+        payload_raw = product_payload.get("raw")
+        if isinstance(payload_raw, dict):
+            payload_provider = payload_provider or payload_raw.get("_aurex_link_provider")
+        if not link_provider:
+            link_provider = str(payload_provider or "").strip().lower()
         origin_url = str(
             origin_url
             or product_payload.get("origin_url")
@@ -478,36 +525,52 @@ def create_affiliate_link(
             or product_payload.get("product_link")
             or ""
         ).strip()
-        if not link_provider:
-            payload_provider = product_payload.get("link_provider") or product_payload.get("linkProvider")
-            payload_raw = product_payload.get("raw")
-            if isinstance(payload_raw, dict):
-                payload_provider = payload_provider or payload_raw.get("_aurex_link_provider")
-            link_provider = str(payload_provider or "").strip().lower()
-        if reuse_product_offer_url and link_provider != "addlivetag" and not affiliate_url:
+        if reuse_product_offer_url and not affiliate_url:
             affiliate_url = str(
                 product_payload.get("affiliate_url")
                 or product_payload.get("affiliateUrl")
                 or product_payload.get("shortUrl")
                 or ""
             ).strip()
+        if not product:
+            candidate = normalize_product(product_payload)
+            candidate_id = str(product_payload.get("id") or product_id or "").strip()
+            if candidate_id:
+                candidate["id"] = candidate_id
+            if link_provider in {"shopee", "pool"}:
+                candidate["link_provider"] = link_provider
+            if affiliate_url:
+                candidate["affiliate_url"] = affiliate_url
+            if candidate.get("origin_url") or candidate.get("offer_url"):
+                product = candidate if link_provider == "pool" else affiliate_store.upsert_product(candidate)
+                product_id = str(product.get("id") or product_id)
+                origin_url = str(origin_url or product.get("origin_url") or "").strip()
     raw_product = product.get("raw") if isinstance(product.get("raw"), dict) else {}
     stored_link_provider = str(
         raw_product.get("_aurex_link_provider")
         or product.get("link_provider")
         or ""
     ).strip().lower()
+    if stored_link_provider not in {"shopee", "pool"}:
+        stored_link_provider = ""
     if stored_link_provider and link_provider and stored_link_provider != link_provider:
-        raise AddLiveTagApiError("Link provider không khớp provenance của sản phẩm.")
+        raise ValueError("Link provider không khớp provenance của sản phẩm.")
     link_provider = stored_link_provider or link_provider
-    if reuse_product_offer_url and link_provider != "addlivetag" and not affiliate_url:
-        affiliate_url = str(product.get("offer_url") or "").strip()
+    if not link_provider and affiliate_url and not _valid_shopee_link(affiliate_url):
+        if _valid_pool_affiliate_url(affiliate_url):
+            link_provider = "pool"
+    if reuse_product_offer_url and not affiliate_url:
+        affiliate_url = str(
+            product.get("affiliate_url") if link_provider == "pool" else product.get("offer_url") or ""
+        ).strip()
     if not origin_url and not affiliate_url:
         raise ValueError("Cần product hoặc Shopee origin URL để tạo affiliate link.")
     if origin_url and not _valid_shopee_link(origin_url):
         raise ValueError("Origin URL phải là link Shopee HTTPS hợp lệ.")
-    if affiliate_url and not _valid_shopee_link(affiliate_url):
-        raise ValueError("Affiliate URL phải là link Shopee HTTPS hợp lệ.")
+    if affiliate_url and not _valid_pool_affiliate_url(affiliate_url):
+        raise ValueError("Affiliate URL phải là HTTPS của Shopee hoặc shp.today.")
+    if link_provider == "pool" and not affiliate_url:
+        raise ValueError("Sản phẩm trong Pool cần có link affiliate đã rút gọn.")
     if not page_id:
         brand_routes = config.get("brand_routes") if isinstance(config, dict) else {}
         brand_route = brand_routes.get(brand) if isinstance(brand_routes, dict) else {}
@@ -515,32 +578,9 @@ def create_affiliate_link(
         if isinstance(facebook_route, dict):
             page_id = str(facebook_route.get("page_id") or facebook_route.get("connection_id") or "").strip()
     sub_ids = build_sub_ids(brand, page_id, content_id, product_id or product.get("provider_product_id"), placement)
-    addlivetag_affiliate_id = ""
-    if link_provider == "addlivetag":
-        addlivetag_affiliate_id = str(_raw_addlivetag_settings(config, brand).get("affiliate_id") or "").strip()
-        if not addlivetag_affiliate_id:
-            raise ValueError("AddLiveTag cần Affiliate ID để tạo link; nhập tại Affiliate Dashboard.")
-        if affiliate_url:
-            # Never publish a cached/manual AddLiveTag URL unless the URL
-            # itself confirms the selected Brand's tracking identity.
-            affiliate_url = validate_addlivetag_attribution(
-                affiliate_url,
-                addlivetag_affiliate_id,
-                require_attribution=True,
-            )
     if not affiliate_url:
-        if link_provider == "addlivetag":
-            affiliate_url = generate_addlivetag_short_link(origin_url, addlivetag_affiliate_id, sub_ids)
-            # Keep the guard here as well because tests, adapters, or a future
-            # provider wrapper may bypass generate_short_link's own check.
-            affiliate_url = validate_addlivetag_attribution(
-                affiliate_url,
-                addlivetag_affiliate_id,
-                require_attribution=True,
-            )
-        else:
-            _, connection = resolve_social_brand_connection(config, brand, "shopee")
-            affiliate_url = generate_short_link(connection, origin_url, sub_ids)
+        _, connection = resolve_social_brand_connection(config, brand, "shopee")
+        affiliate_url = generate_short_link(connection, origin_url, sub_ids)
     link = affiliate_store.record_link({
         "content_id": content_id,
         "brand_id": brand,
@@ -586,37 +626,30 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
             or product_raw.get("_aurex_link_provider")
             or ""
         ).strip().lower()
-    # An AddLiveTag product's cached offer may belong to the provider's
-    # default account.  It must be regenerated with this Brand's ID instead
-    # of being silently reused.
+    if link_provider not in {"", "shopee", "pool"}:
+        link_provider = ""
     affiliate_url = str(raw.get("affiliateUrl") or raw.get("affiliate_url") or "").strip()
-    if not affiliate_url and link_provider != "addlivetag":
-        affiliate_url = str(product.get("offer_url") or "").strip()
-    item_id = str(raw.get("itemId") or raw.get("item_id") or "").strip()
+    if not affiliate_url:
+        affiliate_url = str(
+            (product.get("affiliate_url") if link_provider == "pool" else product.get("offer_url")) or ""
+        ).strip()
     ranking_score = _float(raw.get("rankingScore"))
     relevance_score = _float(raw.get("relevanceScore"))
     if mode == "auto" and not product and not affiliate_url:
-        addlivetag = addlivetag_brand_context(config, brand)
-        if addlivetag["enabled"]:
-            resolved = resolve_addlivetag_product(
-                brand,
-                project,
-                origin_url=origin_url or (query if query.startswith("https://") else ""),
-                item_id=item_id,
-            )
-            product = resolved.get("product") or {}
-            product_id = str(product.get("id") or "").strip()
-            origin_url = str(product.get("origin_url") or "").strip()
-            link_provider = "addlivetag"
-            ranking_score = _float(product.get("ranking_score"), 1.0)
-            relevance_score = _float(product.get("relevance_score"), 1.0)
-        else:
-            discovery = discover_products(brand, query, limit=max(5, int(_float(settings.get("products_per_post"), 1))))
-            product = (discovery.get("products") or [None])[0] or {}
-            product_id = str(product.get("id") or "").strip()
-            origin_url = str(product.get("origin_url") or "").strip()
-            ranking_score = _float(product.get("ranking_score"))
-            relevance_score = _float(product.get("relevance_score"))
+        pool_rows = affiliate_store.list_product_pool(brand, enabled_only=False, limit=200)
+        if not pool_rows:
+            raise ValueError("Pool Shopee chưa có sản phẩm cho Brand; hãy thêm sản phẩm và link rút gọn trước.")
+        if not any(bool(row.get("enabled")) for row in pool_rows):
+            raise ValueError("Pool Shopee chưa có sản phẩm đang bật cho Brand.")
+        product = select_pool_product(brand, query, settings=settings, selection_seed=project)
+        if not product:
+            raise ValueError("Pool Shopee không có sản phẩm đạt mức hoa hồng tối thiểu của Brand.")
+        product_id = str(product.get("id") or "").strip()
+        origin_url = str(product.get("origin_url") or "").strip()
+        affiliate_url = str(product.get("affiliate_url") or "").strip()
+        link_provider = "pool"
+        ranking_score = _float(product.get("ranking_score"))
+        relevance_score = _float(product.get("relevance_score"))
     if not product_id and product:
         product_id = str(product.get("id") or "").strip()
     if not origin_url and product:

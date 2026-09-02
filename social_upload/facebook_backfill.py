@@ -19,18 +19,11 @@ from typing import Iterable
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from . import affiliate_store
-from .addlivetag import (
-    AddLiveTagApiError,
-    extract_shopee_reference,
-    fetch_product_data,
-    normalize_product_payload,
-    search_addlivetag_products,
-)
 from .affiliate import (
     affiliate_comment_text,
     brand_context,
     create_affiliate_link,
-    discover_products,
+    is_valid_affiliate_url,
     rank_products,
 )
 from .config import canonical_brand, read_social_config
@@ -55,16 +48,6 @@ _BACKFILL_LOCK = threading.RLock()
 _BACKFILL_PREVIEWS: dict[str, dict] = {}
 _SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my|ee)[^\s<>'\"]*", re.I)
 _COMMENT_MARKERS = ("sản phẩm liên quan", "sản phẩm gợi ý")
-_FALLBACK_SEARCH_QUERIES = (
-    "đồ gia dụng",
-    "phụ kiện điện thoại",
-    "thời trang nữ",
-    "đồ nhà bếp",
-    "đồ dùng cá nhân",
-)
-_FALLBACK_MIN_SEARCHES = 3
-_FALLBACK_MIN_POOL = 12
-_FALLBACK_SEARCH_LIMIT = 20
 _PREVIEW_TTL_SECONDS = 15 * 60
 _MAX_PREVIEWS = 32
 _SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*['\"]?\s*(?:=|:|%3d)\s*(?:bearer\s+)?['\"]?[^\s&,'\"]+")
@@ -334,151 +317,119 @@ def _product_search_queries(post_text: str) -> list[str]:
     return queries[:4]
 
 
-def _fallback_product_key(product: dict) -> tuple[str, str]:
-    provider_id = str(
-        product.get("provider_product_id")
-        or product.get("productId")
-        or product.get("itemId")
-        or product.get("item_id")
-        or product.get("id")
-        or ""
-    ).strip()
-    origin_url = str(
-        product.get("origin_url")
-        or product.get("original_url")
-        or product.get("productLink")
-        or product.get("product_link")
-        or product.get("productUrl")
-        or product.get("product_url")
-        or ""
-    ).strip()
-    return provider_id, origin_url
+def _pool_product_key(product: dict) -> tuple[str, str]:
+    return (
+        str(product.get("id") or product.get("provider_product_id") or "").strip(),
+        str(product.get("origin_url") or "").strip(),
+    )
 
 
-def _fallback_candidates(products: Iterable[object], settings: dict) -> list[dict]:
-    """Keep only current Shopee products with visible commission data.
-
-    Relevance is deliberately not required here: this helper is only reached
-    after the normal content-matching path has failed and is the explicit
-    random replacement requested for those posts.
-    """
+def _pool_candidates(products: Iterable[object], settings: dict) -> list[dict]:
+    """Keep only enabled pool rows with a usable Shopee and affiliate URL."""
     min_commission = _fraction(settings.get("min_commission", settings.get("minCommission", 0.05)))
     candidates: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for product in products:
-        if not isinstance(product, dict):
+        if not isinstance(product, dict) or not bool(product.get("enabled", True)):
             continue
-        origin_url = str(
-            product.get("origin_url")
-            or product.get("original_url")
-            or product.get("productLink")
-            or product.get("product_link")
-            or product.get("productUrl")
-            or product.get("product_url")
-            or ""
-        ).strip()
         try:
-            origin_url = validate_shopee_url(origin_url)
+            origin_url = validate_shopee_url(str(product.get("origin_url") or "").strip())
         except (TypeError, ValueError):
             continue
-        raw_commission_rate = product.get("commission_rate", product.get("commissionRate"))
-        if raw_commission_rate in (None, ""):
+        affiliate_url = str(product.get("affiliate_url") or "").strip()
+        if not is_valid_affiliate_url(affiliate_url):
             continue
-        commission_rate = _fraction(raw_commission_rate)
+        commission_rate = _fraction(product.get("commission_rate"))
         if not math.isfinite(commission_rate) or commission_rate <= 0 or commission_rate < min_commission:
             continue
-        name = str(product.get("name") or product.get("productName") or product.get("product_name") or "").strip()
+        name = str(product.get("name") or "").strip()
         if not name:
             continue
-        normalized = {**product, "origin_url": origin_url, "commission_rate": commission_rate}
-        key = _fallback_product_key(normalized)
-        if not key[0] and not key[1]:
-            continue
-        if key in seen:
+        normalized = {
+            **product,
+            "origin_url": origin_url,
+            "affiliate_url": affiliate_url,
+            "commission_rate": commission_rate,
+            "link_provider": "pool",
+        }
+        key = _pool_product_key(normalized)
+        if not key[0] and not key[1] or key in seen:
             continue
         seen.add(key)
         candidates.append(normalized)
     return candidates
 
 
-def _fallback_product_pool(context: dict, settings: dict, cached: Iterable[object], searched: Iterable[object]) -> list[dict]:
-    """Load one bounded, reusable pool for the current backfill run.
-
-    The context is shared by all posts in one scan.  This prevents a page with
-    many unmatched posts from issuing the same broad AddLiveTag searches over
-    and over again, while still allowing each post to receive a different
-    deterministic weighted choice from the pool.
-    """
-    cache_key = "_aurex_random_fallback_products"
-    pool = context.get(cache_key)
-    if not isinstance(pool, list):
-        pool = [product for product in cached if isinstance(product, dict)]
-        pool.extend(product for product in searched if isinstance(product, dict))
-        search_count = 0
-        for keyword in _FALLBACK_SEARCH_QUERIES:
-            if search_count >= _FALLBACK_MIN_SEARCHES and len(_fallback_candidates(pool, settings)) >= _FALLBACK_MIN_POOL:
-                break
-            search_count += 1
-            try:
-                pool.extend(search_addlivetag_products(keyword, limit=_FALLBACK_SEARCH_LIMIT))
-            except (AddLiveTagApiError, TypeError, ValueError):
-                continue
-        context[cache_key] = pool
-    else:
-        pool.extend(product for product in searched if isinstance(product, dict))
-    return _fallback_candidates(pool, settings)
-
-
-def _select_random_high_commission_product(
+def _select_pool_product(
     brand: str,
     query: str,
     context: dict,
     *,
-    cached: Iterable[object],
-    searched: Iterable[object],
     selection_seed: object = "",
 ) -> tuple[dict, str]:
-    candidates = _fallback_product_pool(context, context.get("settings") if isinstance(context.get("settings"), dict) else {}, cached, searched)
+    settings = context.get("settings") if isinstance(context.get("settings"), dict) else {}
+    cache_key = "_aurex_pool_rows"
+    if cache_key not in context:
+        try:
+            context[cache_key] = affiliate_store.list_product_pool(brand, enabled_only=False, limit=200)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            return {}, f"Không đọc được Pool Shopee: {_safe_error(exc)}"
+    rows = context.get(cache_key)
+    if not isinstance(rows, list) or not rows:
+        return {}, "Pool Shopee chưa có sản phẩm cho Brand; hãy thêm sản phẩm và link rút gọn trước."
+    if not any(bool(row.get("enabled", True)) for row in rows if isinstance(row, dict)):
+        return {}, "Pool Shopee chưa có sản phẩm đang bật cho Brand."
+    candidates = _pool_candidates(rows, settings)
     if not candidates:
-        return {}, ""
-
-    # The top quartile is the high-commission band.  At least three products
-    # keep the fallback meaningfully random when the public catalog is small.
-    ordered = sorted(
-        candidates,
-        key=lambda product: (
-            -_fraction(product.get("commission_rate")),
-            str(product.get("name") or "").casefold(),
-            _fallback_product_key(product),
-        ),
-    )
-    top_count = min(len(ordered), max(3, (len(ordered) + 3) // 4))
-    finalists = ordered[:top_count]
-    weights = [max(0.0001, _fraction(product.get("commission_rate"))) ** 2 for product in finalists]
-    seed = f"{brand}:{selection_seed or query}"
-    chooser = random.Random(int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16))
-    chosen = finalists[-1]
-    target = chooser.random() * sum(weights)
-    for product, weight in zip(finalists, weights):
-        target -= weight
-        if target <= 0:
-            chosen = product
-            break
-
-    selected = dict(chosen)
-    max_commission = max(_fraction(product.get("commission_rate")) for product in finalists) or 1.0
-    selected["link_provider"] = "addlivetag"
-    selected["relevance_score"] = 0.0
-    selected["ranking_score"] = round(_fraction(selected.get("commission_rate")) / max_commission, 6)
-    selected["_aurex_selection_mode"] = "random_high_commission"
-    selected["_aurex_selection_reason"] = "Keyword không có sản phẩm phù hợp; đã chọn ngẫu nhiên trong nhóm hoa hồng cao."
+        return {}, "Pool Shopee không có sản phẩm đang bật đạt mức hoa hồng tối thiểu."
+    annotated = _annotate_relevance(candidates, query)
+    min_relevance = _fraction(settings.get("min_relevance", settings.get("minRelevance", 0.75)))
+    matching = [product for product in annotated if _fraction(product.get("relevance_score")) >= min_relevance]
+    if matching:
+        selected = sorted(
+            matching,
+            key=lambda product: (
+                -_fraction(product.get("relevance_score")),
+                -int(product.get("priority") or 0),
+                -_fraction(product.get("commission_rate")),
+                str(product.get("name") or "").casefold(),
+            ),
+        )[0]
+        selected["_aurex_selection_mode"] = "pool_match"
+        selected["_aurex_selection_reason"] = "Đã chọn sản phẩm phù hợp từ Pool Shopee của Brand."
+    else:
+        ordered = sorted(
+            annotated,
+            key=lambda product: (
+                -_fraction(product.get("commission_rate")),
+                -int(product.get("priority") or 0),
+                str(product.get("name") or "").casefold(),
+            ),
+        )
+        top_count = min(len(ordered), max(3, (len(ordered) + 3) // 4))
+        finalists = ordered[:top_count]
+        weights = [max(0.0001, _fraction(product.get("commission_rate"))) ** 2 for product in finalists]
+        seed = f"{brand}:{selection_seed or query}"
+        chooser = random.Random(int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16))
+        selected = finalists[-1]
+        target = chooser.random() * sum(weights)
+        for product, weight in zip(finalists, weights):
+            target -= weight
+            if target <= 0:
+                selected = product
+                break
+        selected["_aurex_selection_mode"] = "pool_high_commission"
+        selected["_aurex_selection_reason"] = "Keyword chưa khớp; đã chọn trong Pool Shopee theo hoa hồng cao."
+        max_commission = max(_fraction(product.get("commission_rate")) for product in finalists) or 1.0
+        selected["ranking_score"] = round(_fraction(selected.get("commission_rate")) / max_commission, 6)
+    selected["link_provider"] = "pool"
     raw = selected.get("raw") if isinstance(selected.get("raw"), dict) else {}
     selected["raw"] = {
         **raw,
-        "_aurex_link_provider": "addlivetag",
-        "_aurex_selection_mode": "random_high_commission",
+        "_aurex_link_provider": "pool",
+        "_aurex_selection_mode": selected["_aurex_selection_mode"],
     }
-    return selected, str(selected["_aurex_selection_reason"])
+    return dict(selected), str(selected["_aurex_selection_reason"])
 
 
 def _normalize_posts(rows: Iterable[object], *, page_id: str, cutoff: datetime) -> list[dict]:
