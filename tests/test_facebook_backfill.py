@@ -208,6 +208,7 @@ class FacebookBackfillTests(unittest.TestCase):
 
     def test_existing_comment_detects_marker_or_shopee_url(self):
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛒 Sản phẩm liên quan trong video:\nhttps://s.shopee.vn/abc"}]))
+        self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛒 Sản phẩm gợi ý trên Shopee:\n👉 Xem sản phẩm trên Shopee"}]))
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "xem https://shopee.vn/product/1/2"}]))
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "xem https://shopee.ee/product/1/2"}]))
         self.assertFalse(backfill._has_existing_affiliate_comment([{"message": "Một bình luận bình thường"}]))
@@ -254,6 +255,59 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(product["link_provider"], "addlivetag")
         self.assertGreaterEqual(product["relevance_score"], CONTEXT["settings"]["min_relevance"])
         search.assert_called_once_with("bình giữ nhiệt dân văn phòng", limit=20)
+
+    def test_empty_keyword_search_uses_stable_weighted_high_commission_fallback(self):
+        fallback_products = [
+            {"provider_product_id": "high-1", "name": "Sản phẩm hoa hồng cao 1", "origin_url": "https://shopee.vn/product/1/11", "commission_rate": 0.20},
+            {"provider_product_id": "high-2", "name": "Sản phẩm hoa hồng cao 2", "origin_url": "https://shopee.vn/product/1/12", "commission_rate": 0.15},
+            {"provider_product_id": "high-3", "name": "Sản phẩm hoa hồng cao 3", "origin_url": "https://shopee.vn/product/1/13", "commission_rate": 0.12},
+            {"provider_product_id": "too-low", "name": "Sản phẩm hoa hồng thấp", "origin_url": "https://shopee.vn/product/1/14", "commission_rate": 0.03},
+        ]
+
+        def fake_search(keyword, *, limit):
+            self.assertEqual(limit, 20)
+            return [] if keyword == "không có sản phẩm" else fallback_products
+
+        context = {**CONTEXT, "settings": {**CONTEXT["settings"], "min_commission": 0.05}}
+        with (
+            patch.object(backfill.affiliate_store, "list_products", return_value=[]),
+            patch.object(backfill, "_product_search_queries", return_value=["không có sản phẩm"]),
+            patch.object(backfill, "search_addlivetag_products", side_effect=fake_search),
+        ):
+            first, first_reason = backfill._select_product(
+                "knowzy",
+                "Bài không có từ khóa sản phẩm rõ ràng",
+                context,
+                selection_seed="page-1_1",
+            )
+            second, second_reason = backfill._select_product(
+                "knowzy",
+                "Bài không có từ khóa sản phẩm rõ ràng",
+                context,
+                selection_seed="page-1_1",
+            )
+
+        self.assertEqual(first["_aurex_selection_mode"], "random_high_commission")
+        self.assertEqual(first["provider_product_id"], second["provider_product_id"])
+        self.assertGreaterEqual(first["commission_rate"], 0.12)
+        self.assertEqual(first_reason, second_reason)
+        self.assertIn("hoa hồng cao", first_reason)
+
+    def test_fallback_keeps_posts_without_a_provider_or_affiliate_id_skipped(self):
+        context = {
+            **CONTEXT,
+            "addlivetag": {"enabled": True, "affiliate_id_configured": False},
+            "connection": {"connected": False},
+        }
+        with patch.object(backfill.affiliate_store, "list_products", return_value=[]):
+            product, reason = backfill._select_product(
+                "knowzy",
+                "Bài không có từ khóa sản phẩm rõ ràng",
+                context,
+            )
+
+        self.assertFalse(product)
+        self.assertIn("Affiliate ID", reason)
 
     def test_connected_discovery_is_read_only_for_backfill_preview(self):
         context = {**CONTEXT, "addlivetag": {"enabled": False}, "connection": {"connected": True}}

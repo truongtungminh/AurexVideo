@@ -8,6 +8,7 @@ guards live here so other callers get the same safety contract.
 from __future__ import annotations
 
 import hashlib
+import random
 import re
 import threading
 from datetime import datetime, timedelta, timezone
@@ -40,6 +41,7 @@ from .facebook import (
     post_facebook_source_comment,
 )
 from .http import http_get_request
+from .shopee import validate_shopee_url
 
 
 MAX_LIMIT = 50
@@ -49,7 +51,17 @@ MAX_COMMENT_PAGES = 10
 POST_PREVIEW_LENGTH = 500
 _BACKFILL_LOCK = threading.RLock()
 _SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my|ee)[^\s<>'\"]*", re.I)
-_COMMENT_MARKER = "sản phẩm liên quan"
+_COMMENT_MARKERS = ("sản phẩm liên quan", "sản phẩm gợi ý")
+_FALLBACK_SEARCH_QUERIES = (
+    "đồ gia dụng",
+    "phụ kiện điện thoại",
+    "thời trang nữ",
+    "đồ nhà bếp",
+    "đồ dùng cá nhân",
+)
+_FALLBACK_MIN_SEARCHES = 3
+_FALLBACK_MIN_POOL = 12
+_FALLBACK_SEARCH_LIMIT = 20
 _SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*['\"]?\s*(?:=|:|%3d)\s*(?:bearer\s+)?['\"]?[^\s&,'\"]+")
 _MATCH_STOPWORDS = frozenset({
     "a", "an", "and", "cho", "click", "co", "có", "cua", "của", "de", "đã", "đang", "đây", "để",
@@ -228,6 +240,150 @@ def _product_search_queries(post_text: str) -> list[str]:
     return queries[:4]
 
 
+def _fallback_product_key(product: dict) -> tuple[str, str]:
+    provider_id = str(
+        product.get("provider_product_id")
+        or product.get("productId")
+        or product.get("itemId")
+        or product.get("item_id")
+        or product.get("id")
+        or ""
+    ).strip()
+    origin_url = str(
+        product.get("origin_url")
+        or product.get("original_url")
+        or product.get("productLink")
+        or product.get("product_link")
+        or product.get("productUrl")
+        or product.get("product_url")
+        or ""
+    ).strip()
+    return provider_id, origin_url
+
+
+def _fallback_candidates(products: Iterable[object], settings: dict) -> list[dict]:
+    """Keep only current Shopee products with visible commission data.
+
+    Relevance is deliberately not required here: this helper is only reached
+    after the normal content-matching path has failed and is the explicit
+    random replacement requested for those posts.
+    """
+    min_commission = _fraction(settings.get("min_commission", settings.get("minCommission", 0.05)))
+    candidates: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        origin_url = str(
+            product.get("origin_url")
+            or product.get("original_url")
+            or product.get("productLink")
+            or product.get("product_link")
+            or product.get("productUrl")
+            or product.get("product_url")
+            or ""
+        ).strip()
+        try:
+            origin_url = validate_shopee_url(origin_url)
+        except (TypeError, ValueError):
+            continue
+        commission_rate = _fraction(product.get("commission_rate", product.get("commissionRate")))
+        if commission_rate < min_commission:
+            continue
+        name = str(product.get("name") or product.get("productName") or product.get("product_name") or "").strip()
+        if not name:
+            continue
+        normalized = {**product, "origin_url": origin_url, "commission_rate": commission_rate}
+        key = _fallback_product_key(normalized)
+        if not key[0] and not key[1]:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(normalized)
+    return candidates
+
+
+def _fallback_product_pool(context: dict, settings: dict, cached: Iterable[object], searched: Iterable[object]) -> list[dict]:
+    """Load one bounded, reusable pool for the current backfill run.
+
+    The context is shared by all posts in one scan.  This prevents a page with
+    many unmatched posts from issuing the same broad AddLiveTag searches over
+    and over again, while still allowing each post to receive a different
+    deterministic weighted choice from the pool.
+    """
+    cache_key = "_aurex_random_fallback_products"
+    pool = context.get(cache_key)
+    if not isinstance(pool, list):
+        pool = [product for product in cached if isinstance(product, dict)]
+        pool.extend(product for product in searched if isinstance(product, dict))
+        search_count = 0
+        for keyword in _FALLBACK_SEARCH_QUERIES:
+            if search_count >= _FALLBACK_MIN_SEARCHES and len(_fallback_candidates(pool, settings)) >= _FALLBACK_MIN_POOL:
+                break
+            search_count += 1
+            try:
+                pool.extend(search_addlivetag_products(keyword, limit=_FALLBACK_SEARCH_LIMIT))
+            except (AddLiveTagApiError, TypeError, ValueError):
+                continue
+        context[cache_key] = pool
+    else:
+        pool.extend(product for product in searched if isinstance(product, dict))
+    return _fallback_candidates(pool, settings)
+
+
+def _select_random_high_commission_product(
+    brand: str,
+    query: str,
+    context: dict,
+    *,
+    cached: Iterable[object],
+    searched: Iterable[object],
+    selection_seed: object = "",
+) -> tuple[dict, str]:
+    candidates = _fallback_product_pool(context, context.get("settings") if isinstance(context.get("settings"), dict) else {}, cached, searched)
+    if not candidates:
+        return {}, ""
+
+    # The top quartile is the high-commission band.  At least three products
+    # keep the fallback meaningfully random when the public catalog is small.
+    ordered = sorted(
+        candidates,
+        key=lambda product: (
+            -_fraction(product.get("commission_rate")),
+            str(product.get("name") or "").casefold(),
+            _fallback_product_key(product),
+        ),
+    )
+    top_count = min(len(ordered), max(3, (len(ordered) + 3) // 4))
+    finalists = ordered[:top_count]
+    weights = [max(0.0001, _fraction(product.get("commission_rate"))) ** 2 for product in finalists]
+    seed = f"{brand}:{selection_seed or query}"
+    chooser = random.Random(int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16))
+    chosen = finalists[-1]
+    target = chooser.random() * sum(weights)
+    for product, weight in zip(finalists, weights):
+        target -= weight
+        if target <= 0:
+            chosen = product
+            break
+
+    selected = dict(chosen)
+    max_commission = max(_fraction(product.get("commission_rate")) for product in finalists) or 1.0
+    selected["link_provider"] = "addlivetag"
+    selected["relevance_score"] = 0.0
+    selected["ranking_score"] = round(_fraction(selected.get("commission_rate")) / max_commission, 6)
+    selected["_aurex_selection_mode"] = "random_high_commission"
+    selected["_aurex_selection_reason"] = "Keyword không có sản phẩm phù hợp; đã chọn ngẫu nhiên trong nhóm hoa hồng cao."
+    raw = selected.get("raw") if isinstance(selected.get("raw"), dict) else {}
+    selected["raw"] = {
+        **raw,
+        "_aurex_link_provider": "addlivetag",
+        "_aurex_selection_mode": "random_high_commission",
+    }
+    return selected, str(selected["_aurex_selection_reason"])
+
+
 def _normalize_posts(rows: Iterable[object], *, page_id: str, cutoff: datetime) -> list[dict]:
     """Keep only recent published Graph objects and dedupe feed/reels overlaps."""
     posts: dict[str, dict] = {}
@@ -363,7 +519,7 @@ def _has_existing_affiliate_comment(comments: Iterable[object]) -> bool:
             continue
         text = str(comment.get("message") or "")
         lowered = text.casefold()
-        if _COMMENT_MARKER in lowered or _SHOPEE_URL_RE.search(text):
+        if any(marker in lowered for marker in _COMMENT_MARKERS) or _SHOPEE_URL_RE.search(text):
             return True
     return False
 
@@ -491,7 +647,7 @@ def _prepare_product_for_link(product: dict, context: dict) -> tuple[dict, str]:
     return {}, "Cần kết nối Shopee Affiliate hoặc bật AddLiveTag với Affiliate ID để tạo link."
 
 
-def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
+def _select_product(brand: str, text: str, context: dict, *, selection_seed: object = "") -> tuple[dict, str]:
     settings = context.get("settings") if isinstance(context.get("settings"), dict) else {}
     mode = str(settings.get("mode") or "off").casefold()
     if not bool(settings.get("enabled")) or mode == "off":
@@ -525,6 +681,17 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
     connection = context.get("connection") if isinstance(context.get("connection"), dict) else {}
     provider_query = _product_query(query)
     if not provider_query:
+        if addlivetag.get("enabled") and addlivetag.get("affiliate_id_configured"):
+            fallback, fallback_reason = _select_random_high_commission_product(
+                brand,
+                query,
+                context,
+                cached=[],
+                searched=[],
+                selection_seed=selection_seed,
+            )
+            if fallback:
+                return _prepare_product_for_link(fallback, context)[0], fallback_reason
         return {}, "Post has no usable product keywords."
     if connection.get("connected"):
         try:
@@ -578,10 +745,22 @@ def _select_product(brand: str, text: str, context: dict) -> tuple[dict, str]:
         selected = _policy_product(_annotate_relevance(searched, query), query, settings)
         if selected:
             return _prepare_product_for_link(selected, context)
-        return {}, "AddLiveTag keyword search found products, but none met Brand relevance or commission policy."
+    if not search_errors or len(search_errors) < len(search_queries):
+        fallback, fallback_reason = _select_random_high_commission_product(
+            brand,
+            query,
+            context,
+            cached=cached,
+            searched=searched,
+            selection_seed=selection_seed,
+        )
+        if fallback:
+            return _prepare_product_for_link(fallback, context)[0], fallback_reason
     if search_errors and len(search_errors) >= len(search_queries):
         return {}, f"AddLiveTag keyword search unavailable: {search_errors[0]}"
-    return {}, "AddLiveTag keyword search returned no usable products."
+    if searched:
+        return {}, "AddLiveTag keyword search found products, but none met Brand relevance or commission policy; random fallback cũng không có sản phẩm đạt mức hoa hồng tối thiểu."
+    return {}, "AddLiveTag keyword search returned no usable products; random fallback cũng không tìm thấy sản phẩm đạt mức hoa hồng tối thiểu."
 
 
 def _record_for_execute(brand: str, content_id: str, page_id: str, post_id: str, product: dict) -> dict:
@@ -686,7 +865,12 @@ def run_affiliate_backfill(
                 result["skipped"] += 1
                 result["items"].append(item)
                 continue
-            product, reason = _select_product(brand, str(post.get("_text") or ""), context)
+            product, reason = _select_product(
+                brand,
+                str(post.get("_text") or ""),
+                context,
+                selection_seed=content_id,
+            )
             if not product:
                 item["reason"] = reason
                 result["skipped"] += 1
@@ -694,8 +878,17 @@ def run_affiliate_backfill(
                 continue
             result["eligible"] += 1
             item["product"] = _product_summary(product)
+            selection_mode = str(product.get("_aurex_selection_mode") or "").strip()
+            selection_note = str(product.get("_aurex_selection_reason") or reason or "").strip()
+            if selection_mode:
+                item["selection_mode"] = selection_mode
+            if selection_note:
+                item["selection_reason"] = selection_note
             if dry_run:
-                item.update({"status": "eligible", "reason": "Dry run: no affiliate link or Facebook comment was created."})
+                dry_run_reason = "Dry run: no affiliate link or Facebook comment was created."
+                if selection_note:
+                    dry_run_reason = f"{selection_note} {dry_run_reason}"
+                item.update({"status": "eligible", "reason": dry_run_reason})
                 result["items"].append(item)
                 continue
             record: dict = {}
@@ -721,11 +914,14 @@ def run_affiliate_backfill(
                 comment_id, comment_error = post_facebook_source_comment(
                     facebook,
                     facebook_full_post_id(facebook, post_id, page),
-                    affiliate_comment_text(affiliate_url),
+                    affiliate_comment_text(affiliate_url, fallback=selection_mode == "random_high_commission"),
                     facebook_page_access_token(facebook, page),
                     attempts=1,
                     attachment_url=affiliate_url,
-                    fallback_message=affiliate_comment_fallback_text(affiliate_url),
+                    fallback_message=affiliate_comment_fallback_text(
+                        affiliate_url,
+                        fallback=selection_mode == "random_high_commission",
+                    ),
                 )
                 if not comment_id:
                     affiliate_store.update_content_product(
@@ -744,7 +940,10 @@ def run_affiliate_backfill(
                     status="commented",
                     error="",
                 )
-                item.update({"status": "commented", "reason": "Affiliate source comment posted."})
+                posted_reason = "Affiliate source comment posted."
+                if selection_note:
+                    posted_reason = f"{selection_note} {posted_reason}"
+                item.update({"status": "commented", "reason": posted_reason})
                 result["commented"] += 1
             except (RuntimeError, TypeError, ValueError) as exc:
                 record_id = str(record.get("id") or "")
