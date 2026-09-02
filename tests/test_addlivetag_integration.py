@@ -149,6 +149,24 @@ class AddLiveTagIntegrationTests(unittest.TestCase):
         self.assertEqual(result["link"]["affiliate_url"], "https://s.shopee.vn/brand-account?affiliate_id=aff-123")
         generate.assert_called_once()
 
+    def test_cached_addlivetag_provenance_cannot_be_overridden_by_shopee_provider(self):
+        product = affiliate_store.upsert_product({
+            "provider": "shopee",
+            "provider_product_id": "1589295236",
+            "name": "Áo len thử nghiệm",
+            "origin_url": PRODUCT_URL,
+            "raw": {"_aurex_link_provider": "addlivetag"},
+        })
+        with self.assertRaisesRegex(AddLiveTagApiError, "provenance"):
+            create_affiliate_link(
+                brand="knowzy",
+                content_id="forged-provider",
+                product_id=product["id"],
+                affiliate_url="https://s.shopee.vn/wrong?affiliate_id=another-account",
+                link_provider="shopee",
+                page_id="page-1",
+            )
+
     def test_addlivetag_rejects_an_explicit_link_from_another_account(self):
         with self.assertRaisesRegex(AddLiveTagApiError, "khác Brand"):
             create_affiliate_link(

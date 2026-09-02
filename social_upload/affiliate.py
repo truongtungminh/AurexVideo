@@ -452,6 +452,7 @@ def create_affiliate_link(
     brand = canonical_brand(brand)
     content_id = str(content_id or "").strip()
     placement = str(placement or "first_comment").strip().lower()
+    link_provider = str(link_provider or "").strip().lower()
     if not brand or not content_id:
         raise ValueError("Affiliate link cần Brand và content/project id.")
     if placement not in AFFILIATE_PLACEMENTS:
@@ -491,12 +492,14 @@ def create_affiliate_link(
                 or ""
             ).strip()
     raw_product = product.get("raw") if isinstance(product.get("raw"), dict) else {}
-    link_provider = str(
-        link_provider
+    stored_link_provider = str(
+        raw_product.get("_aurex_link_provider")
         or product.get("link_provider")
-        or raw_product.get("_aurex_link_provider")
         or ""
     ).strip().lower()
+    if stored_link_provider and link_provider and stored_link_provider != link_provider:
+        raise AddLiveTagApiError("Link provider không khớp provenance của sản phẩm.")
+    link_provider = stored_link_provider or link_provider
     if reuse_product_offer_url and link_provider != "addlivetag" and not affiliate_url:
         affiliate_url = str(product.get("offer_url") or "").strip()
     if not origin_url and not affiliate_url:
