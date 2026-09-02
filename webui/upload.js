@@ -21,6 +21,11 @@ async function api(url, options = {}) {
   return payload;
 }
 
+function queryString(params) {
+  const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value));
+  return query.size ? `?${query}` : "";
+}
+
 function option(value, label, selected = false) {
   const node = document.createElement("option");
   node.value = value;
@@ -149,18 +154,22 @@ async function loadAffiliateContext() {
   const affiliate = context.affiliate || {};
   const settings = affiliate.settings || {};
   const connection = affiliate.connection || {};
-  const addLiveTag = affiliate.addlivetag || {};
+  const pool = affiliate.pool || {};
+  const brand = context.selected_brand || context.project_brand || "—";
+  const poolStatus = pool.configured
+    ? `Pool Shopee ${pool.enabled || 0}/${pool.total || 0} sản phẩm đang bật`
+    : "Pool Shopee đang trống";
   elements.affiliateMode.value = settings.enabled ? (settings.mode || "manual") : "off";
   elements.affiliatePlacement.value = settings.placement || "first_comment";
   elements.affiliateQuery.value = "";
   elements.affiliateAutoComment.checked = ["first_comment", "caption_and_comment"].includes(elements.affiliatePlacement.value);
-  elements.affiliateStatus.textContent = addLiveTag.enabled
-    ? `AUTO qua AddLiveTag thử nghiệm${addLiveTag.affiliate_id_configured ? " · đã có Affiliate ID" : " · cần Affiliate ID để tạo link"} · Brand ${context.selected_brand || context.project_brand || "—"}`
+  elements.affiliateStatus.textContent = settings.mode === "auto"
+    ? `${poolStatus} · AUTO chỉ dùng sản phẩm đã duyệt · Brand ${brand}`
     : connection.connected
-      ? `Đã kết nối ${connection.display_name || "Shopee Affiliate"} · Brand ${context.selected_brand || context.project_brand || "—"}`
-      : (connection.message || "Chưa cấu hình Shopee Affiliate cho Brand này.");
+      ? `Đã kết nối ${connection.display_name || "Shopee Affiliate"} · Brand ${brand}`
+      : (connection.message || `${poolStatus} · Brand ${brand}`);
   elements.affiliateDashboardLink.href = `/affiliate${context.selected_brand ? `?brand=${encodeURIComponent(context.selected_brand)}` : ""}`;
-  elements.affiliateSearchButton.disabled = !connection.connected && !addLiveTag.enabled;
+  elements.affiliateSearchButton.disabled = !connection.connected && !pool.configured;
   renderAffiliateProduct();
 }
 
@@ -169,21 +178,27 @@ async function searchAffiliateProducts() {
   if (!brand) return showToast("Project chưa có Brand để tìm sản phẩm.", true);
   const query = elements.affiliateQuery.value.trim();
   const mode = elements.affiliateMode.value || "off";
-  const addLiveTag = state.affiliateContext?.affiliate?.addlivetag || {};
   if (!query && mode !== "auto") return showToast("Nhập từ khoá sản phẩm trước.", true);
   elements.affiliateSearchButton.disabled = true;
   try {
-    const result = mode === "auto" && addLiveTag.enabled
-      ? await api("/api/affiliate/auto-resolve", {
-        method: "POST",
-        body: JSON.stringify({ project: state.selected, brand, reference: query }),
-      })
-      : await api(`/api/affiliate/products?brand=${encodeURIComponent(brand)}&project=${encodeURIComponent(state.selected)}&query=${encodeURIComponent(query)}`);
-    state.affiliateProduct = result.product || result.products?.[0] || null;
-    state.affiliateLink = "";
+    let result;
+    const poolConfigured = Boolean(state.affiliateContext?.affiliate?.pool?.configured);
+    if (mode === "auto" || (!state.affiliateContext?.affiliate?.connection?.connected && poolConfigured)) {
+      result = await api(`/api/affiliate/pool${queryString({ brand, q: query, enabledOnly: "true", limit: 50 })}`);
+      let products = result.products || result.items || [];
+      if (!products.length && query) {
+        result = await api(`/api/affiliate/pool${queryString({ brand, enabledOnly: "true", limit: 50 })}`);
+        products = result.products || result.items || [];
+      }
+      state.affiliateProduct = products[0] || null;
+    } else {
+      result = await api(`/api/affiliate/products?brand=${encodeURIComponent(brand)}&project=${encodeURIComponent(state.selected)}&query=${encodeURIComponent(query)}`);
+      state.affiliateProduct = result.product || result.products?.[0] || null;
+    }
+    state.affiliateLink = state.affiliateProduct?.affiliate_url || "";
     renderAffiliateProduct();
     if (!state.affiliateProduct) showToast("Không có sản phẩm phù hợp.", true);
-    else showToast(mode === "auto" && addLiveTag.enabled ? "Đã lấy sản phẩm qua AddLiveTag." : "Đã chọn sản phẩm có điểm phù hợp nhất.");
+    else showToast(mode === "auto" ? "Đã chọn sản phẩm trong Pool Shopee." : "Đã chọn sản phẩm có điểm phù hợp nhất.");
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -203,9 +218,12 @@ async function generateAffiliateLink() {
         project: state.selected,
         brand,
         productId: state.affiliateProduct.id,
+        originUrl: state.affiliateProduct.origin_url || "",
+        affiliateUrl: state.affiliateLink || state.affiliateProduct.affiliate_url || "",
         placement: elements.affiliatePlacement.value,
         pageId,
         linkProvider: state.affiliateProduct.link_provider || "",
+        product: state.affiliateProduct,
       }),
     });
     state.affiliateLink = result.link?.affiliate_url || "";
@@ -227,8 +245,9 @@ function readAffiliatePayload() {
     query: elements.affiliateQuery?.value.trim() || "",
     productId: state.affiliateProduct?.id || "",
     originUrl: state.affiliateProduct?.origin_url || "",
-    affiliateUrl: state.affiliateLink || "",
+    affiliateUrl: state.affiliateLink || state.affiliateProduct?.affiliate_url || "",
     linkProvider: state.affiliateProduct?.link_provider || state.affiliateProduct?.raw?._aurex_link_provider || "",
+    product: state.affiliateProduct || null,
     autoComment: Boolean(elements.affiliateAutoComment?.checked),
   };
 }
