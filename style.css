@@ -181,27 +181,26 @@ body {
 .quiz-answer {
   width: 100%;
 
-  font-family:
-    "Arial Rounded MT Bold",
-    "Arial Black",
-    Arial,
-    sans-serif;
-
-  color: #fff;
-
-  font-size: 6.2cqw;
+  font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
   font-weight: 900;
+  font-size: 6.2cqw;
   line-height: 1.02;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.045em;
 
   white-space: pre-wrap;
   text-wrap: balance;
   text-align: center;
 
-  -webkit-text-stroke: 0.45cqw #0b0b0b;
+  /* Ruột chữ */
+  color: #ffffff;
+
+  /* Viền đen dày giống mẫu */
+  -webkit-text-stroke: 0.72cqw #080808;
   paint-order: stroke fill;
 
-  text-shadow: none;
+  /* Bóng comic cứng */
+  text-shadow:
+    0 0.72cqw 0 #080808;
 
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
