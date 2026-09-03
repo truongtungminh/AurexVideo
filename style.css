@@ -166,6 +166,7 @@ body {
   z-index: -1;
 }
 */
+
 .quiz-question-card::after {
   left: calc(57% + 0.65cqw);
   bottom: -4.85cqw;
