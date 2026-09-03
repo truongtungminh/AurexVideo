@@ -108,6 +108,13 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertIn("editor-mode-quiz", editor)
         self.assertIn("addComparisonButton.hidden", editor)
 
+    def test_quiz_keeps_primary_image_slot_visible_when_base_comparison_is_disabled(self) -> None:
+        editor = (ENGINE_ROOT / "webui" / "editor.js").read_text(encoding="utf-8")
+        styles = (ENGINE_ROOT / "webui" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('block.hidden = !isQuizProject() && !baseComparisonEnabled();', editor)
+        self.assertNotIn('.editor-mode-quiz .comparison-block-primary,', styles)
+        self.assertIn('.editor-mode-quiz .comparison-list,', styles)
+
 
 if __name__ == "__main__":
     unittest.main()

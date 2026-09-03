@@ -672,7 +672,10 @@ function baseComparisonEnabled() {
 
 function syncBaseComparisonVisibility() {
   const block = document.querySelector(".comparison-block-primary");
-  if (block) block.hidden = !baseComparisonEnabled();
+  // Quiz projects use the primary comparison block as their single image
+  // slot. Their comparison contract disables the base-comparison flag, but
+  // that must not hide the only editable image in the editor.
+  if (block) block.hidden = !isQuizProject() && !baseComparisonEnabled();
 }
 
 function comparisonSides(comparison) {
