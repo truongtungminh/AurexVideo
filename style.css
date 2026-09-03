@@ -183,17 +183,15 @@ top: 280px !important;
 }
 
 .quiz-question {
-  width: 100%;
   font-family: "Arial Rounded MT Bold", "Arial", sans-serif;
-  color: #ffffff;
-  font-size: 7.2cqw;
-  font-weight: 950;
-  line-height: 1.02;
-  letter-spacing: -0.045em;
-  white-space: pre-wrap;
-  text-wrap: balance;
-  -webkit-text-stroke: 0.48cqw #0b0b0b;
-  text-shadow: 0 0.72cqw 0 #0b0b0b, 0 0.95cqw 0.2cqw rgba(0, 0, 0, 0.18);
+  font-size: 72px;
+  font-weight: 900;
+  line-height: 1.3;
+  color: #fff;
+  -webkit-text-stroke: 5px #0b0b0b;
+  paint-order: stroke fill;
+  text-shadow:
+    0 8px 10px rgba(0, 0, 0, .18);
 }
 
 .quiz-countdown-wrap {

@@ -1861,7 +1861,7 @@ def render_simple_player_html(project: str) -> bytes:
   <script>if (window.__TAURI_INTERNALS__ && /Mac/.test(navigator.platform)) document.documentElement.classList.add('tauri-macos');</script>
   <main class="player-stage" aria-label="Trình phát video">
     <a class="player-action player-back" href="{dashboard_url}">← Quay lại</a>
-    <video controls autoplay playsinline preload="metadata" src="{video_url}">Trình duyệt không hỗ trợ phát video.</video>
+    <video controls autoplay playsinline preload="auto" src="{video_url}">Trình duyệt không hỗ trợ phát video.</video>
     <a class="player-action player-edit" href="{editor_url}">✎ Sửa</a>
   </main>
   <script>
