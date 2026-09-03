@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Người dẫn chuyện - One Scene Video</title>
-    <link rel="stylesheet" href="style.css?v=20260903-quiz-answer-1" />
+    <link rel="stylesheet" href="style.css?v=20260903-quiz-css-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -40,9 +40,15 @@
 
         <div class="karaoke" id="karaoke" aria-live="polite"></div>
         <div class="quiz-text" id="quizText" aria-live="polite" hidden>
-          <div class="quiz-question" id="quizQuestion"></div>
-          <div class="quiz-countdown" id="quizCountdown"></div>
-          <div class="quiz-answer" id="quizAnswer"></div>
+          <div class="quiz-question-card">
+            <div class="quiz-question" id="quizQuestion"></div>
+          </div>
+          <div class="quiz-countdown-wrap">
+            <div class="quiz-countdown" id="quizCountdown"></div>
+          </div>
+          <div class="quiz-answer-card">
+            <div class="quiz-answer" id="quizAnswer"></div>
+          </div>
         </div>
 
         <div class="teacher-wrap" id="teacherWrap">
