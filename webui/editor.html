@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Editor · Video so sánh</title>
+    <title>Editor · Video quiz</title>
     <script>document.documentElement.dataset.theme=localStorage.getItem('aurexvideo-theme')==='dark'?'dark':'light';</script>
     <link rel="stylesheet" href="/webui/styles.css?v=20260809-multispeaker-segments" />
   </head>
@@ -48,7 +48,7 @@
             <div class="content-layout">
               <div class="content-primary">
                 <section class="comparison-block comparison-block-primary">
-                  <div class="comparison-primary-heading"><strong>So sánh 1</strong><button class="button tiny danger comparison-remove" id="deleteBaseComparison" type="button">Xoá</button></div>
+                  <div class="comparison-primary-heading"><strong id="primaryComparisonTitle">So sánh 1</strong><button class="button tiny danger comparison-remove" id="deleteBaseComparison" type="button">Xoá</button></div>
                   <div class="form-grid comparison-label-grid">
                     <div class="comparison-label-field"><label class="sr-only" for="leftLabelInput">Nhãn bên trái</label><div><input id="leftLabelInput" required /><input id="leftLabelColor" class="label-color-input" type="color" value="#090909" aria-label="Màu nhãn bên trái" title="Màu nhãn bên trái" /></div></div>
                     <div class="comparison-label-field"><label class="sr-only" for="rightLabelInput">Nhãn bên phải</label><div><input id="rightLabelInput" required /><input id="rightLabelColor" class="label-color-input" type="color" value="#090909" aria-label="Màu nhãn bên phải" title="Màu nhãn bên phải" /></div></div>

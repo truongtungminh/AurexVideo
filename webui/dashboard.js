@@ -65,14 +65,15 @@ function renderDependencies(dependencies = {}) {
 
 function cardHtml(project) {
   const selected = project.id === state.selected;
+  const isQuiz = project.projectType === "quiz";
   const cover = project.previewUrl
     ? `<img src="${escapeHtml(project.previewUrl)}?v=${encodeURIComponent(project.updatedAt)}" alt="Preview ${escapeHtml(project.id)}" />`
-    : `<div class="cover-placeholder"><strong>${escapeHtml(project.leftLabel)}<br />vs<br />${escapeHtml(project.rightLabel)}</strong></div>`;
+    : `<div class="cover-placeholder"><strong>${escapeHtml(project.leftLabel)}${isQuiz ? "" : `<br />vs<br />${escapeHtml(project.rightLabel)}`}</strong></div>`;
   return `<article class="project-card ${selected ? "selected" : ""}" data-project="${escapeHtml(project.id)}">
     <div class="project-cover">${cover}<span class="duration">${formatDuration(project.duration)}</span></div>
     <div class="project-body">
-      <h3>${escapeHtml(project.leftLabel)} · ${escapeHtml(project.rightLabel)}</h3>
-      <p>${escapeHtml(project.id)}</p>
+      <h3>${escapeHtml(project.leftLabel)}${isQuiz ? "" : ` · ${escapeHtml(project.rightLabel)}`}</h3>
+      <p>${escapeHtml(project.id)}${isQuiz ? " · Quiz · 1 ảnh" : ""}</p>
       <div class="project-meta"><span>${project.segmentCount} nhịp thoại</span><span>${relativeTime(project.updatedAt)}</span></div>
       <div class="project-actions project-actions-wide">
         <button class="button ${selected ? "secondary" : "primary"}" data-action="select">${selected ? "Đang chọn" : "Chọn render"}</button>
