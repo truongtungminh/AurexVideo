@@ -1450,6 +1450,14 @@ function renderQuizText(time) {
   const elapsed = Math.max(0, Number(time) - (Number(pair.question?.start) || 0));
   const answer = String(pair.answer?.text || "").trim();
   const answerVisible = Boolean(answer) && elapsed >= delay;
+  const style = (key, fallback) => String(topic?.[key] || fallback);
+  elements.quizQuestion.style.fontFamily = style("quizQuestionFontFamily", '"Inter", sans-serif');
+  elements.quizQuestion.style.color = style("quizQuestionColor", "#ffffff");
+  elements.quizQuestion.style.fontSize = `${Number(topic?.quizQuestionSize) || 7.2}cqw`;
+  elements.quizCountdown.style.color = style("quizCountdownColor", "#ffd166");
+  elements.quizAnswer.style.fontFamily = style("quizAnswerFontFamily", '"Inter", sans-serif');
+  elements.quizAnswer.style.color = style("quizAnswerColor", "#ffffff");
+  elements.quizAnswer.style.fontSize = `${Number(topic?.quizAnswerSize) || 6.2}cqw`;
   elements.quizText.hidden = false;
   elements.quizQuestion.textContent = String(pair.question?.text || "").trim();
   elements.quizCountdown.textContent = answerVisible ? "" : `${Math.max(0, Math.ceil(delay - elapsed))}`;

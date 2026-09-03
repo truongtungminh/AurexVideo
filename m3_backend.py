@@ -1802,9 +1802,22 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         except (TypeError, ValueError):
             answer_delay = 5.0
         topic["quizAnswerDelay"] = round(max(0.5, min(60.0, answer_delay)), 2)
+        topic["quizQuestionFontFamily"] = normalize_label_font_family(payload.get("quizQuestionFontFamily", current.get("quizQuestionFontFamily")), DEFAULT_LABEL_FONT_FAMILY)
+        topic["quizAnswerFontFamily"] = normalize_label_font_family(payload.get("quizAnswerFontFamily", current.get("quizAnswerFontFamily")), DEFAULT_LABEL_FONT_FAMILY)
+        topic["quizQuestionColor"] = normalize_hex_color(payload.get("quizQuestionColor", current.get("quizQuestionColor", "#ffffff")), "#ffffff")
+        topic["quizCountdownColor"] = normalize_hex_color(payload.get("quizCountdownColor", current.get("quizCountdownColor", "#ffd166")), "#ffd166")
+        topic["quizAnswerColor"] = normalize_hex_color(payload.get("quizAnswerColor", current.get("quizAnswerColor", "#ffffff")), "#ffffff")
+        for key, fallback in (("quizQuestionSize", 7.2), ("quizAnswerSize", 6.2)):
+            try:
+                value = float(payload.get(key, current.get(key, fallback)))
+            except (TypeError, ValueError):
+                value = fallback
+            topic[key] = round(max(4.0, min(12.0, value)), 1)
     else:
         topic.pop("quizAnswer", None)
         topic.pop("quizAnswerDelay", None)
+        for key in ("quizQuestionFontFamily", "quizAnswerFontFamily", "quizQuestionColor", "quizCountdownColor", "quizAnswerColor", "quizQuestionSize", "quizAnswerSize"):
+            topic.pop(key, None)
     if topic["projectType"] == "custom":
         topic["slides"] = normalize_custom_slides(payload.get("slides", current.get("slides")), len(cleaned_segments))
         topic["intro"] = normalize_custom_intro(payload.get("intro", current.get("intro")))
@@ -2427,6 +2440,13 @@ def create_project(payload: dict) -> dict:
         "segments": [{"start": 0.0, "end": 1.0, "text": starter_text}],
         "quizAnswer": "" if project_type == "quiz" else None,
         "quizAnswerDelay": 5.0 if project_type == "quiz" else None,
+        "quizQuestionFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
+        "quizAnswerFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
+        "quizQuestionColor": "#ffffff" if project_type == "quiz" else None,
+        "quizCountdownColor": "#ffd166" if project_type == "quiz" else None,
+        "quizAnswerColor": "#ffffff" if project_type == "quiz" else None,
+        "quizQuestionSize": 7.2 if project_type == "quiz" else None,
+        "quizAnswerSize": 6.2 if project_type == "quiz" else None,
         "characterId": character_id,
         "poseTimeline": [{"time": 0.0, "pose": first_pose}],
         "poseAssets": pose_assets,

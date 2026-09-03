@@ -151,6 +151,9 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertIn(".stage.quiz-text-only .media-slot", styles)
         self.assertNotIn(".stage.quiz-text-only .teacher-wrap", styles)
         self.assertIn("setPose(poseAt(time), time, allowPoseSfx);", app)
+        self.assertIn("quizQuestionFontFamily", app)
+        self.assertIn("quizQuestionSize", app)
+        self.assertIn("quizQuestionColor", app)
 
 
 if __name__ == "__main__":
