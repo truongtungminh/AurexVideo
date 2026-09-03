@@ -1797,6 +1797,11 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         if not raw_answer and len(cleaned_segments) > 1:
             raw_answer = cleaned_segments[1]["text"]
         topic["quizAnswer"] = raw_answer
+        countdown_sound = payload.get(
+            "quizCountdownSound",
+            current.get("quizCountdownSound", "audio/quiz-countdown.wav"),
+        )
+        topic["quizCountdownSound"] = safe_relative_asset(countdown_sound, "quizCountdownSound")
         try:
             answer_delay = float(payload.get("quizAnswerDelay", current.get("quizAnswerDelay", 5)))
         except (TypeError, ValueError):
@@ -1816,6 +1821,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     else:
         topic.pop("quizAnswer", None)
         topic.pop("quizAnswerDelay", None)
+        topic.pop("quizCountdownSound", None)
         for key in ("quizQuestionFontFamily", "quizAnswerFontFamily", "quizQuestionColor", "quizCountdownColor", "quizAnswerColor", "quizQuestionSize", "quizAnswerSize"):
             topic.pop(key, None)
     if topic["projectType"] == "custom":
@@ -2269,6 +2275,7 @@ def create_project(payload: dict) -> dict:
     audio_dir = destination / "audio"
     assets_dir.mkdir()
     audio_dir.mkdir()
+    defaults_assets = project_defaults_assets_root()
 
     def write_placeholder(path: Path, label: str, accent: str) -> None:
         path.write_text(
@@ -2299,6 +2306,23 @@ def create_project(payload: dict) -> dict:
         wav.setframerate(48000)
         wav.writeframes(b"\x00\x00" * 48000)
 
+    quiz_countdown_sound = ""
+    if project_type == "quiz":
+        # Quiz projects need a real countdown bed from the moment they are
+        # created. Keep the path project-local so preview and render work even
+        # when the shared defaults directory is not available later.
+        configured_sound = str(defaults.get("quizCountdownSound") or "audio/quiz-countdown.wav").strip()
+        quiz_countdown_sound = configured_sound
+        sound_candidates = [
+            _resolve_under_root(defaults_assets, configured_sound),
+            _resolve_under_root(ROOT / "config" / "project-defaults-assets", configured_sound),
+        ]
+        source = next((candidate for candidate in sound_candidates if candidate is not None), None)
+        if source is not None:
+            target = audio_dir / f"quiz-countdown{source.suffix.lower() or '.wav'}"
+            shutil.copy2(source, target)
+            quiz_countdown_sound = target.relative_to(destination).as_posix()
+
     starter_text = normalize_display_text(
         "Enter your first line here." if is_en else "Nhập nội dung đầu tiên tại đây."
     )
@@ -2321,7 +2345,6 @@ def create_project(payload: dict) -> dict:
     default_pose_sfx.update(remembered_pose_sfx(character_id, pose_assets, custom_catalog))
 
     sfx_map = dict(DEFAULT_SFX)
-    defaults_assets = project_defaults_assets_root()
     used_custom = {
         key for key in default_pose_sfx.values()
         if key and key not in DEFAULT_SFX and key in custom_catalog
@@ -2440,6 +2463,7 @@ def create_project(payload: dict) -> dict:
         "segments": [{"start": 0.0, "end": 1.0, "text": starter_text}],
         "quizAnswer": "" if project_type == "quiz" else None,
         "quizAnswerDelay": 5.0 if project_type == "quiz" else None,
+        "quizCountdownSound": quiz_countdown_sound if project_type == "quiz" else None,
         "quizQuestionFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
         "quizAnswerFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
         "quizQuestionColor": "#ffffff" if project_type == "quiz" else None,

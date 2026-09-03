@@ -167,6 +167,11 @@ body {
 }
 */
 
+.teacher-wrap.custom-character.character-quizz .teacher {
+top: 260px !important;
+}
+
+
 .quiz-question-card::after {
   left: calc(57% + 0.65cqw);
   bottom: -4.85cqw;

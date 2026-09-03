@@ -12,6 +12,7 @@
   "backgroundMusic": "",
   "backgroundMusicEnabled": false,
   "backgroundMusicVolume": 0.18,
+  "quizCountdownSound": "audio/quiz-countdown.wav",
   "poseSfxByCharacter": {
     "hieu-ham-hoc": {
       "neutral-left": "pose-hard-pop-click",
