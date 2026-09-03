@@ -1420,6 +1420,10 @@ function quizAnswerStartTime() {
   return Math.max(0, Number.isFinite(configured) ? configured : 5);
 }
 
+function quizCountdownSoundPath() {
+  return String(topic?.quizCountdownSound || (isQuizProject() ? "audio/quiz-countdown.wav" : "")).trim();
+}
+
 function quizAnswerText() {
   const raw = String(topic?.quizAnswer || "").trim();
   if (!raw) return "";
@@ -1447,7 +1451,11 @@ function renderQuizText(time) {
     return;
   }
   const delay = quizAnswerStartTime();
-  const elapsed = Math.max(0, Number(time) - (Number(pair.question?.start) || 0));
+  // The countdown begins after the question narration finishes, not when the
+  // question scene starts. Rendered audio uses the same question end marker.
+  const questionStart = Number(pair.question?.start) || 0;
+  const questionEnd = Math.max(questionStart, Number(pair.question?.end) || questionStart);
+  const elapsed = Math.max(0, Number(time) - questionEnd);
   const answer = String(pair.answer?.text || "").trim();
   const answerVisible = Boolean(answer) && elapsed >= delay;
   const style = (key, fallback) => String(topic?.[key] || fallback);
