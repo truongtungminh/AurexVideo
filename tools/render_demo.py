@@ -231,9 +231,18 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
                 command.extend(["-i", str(countdown_path)])
                 label = f"countdown{input_index}"
                 delay_ms = round(start * 1000)
-                filters.append(
+                countdown_filters = (
                     f"[{input_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
-                    f"atrim=0:{countdown_duration:.3f},asetpts=PTS-STARTPTS,"
+                    f"atrim=0:{countdown_duration:.3f},asetpts=PTS-STARTPTS"
+                )
+                # The supplied countdown contains a short accent near its
+                # tail. Fade the exact 5-second clip edge to avoid a click
+                # when the answer narration starts, without modifying the
+                # source asset stored in the project.
+                if countdown_duration > 0.12:
+                    countdown_filters += f",afade=t=out:st={countdown_duration - 0.12:.3f}:d=0.12"
+                filters.append(
+                    countdown_filters + ","
                     f"adelay={delay_ms}:all=1,volume={float(topic.get('quizCountdownVolume', 0.3)):.3f}[{label}]"
                 )
                 mix_inputs.append(f"[{label}]")

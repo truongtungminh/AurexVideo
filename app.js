@@ -1471,8 +1471,9 @@ function renderQuizText(time) {
   // question scene starts. Rendered audio uses the same question end marker.
   const questionStart = Number(pair.question?.start) || 0;
   const questionEnd = Math.max(questionStart, Number(pair.question?.end) || questionStart);
-  const elapsed = Math.max(0, Number(time) - questionEnd);
+  const elapsed = Number(time) - questionEnd;
   const answer = String(pair.answer?.text || "").trim();
+  const countdownActive = elapsed >= 0 && elapsed < delay;
   const answerVisible = Boolean(answer) && elapsed >= delay;
   const style = (key, fallback) => String(topic?.[key] || fallback);
   elements.quizQuestion.style.fontFamily = style("quizQuestionFontFamily", '"Inter", sans-serif');
@@ -1484,7 +1485,9 @@ function renderQuizText(time) {
   elements.quizAnswer.style.fontSize = `${Number(topic?.quizAnswerSize) || 6.2}cqw`;
   elements.quizText.hidden = false;
   elements.quizQuestion.textContent = String(pair.question?.text || "").trim();
-  elements.quizCountdown.textContent = answerVisible ? "" : `${Math.max(0, Math.ceil(delay - elapsed))}`;
+  elements.quizCountdown.textContent = countdownActive
+    ? `${Math.max(1, Math.ceil(delay - elapsed))}`
+    : "";
   elements.quizAnswer.textContent = answerVisible
     ? (/^(?:đáp án là|answer is)\s*/iu.test(answer) ? answer : `Đáp án là ${answer}`)
     : "";
