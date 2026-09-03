@@ -20,22 +20,22 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         topic = {
             "projectType": "quiz",
             "quizAnswerDelay": 5,
-            "duration": 10,
+            "duration": 14,
             "segments": [
                 {"start": 0, "end": 4, "text": "Question 1"},
-                {"start": 4.5, "text": "Answer 1"},
+                {"start": 4.5, "end": 7, "text": "Answer 1"},
                 {"start": 7, "end": 10, "text": "Question 2"},
-                {"start": 11, "text": "Answer 2"},
+                {"start": 11, "end": 13, "text": "Answer 2"},
             ],
         }
-        self.assertEqual(quiz_audio_insertions(topic, 1, 10), [(4, 4.5), (10, 4.0)])
+        self.assertEqual(quiz_audio_insertions(topic, 1, 14), [(4, 4.5), (7, 2.0), (10, 4.0), (13, 2.0)])
         self.assertEqual(
             quiz_audio_insertions({"projectType": "comparison", "segments": topic["segments"]}, 1),
             [],
         )
-        shifted = quiz_segments_after_audio_pause(topic, 10, 1)
+        shifted = quiz_segments_after_audio_pause(topic, 14, 1)
         self.assertEqual((shifted[0]["start"], shifted[0]["end"]), (0.0, 4.0))
-        self.assertEqual(shifted[2]["start"], 11.5)
+        self.assertEqual(shifted[2]["start"], 13.5)
 
     def test_quiz_countdown_sound_is_configured_for_project_render(self) -> None:
         topic = json.loads(
