@@ -112,7 +112,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         editor = (ENGINE_ROOT / "webui" / "editor.js").read_text(encoding="utf-8")
         styles = (ENGINE_ROOT / "webui" / "styles.css").read_text(encoding="utf-8")
         self.assertIn('block.hidden = !isQuizProject() && !baseComparisonEnabled();', editor)
-        self.assertNotIn('.editor-mode-quiz .comparison-block-primary,', styles)
+        self.assertIn('.editor-mode-quiz .comparison-block-primary,', styles)
         self.assertIn('.editor-mode-quiz .comparison-list,', styles)
 
     def test_quiz_normalizes_answer_and_uses_five_second_delay(self) -> None:
@@ -137,8 +137,20 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                     "comparisons": [{"id": "quiz-image-1", "layout": "single", "startSentence": 1,
                         "leftLabel": "Ảnh Quiz", "rightLabel": "", "leftImage": "assets/placeholder-left.svg", "rightImage": ""}],
                 })
-            self.assertEqual(saved["quizAnswer"], "cái hố.")
+            self.assertEqual(saved["quizAnswer"], "Đáp án là cái hố.")
             self.assertEqual(saved["quizAnswerDelay"], 5.0)
+
+    def test_quiz_text_renderer_uses_question_answer_pairs_and_hides_images(self) -> None:
+        app = (ENGINE_ROOT / "app.js").read_text(encoding="utf-8")
+        index = (ENGINE_ROOT / "index.html").read_text(encoding="utf-8")
+        styles = (ENGINE_ROOT / "style.css").read_text(encoding="utf-8")
+        self.assertIn("function quizPairs()", app)
+        self.assertIn("Math.ceil(delay - elapsed)", app)
+        self.assertIn('elements.stage.classList.toggle("quiz-text-only", isQuizProject());', app)
+        self.assertIn('id="quizQuestion"', index)
+        self.assertIn(".stage.quiz-text-only .media-slot", styles)
+        self.assertNotIn(".stage.quiz-text-only .teacher-wrap", styles)
+        self.assertIn("setPose(poseAt(time), time, allowPoseSfx);", app)
 
 
 if __name__ == "__main__":

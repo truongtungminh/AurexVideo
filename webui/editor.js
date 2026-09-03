@@ -1132,7 +1132,7 @@ function previewDurationFor(lines) {
   // silent 1-second placeholder, which must not squeeze multiple sentences
   // into one second before the user uploads/generates real voiceover.
   const suggested = isQuizProject()
-    ? Math.max(7.5, lines.length * 2.4)
+    ? Math.max(7.5, Math.ceil(lines.length / 2) * 7.5)
     : Math.max(2.5, lines.length * 2.4);
   return hasPlaceholderVoiceover()
     ? Math.max(Number(state.topic?.duration) || 0, suggested)
@@ -1365,7 +1365,7 @@ function draftTopic(forceRetime = false) {
     leftSubLabelColor: elements.leftSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
     rightSubLabelColor: elements.rightSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
     comparisons,
-    quizAnswer: isQuizProject() ? String(state.topic.quizAnswer || segments[1]?.text || "").replace(/^(?:đáp án là|answer is)\s*/iu, "").trim() : "",
+    quizAnswer: isQuizProject() ? String(segments[1]?.text || state.topic.quizAnswer || "").trim() : "",
     quizAnswerDelay: isQuizProject() ? Number(state.topic.quizAnswerDelay || 5) : undefined,
     duration,
     leftImageZoom: left.zoom,

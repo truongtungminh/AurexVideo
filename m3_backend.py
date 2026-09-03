@@ -1796,7 +1796,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         raw_answer = normalize_display_text(payload.get("quizAnswer", current.get("quizAnswer", "")), "", 300)
         if not raw_answer and len(cleaned_segments) > 1:
             raw_answer = cleaned_segments[1]["text"]
-        topic["quizAnswer"] = re.sub(r"^(?:đáp án là|answer is)\s*", "", raw_answer, flags=re.IGNORECASE).strip()
+        topic["quizAnswer"] = raw_answer
         try:
             answer_delay = float(payload.get("quizAnswerDelay", current.get("quizAnswerDelay", 5)))
         except (TypeError, ValueError):
