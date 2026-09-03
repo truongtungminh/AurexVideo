@@ -1,14 +1,14 @@
 {
-  "characterId": "bietchichomet",
-  "karaokeColor": "#ffffff",
-  "karaokeActiveColor": "#ff2600",
+  "characterId": "default-human",
+  "karaokeColor": "#271f11",
+  "karaokeActiveColor": "#de370d",
   "karaokeSize": 1.2,
-  "backgroundType": "image",
-  "backgroundColor": "#0d0d0c",
+  "backgroundType": "default",
+  "backgroundColor": "#f5eee3",
   "backgroundImageZoom": 1.0,
   "backgroundImageX": 0.0,
   "backgroundImageY": 0.0,
-  "backgroundImage": "backgrounds/background.png",
+  "backgroundImage": "",
   "backgroundMusic": "",
   "backgroundMusicEnabled": false,
   "backgroundMusicVolume": 0.18,
@@ -42,6 +42,13 @@
       "pose-3": "pose-bubble-pop",
       "pose-4": "pose-explainer-pop-whoosh",
       "pose-5": "pose-explainer-pop-whoosh"
+    },
+    "default-human": {
+      "neutral-left": "pose-hard-pop-click",
+      "neutral-right": "pose-hard-pop-click",
+      "question": "pose-bubble-pop",
+      "smile-left": "pose-explainer-pop-whoosh",
+      "smile-right": "pose-explainer-pop-whoosh"
     }
   },
   "customSfx": {},
@@ -53,12 +60,14 @@
   "labelFontByCharacter": {
     "engzy": "\"Be Vietnam Pro\", \"Inter\", sans-serif",
     "factverse": "\"Manrope\", \"Inter\", sans-serif",
-    "bietchichomet": "\"Be Vietnam Pro\", \"Inter\", sans-serif"
+    "bietchichomet": "\"Be Vietnam Pro\", \"Inter\", sans-serif",
+    "default-human": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
   },
   "labelColorByCharacter": {
     "engzy": "#00f900",
     "factverse": "#090909",
-    "bietchichomet": "#090909"
+    "bietchichomet": "#090909",
+    "default-human": "#090909"
   },
   "customEditorDefaults": {
     "intro": {
