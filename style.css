@@ -184,6 +184,7 @@ top: 280px !important;
 
 .quiz-question {
   width: 100%;
+  font-family: "Arial Rounded MT Bold", "Arial", sans-serif;
   color: #ffffff;
   font-size: 7.2cqw;
   font-weight: 950;
