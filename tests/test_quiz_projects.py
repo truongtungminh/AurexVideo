@@ -12,9 +12,27 @@ ENGINE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_ROOT))
 
 import m3_backend as m3  # noqa: E402
+from tools.render_project import quiz_audio_insertions  # noqa: E402
 
 
 class NewProjectPageRegressionTests(unittest.TestCase):
+    def test_quiz_audio_insertions_hold_each_answer_until_five_seconds(self) -> None:
+        topic = {
+            "projectType": "quiz",
+            "quizAnswerDelay": 5,
+            "segments": [
+                {"start": 0, "text": "Question 1"},
+                {"start": 4.5, "text": "Answer 1"},
+                {"start": 7, "text": "Question 2"},
+                {"start": 11, "text": "Answer 2"},
+            ],
+        }
+        self.assertEqual(quiz_audio_insertions(topic, 1), [(4.5, 0.5), (11, 1.0)])
+        self.assertEqual(
+            quiz_audio_insertions({"projectType": "comparison", "segments": topic["segments"]}, 1),
+            [],
+        )
+
     def test_page_declares_project_type_before_quiz_sync_function(self) -> None:
         source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
         self.assertLess(source.index("const projectTypeInput"), source.index("const syncQuizProjectType"))
