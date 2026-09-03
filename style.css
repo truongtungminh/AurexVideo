@@ -274,8 +274,8 @@ body {
 .quiz-answer {
   font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
   width: 100%;
-  color: #ffffff;
-  font-size: 6.2cqw;
+  color: #ffffff !important;
+  font-size: 6.2cqw !important;
   font-weight: 950;
   line-height: 1.04;
   letter-spacing: -0.035em;
