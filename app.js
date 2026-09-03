@@ -16,6 +16,9 @@ const elements = {
   leftImage: document.querySelector("#leftImage"),
   rightImage: document.querySelector("#rightImage"),
   karaoke: document.querySelector("#karaoke"),
+  quizText: document.querySelector("#quizText"),
+  quizQuestion: document.querySelector("#quizQuestion"),
+  quizCountdown: document.querySelector("#quizCountdown"),
   quizAnswer: document.querySelector("#quizAnswer"),
   teacher: document.querySelector("#teacher"),
   teacherWrap: document.querySelector("#teacherWrap"),
@@ -1368,15 +1371,6 @@ async function syncPresenterToOfflineTimeline(event, timelineTime) {
 
 function renderKaraoke(time) {
   const activeIndex = activeWordAt(time);
-  if (isQuizProject() && activeIndex >= 0 && quizAnswerStartTime() > time
-    && timedWords[activeIndex].segmentStart >= quizAnswerSegmentStart()) {
-    if (lastKaraokeRenderKey !== "") {
-      elements.karaoke.classList.remove("visible");
-      elements.karaoke.replaceChildren();
-      lastKaraokeRenderKey = "";
-    }
-    return;
-  }
   if (activeIndex < 0) {
     if (lastKaraokeRenderKey !== "") {
       elements.karaoke.classList.remove("visible");
@@ -1421,38 +1415,60 @@ function isQuizProject(nextTopic = topic) {
   return String(nextTopic?.projectType || "").toLowerCase() === "quiz";
 }
 
-function quizAnswerSegmentStart() {
-  return Number(topic?.segments?.[1]?.start) || 0;
-}
-
 function quizAnswerStartTime() {
   const configured = Number(topic?.quizAnswerDelay);
   return Math.max(0, Number.isFinite(configured) ? configured : 5);
 }
 
 function quizAnswerText() {
-  const raw = String(topic?.quizAnswer || topic?.segments?.[1]?.text || "").trim();
+  const raw = String(topic?.quizAnswer || "").trim();
   if (!raw) return "";
-  return raw.replace(/^(?:đáp án là|answer is)\s*/iu, "").trim() || raw;
+  return /^(?:đáp án là|answer is)\s*/iu.test(raw) ? raw : `Đáp án là ${raw}`;
 }
 
-function renderQuizAnswer(time) {
-  if (!elements.quizAnswer) return;
-  const answer = isQuizProject() ? quizAnswerText() : "";
-  const visible = Boolean(answer) && time >= quizAnswerStartTime();
-  elements.quizAnswer.textContent = visible ? answer : "";
-  elements.quizAnswer.hidden = !visible;
-  elements.quizAnswer.classList.toggle("visible", visible);
+function quizPairs() {
+  const segments = Array.isArray(topic?.segments) ? topic.segments : [];
+  const pairs = [];
+  for (let index = 0; index + 1 < segments.length; index += 2) {
+    pairs.push({ question: segments[index], answer: segments[index + 1] });
+  }
+  return pairs;
+}
+
+function renderQuizText(time) {
+  if (!elements.quizText) return;
+  const pairs = quizPairs();
+  let pair = pairs[0];
+  pairs.forEach((candidate) => {
+    if (Number(candidate.question?.start) <= Number(time) + 0.001) pair = candidate;
+  });
+  if (!pair) {
+    elements.quizText.hidden = true;
+    return;
+  }
+  const delay = quizAnswerStartTime();
+  const elapsed = Math.max(0, Number(time) - (Number(pair.question?.start) || 0));
+  const answer = String(pair.answer?.text || "").trim();
+  const answerVisible = Boolean(answer) && elapsed >= delay;
+  elements.quizText.hidden = false;
+  elements.quizQuestion.textContent = String(pair.question?.text || "").trim();
+  elements.quizCountdown.textContent = answerVisible ? "" : `${Math.max(0, Math.ceil(delay - elapsed))}`;
+  elements.quizAnswer.textContent = answerVisible
+    ? (/^(?:đáp án là|answer is)\s*/iu.test(answer) ? answer : `Đáp án là ${answer}`)
+    : "";
 }
 
 function renderAt(time, allowPoseSfx = false) {
   if (previewFrame && previewTimeLock !== null) time = previewTimeLock;
   elements.stage.classList.remove("preview-blank");
-  if (isCustomProject()) applyCustomSlide(customSlideAt(time));
+  elements.stage.classList.toggle("quiz-text-only", isQuizProject());
+  if (isQuizProject()) renderQuizText(time);
+  else if (isCustomProject()) applyCustomSlide(customSlideAt(time));
   else applyComparisonToView(comparisonAt(time));
   applyIntro(topic, time);
-  renderKaraoke(time);
-  renderQuizAnswer(time);
+  if (!isQuizProject()) {
+    renderKaraoke(time);
+  }
   setPose(poseAt(time), time, allowPoseSfx);
   const duration = previewDuration();
   elements.timeText.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
