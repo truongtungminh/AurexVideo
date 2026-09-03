@@ -1969,6 +1969,10 @@ async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false
     const scriptStyleChanged = previousCompactCjk !== usesCompactCjkText(topic)
       || previousVietnamese !== usesVietnameseText(topic);
     if (scriptStyleChanged) applyKaraokeStyle(topic);
+    // Quiz typography is rendered directly from the current topic. Its style
+    // controls can change without changing the media/presenter tree, so paint
+    // the current frame even when the presentation structure is unchanged.
+    if (isQuizProject(topic)) renderAt(previewTime());
     if (blank) showPreviewBlank();
     return;
   }

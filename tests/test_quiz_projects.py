@@ -154,6 +154,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertIn("quizQuestionFontFamily", app)
         self.assertIn("quizQuestionSize", app)
         self.assertIn("quizQuestionColor", app)
+        self.assertIn("if (isQuizProject(topic)) renderAt(previewTime());", app)
 
 
 if __name__ == "__main__":
