@@ -187,8 +187,13 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
     ]
     mix_inputs = ["[voice]"]
     input_index = 1
+    is_quiz = str(topic.get("projectType") or "").strip().lower() == "quiz"
 
     for event in topic.get("poseTimeline", []):
+        if is_quiz:
+            # Quiz has a dedicated countdown bed. Boundary pose dings overlap
+            # the first syllable of the question/answer and sound clipped.
+            continue
         # Older projects intentionally omitted sfx on the first timeline row.
         # Fall back to the global pose→sfx map so sentence 1 is still audible.
         sfx_name = event.get("sfx") or topic.get("poseSfx", {}).get(event.get("pose"))
