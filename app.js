@@ -1442,15 +1442,27 @@ function quizPairs() {
 function renderQuizText(time) {
   if (!elements.quizText) return;
   const pairs = quizPairs();
+  const delay = quizAnswerStartTime();
   let pair = pairs[0];
-  pairs.forEach((candidate) => {
-    if (Number(candidate.question?.start) <= Number(time) + 0.001) pair = candidate;
-  });
+  // A stale/unaligned segment start must not hide the previous answer. Quiz
+  // scenes advance serially: question -> countdown -> answer -> next question.
+  for (let index = 0; index < pairs.length; index += 1) {
+    const candidate = pairs[index];
+    const questionStart = Number(candidate.question?.start) || 0;
+    const questionEnd = Math.max(questionStart, Number(candidate.question?.end) || questionStart);
+    const nextQuestionStart = index + 1 < pairs.length
+      ? (Number(pairs[index + 1].question?.start) || questionEnd + delay)
+      : Infinity;
+    const sceneEnd = Math.max(nextQuestionStart, questionEnd + delay);
+    if (Number(time) <= sceneEnd || index === pairs.length - 1) {
+      pair = candidate;
+      break;
+    }
+  }
   if (!pair) {
     elements.quizText.hidden = true;
     return;
   }
-  const delay = quizAnswerStartTime();
   // The countdown begins after the question narration finishes, not when the
   // question scene starts. Rendered audio uses the same question end marker.
   const questionStart = Number(pair.question?.start) || 0;

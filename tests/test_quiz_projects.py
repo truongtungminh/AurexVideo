@@ -172,6 +172,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         styles = (ENGINE_ROOT / "style.css").read_text(encoding="utf-8")
         self.assertIn("function quizPairs()", app)
         self.assertIn("Math.ceil(delay - elapsed)", app)
+        self.assertIn("const sceneEnd = Math.max(nextQuestionStart, questionEnd + delay);", app)
         self.assertIn('elements.stage.classList.toggle("quiz-text-only", isQuizProject());', app)
         self.assertIn('id="quizQuestion"', index)
         self.assertIn(".stage.quiz-text-only .media-slot", styles)
