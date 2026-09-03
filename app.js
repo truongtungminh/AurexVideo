@@ -1504,7 +1504,10 @@ function renderAt(time, allowPoseSfx = false) {
   if (!isQuizProject()) {
     renderKaraoke(time);
   }
-  setPose(poseAt(time), time, allowPoseSfx);
+  // Quiz uses its countdown bed as the only timed sound effect. Pose dings
+  // at the question/answer boundaries would mask the first syllable and make
+  // the narration sound clipped, while the character pose still changes.
+  setPose(poseAt(time), time, allowPoseSfx && !isQuizProject());
   const duration = previewDuration();
   elements.timeText.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
   elements.progress.value = duration > 0 ? Math.round(time / duration * 1000) : 0;
