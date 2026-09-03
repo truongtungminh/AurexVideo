@@ -12,7 +12,11 @@ ENGINE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_ROOT))
 
 import m3_backend as m3  # noqa: E402
-from tools.render_project import quiz_audio_insertions, quiz_segments_after_audio_pause  # noqa: E402
+from tools.render_project import (  # noqa: E402
+    quiz_audio_insertions,
+    quiz_segment_timeline,
+    quiz_segments_after_audio_pause,
+)
 
 
 class NewProjectPageRegressionTests(unittest.TestCase):
@@ -36,6 +40,28 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         shifted = quiz_segments_after_audio_pause(topic, 14, 1)
         self.assertEqual((shifted[0]["start"], shifted[0]["end"]), (0.0, 4.0))
         self.assertEqual(shifted[2]["start"], 13.5)
+
+    def test_quiz_segment_timeline_is_built_from_each_clip_duration(self) -> None:
+        topic = {
+            "projectType": "quiz",
+            "quizAnswerDelay": 5,
+            "segments": [
+                {"text": "Question 1"},
+                {"text": "Answer 1"},
+                {"text": "Question 2"},
+                {"text": "Answer 2"},
+                {"text": "CTA"},
+            ],
+        }
+        timeline, duration = quiz_segment_timeline(topic, [1.2, 0.8, 1.4, 0.9, 1.1])
+        self.assertEqual([(row["start"], row["end"]) for row in timeline], [
+            (0.0, 1.2),
+            (6.2, 7.0),
+            (9.0, 10.4),
+            (15.4, 16.3),
+            (18.3, 19.4),
+        ])
+        self.assertEqual(duration, 19.4)
 
     def test_quiz_countdown_sound_is_configured_for_project_render(self) -> None:
         topic = json.loads(
