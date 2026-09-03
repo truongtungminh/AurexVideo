@@ -21,7 +21,7 @@ from tools.render_project import (  # noqa: E402
 
 
 class NewProjectPageRegressionTests(unittest.TestCase):
-    def test_quiz_audio_insertions_hold_each_answer_until_five_seconds(self) -> None:
+    def test_quiz_audio_insertions_hold_each_answer_for_one_second(self) -> None:
         topic = {
             "projectType": "quiz",
             "quizAnswerDelay": 5,
@@ -33,14 +33,14 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 {"start": 11, "end": 13, "text": "Answer 2"},
             ],
         }
-        self.assertEqual(quiz_audio_insertions(topic, 1, 14), [(4, 4.5), (7, 2.0), (10, 4.0)])
+        self.assertEqual(quiz_audio_insertions(topic, 1, 14), [(4, 4.5), (7, 1.0), (10, 4.0)])
         self.assertEqual(
             quiz_audio_insertions({"projectType": "comparison", "segments": topic["segments"]}, 1),
             [],
         )
         shifted = quiz_segments_after_audio_pause(topic, 14, 1)
         self.assertEqual((shifted[0]["start"], shifted[0]["end"]), (0.0, 4.0))
-        self.assertEqual(shifted[2]["start"], 13.5)
+        self.assertEqual(shifted[2]["start"], 12.5)
 
     def test_quiz_segment_timeline_is_built_from_each_clip_duration(self) -> None:
         topic = {
@@ -58,11 +58,11 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertEqual([(row["start"], row["end"]) for row in timeline], [
             (0.0, 1.2),
             (6.2, 7.0),
-            (9.0, 10.4),
-            (15.4, 16.3),
-            (18.3, 19.4),
+            (8.0, 9.4),
+            (14.4, 15.3),
+            (16.3, 17.4),
         ])
-        self.assertEqual(duration, 19.4)
+        self.assertEqual(duration, 17.4)
 
     def test_quiz_maziao_uses_sentence_capable_fallback(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-segment-tts-") as tmp:
@@ -238,7 +238,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         styles = (ENGINE_ROOT / "style.css").read_text(encoding="utf-8")
         self.assertIn("function quizPairs()", app)
         self.assertIn("Math.ceil(delay - elapsed)", app)
-        self.assertIn("const sceneEnd = Math.max(nextQuestionStart, answerEnd + 2);", app)
+        self.assertIn("const sceneEnd = Math.max(nextQuestionStart, answerEnd + QUIZ_ANSWER_HOLD_SECONDS);", app)
         self.assertIn('elements.stage.classList.toggle("quiz-text-only", isQuizProject());', app)
         self.assertIn('id="quizQuestion"', index)
         self.assertIn(".stage.quiz-text-only .media-slot", styles)

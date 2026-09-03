@@ -52,6 +52,7 @@ configure_native_runtime()
 ROOT = RESOURCE_ROOT
 PYTHON = PYTHON_EXECUTABLE
 VIENEU_PYTHON = resolve_vieneu_python()
+QUIZ_ANSWER_HOLD_SECONDS = 1.0
 
 # These fingerprints are the browser stylesheet rules represented by a native
 # style profile.  A profile is an explicit compatibility contract, not a
@@ -687,7 +688,7 @@ def quiz_audio_insertions(
         except (TypeError, ValueError):
             answer_end = answer_start
         if index + 2 < len(segments):
-            insertions.append((answer_end, 2.0))
+            insertions.append((answer_end, QUIZ_ANSWER_HOLD_SECONDS))
     return insertions
 
 
@@ -729,7 +730,7 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
 
     A Quiz timeline is intentionally serial.  Audio duration is measured per
     sentence, then the renderer inserts only the two semantic pauses: the
-    countdown before each answer and the two-second hold after each answer.
+    countdown before each answer and the one-second hold after each answer.
     This avoids deriving every later sentence from one global TTS alignment.
     """
     segments = topic.get("segments")
@@ -756,7 +757,7 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
         if index % 2 == 0 and index + 1 < len(segments):
             cursor += answer_delay
         elif index % 2 == 1 and index + 1 < len(segments):
-            cursor += 2.0
+            cursor += QUIZ_ANSWER_HOLD_SECONDS
     return result, round(cursor, 3)
 
 
@@ -808,7 +809,7 @@ def build_quiz_segment_audio(
             sequence.append(f"[{pause_label}]")
         elif index % 2 == 1 and index + 1 < len(segment_audio):
             pause_label = f"quizhold{index}"
-            graph.append(f"anullsrc=r=48000:cl=mono:d=2.000[{pause_label}]")
+            graph.append(f"anullsrc=r=48000:cl=mono:d={QUIZ_ANSWER_HOLD_SECONDS:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
     if not timeline or not sequence:
         raise ValueError("Quiz chưa có segment audio hợp lệ.")
