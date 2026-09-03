@@ -637,6 +637,14 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .editor-mode-custom .editor-mode-toggles,
 .editor-mode-custom [data-tab="pose"],
 .editor-mode-custom [data-pane="pose"] { display: none !important; }
+.editor-mode-quiz .comparison-block-primary,
+.editor-mode-quiz .comparison-list,
+.editor-mode-quiz #addComparisonButton,
+.editor-mode-quiz #deleteBaseComparison { display: none !important; }
+.editor-mode-quiz .comparison-block-primary .comparison-label-grid { grid-template-columns: minmax(0, 1fr); }
+.editor-mode-quiz .comparison-block-primary .comparison-label-grid > :nth-child(2) { display: none; }
+.editor-mode-quiz .comparison-block-primary .comparison-sublabel-grid { display: none; }
+
 .background-style,
 .subtitle-style,
 .music-style,

@@ -1875,7 +1875,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
             "leftSubLabel": cmp_left_sub if cmp_show_sub else "",
             "rightSubLabel": cmp_right_sub if cmp_show_sub and layout == "pair" else "",
             "leftImage": safe_relative_asset(item.get("leftImage"), f"comparisons[{index}].leftImage"),
-            "rightImage": safe_relative_asset(item.get("rightImage"), f"comparisons[{index}].rightImage"),
+            "rightImage": "" if topic["projectType"] == "quiz" else safe_relative_asset(item.get("rightImage"), f"comparisons[{index}].rightImage"),
             "leftLabelColor": normalize_hex_color(
                 item.get("leftLabelColor", item.get("labelColor")),
                 topic["leftLabelColor"],
@@ -1910,6 +1910,8 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         # Quiz projects expose one and only one image scene. The right slot is
         # deliberately cleared so API clients cannot accidentally turn it into
         # a comparison after creation.
+        topic["rightLabel"] = ""
+        topic["rightImage"] = ""
         if topic["comparisons"]:
             topic["comparisons"] = [topic["comparisons"][0]]
             topic["comparisons"][0]["layout"] = "single"
@@ -2139,12 +2141,13 @@ def project_summary(path: Path) -> dict:
     output_dir = OUTPUT_ROOT / path.name
     preview = latest_file(output_dir, "*.png")
     video = latest_file(output_dir, "*.mp4")
+    project_type = normalize_project_type(topic.get("projectType"))
     return {
         "id": path.name,
         "brand": topic.get("brand", "Aurex"),
         "leftLabel": topic.get("leftLabel", "Bên trái"),
         "rightLabel": topic.get("rightLabel", "Bên phải"),
-        "projectType": normalize_project_type(topic.get("projectType")),
+        "projectType": project_type,
         "duration": topic.get("duration", 0),
         "segmentCount": len(topic.get("segments", [])),
         "updatedAt": datetime.fromtimestamp(topic_path.stat().st_mtime).astimezone().isoformat(timespec="seconds"),
@@ -2450,8 +2453,6 @@ def create_project(payload: dict) -> dict:
     (destination / "script.txt").write_text(starter_text + "\n", encoding="utf-8")
     if project_type == "quiz":
         topic = normalize_topic(slug, topic)
-        topic["rightLabel"] = ""
-        topic["rightImage"] = ""
         if topic["comparisons"]:
             topic["comparisons"][0]["leftLabel"] = topic["leftLabel"]
             topic["comparisons"][0]["leftImage"] = topic["leftImage"]

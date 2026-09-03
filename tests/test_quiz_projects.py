@@ -37,7 +37,66 @@ class QuizProjectTemplateTests(unittest.TestCase):
             self.assertEqual(len(topic["comparisons"]), 1)
             self.assertEqual(topic["comparisons"][0]["layout"], "single")
             self.assertEqual(topic["comparisons"][0]["rightLabel"], "")
+            self.assertEqual(topic["comparisons"][0]["rightImage"], "")
             self.assertTrue(topic["comparisons"][0]["leftImage"])
+
+    def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:
+            root = Path(tmp)
+            project = root / "quiz-demo"
+            project.mkdir(parents=True)
+            (project / "topic.json").write_text(json.dumps({
+                "id": "quiz-demo",
+                "projectType": "quiz",
+                "brand": "Aurex",
+                "leftLabel": "Ảnh Quiz",
+                "rightLabel": "",
+                "leftImage": "assets/placeholder-left.svg",
+                "rightImage": "",
+                "voiceover": "audio/silence.wav",
+                "duration": 1,
+                "segments": [{"start": 0, "end": 1, "text": "Quiz"}],
+                "comparisons": [{
+                    "id": "quiz-image-1",
+                    "layout": "single",
+                    "startSentence": 1,
+                    "leftLabel": "Ảnh Quiz",
+                    "rightLabel": "",
+                    "leftImage": "assets/placeholder-left.svg",
+                    "rightImage": "",
+                }],
+                "baseComparisonEnabled": False,
+            }), encoding="utf-8")
+            with patch.object(m3, "PROJECTS_ROOT", root):
+                saved = m3.save_topic("quiz-demo", {
+                    "projectType": "quiz",
+                    "brand": "Aurex",
+                    "leftLabel": "Ảnh Quiz",
+                    "rightLabel": "",
+                    "leftImage": "assets/placeholder-left.svg",
+                    "rightImage": "assets/ignored-right.svg",
+                    "voiceover": "audio/silence.wav",
+                    "duration": 1,
+                    "segments": [{"start": 0, "end": 1, "text": "Quiz"}],
+                    "comparisons": [
+                        {"id": "one", "layout": "pair", "startSentence": 1, "leftLabel": "A", "rightLabel": "B", "leftImage": "assets/a.svg", "rightImage": "assets/b.svg"},
+                        {"id": "two", "layout": "single", "startSentence": 1, "leftLabel": "B", "leftImage": "assets/b.svg"},
+                    ],
+                })
+
+            self.assertEqual(saved["projectType"], "quiz")
+            self.assertFalse(saved["baseComparisonEnabled"])
+            self.assertEqual(len(saved["comparisons"]), 1)
+            self.assertEqual(saved["comparisons"][0]["layout"], "single")
+            self.assertEqual(saved["comparisons"][0]["rightImage"], "")
+
+    def test_quiz_is_listed_and_pair_scene_action_is_locked_in_ui(self) -> None:
+        new_project = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
+        editor = (ENGINE_ROOT / "webui" / "editor.js").read_text(encoding="utf-8")
+        self.assertIn('data-project-type="quiz"', new_project)
+        self.assertIn("projectTypeInput.value==='quiz'", new_project)
+        self.assertIn("editor-mode-quiz", editor)
+        self.assertIn("addComparisonButton.hidden", editor)
 
 
 if __name__ == "__main__":

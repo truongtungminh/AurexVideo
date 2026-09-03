@@ -165,7 +165,7 @@ const elements = Object.fromEntries([
   "leftLabelColor", "rightLabelColor", "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
   "labelFontFamily",
   "primarySubLabelRow",
-  "comparisonList", "addComparisonButton", "addSingleImageButton", "deleteBaseComparison",
+  "comparisonList", "addComparisonButton", "addSingleImageButton", "deleteBaseComparison", "primaryComparisonTitle",
   "backgroundType", "backgroundColor", "backgroundColorField", "backgroundImagePanel",
   "backgroundThumb", "backgroundViewport", "backgroundImageFile", "deleteBackgroundImage",
   "backgroundImageZoom", "backgroundZoomText",
@@ -650,6 +650,22 @@ function sentenceOptions(selected) {
 
 function comparisonLayout(comparison) {
   return comparison?.layout === "single" ? "single" : "pair";
+}
+
+function isQuizProject() {
+  return String(state.topic?.projectType || "").toLowerCase() === "quiz";
+}
+
+function syncQuizEditorMode() {
+  const quiz = isQuizProject();
+  document.body.classList.toggle("editor-mode-quiz", quiz);
+  if (elements.addComparisonButton) elements.addComparisonButton.hidden = isQuizProject();
+  if (elements.addSingleImageButton) elements.addSingleImageButton.hidden = true;
+  if (elements.deleteBaseComparison) elements.deleteBaseComparison.hidden = quiz;
+  if (elements.primaryComparisonTitle) elements.primaryComparisonTitle.textContent = quiz ? tr("Ảnh Quiz", "Quiz image") : tr("So sánh 1", "Comparison 1");
+  if (quiz) {
+    document.querySelector(".comparison-block-primary")?.classList.add("quiz-image-only");
+  }
 }
 
 function baseComparisonEnabled() {
@@ -1317,14 +1333,23 @@ function draftTopic(forceRetime = false) {
   const right = readImageFrame("right");
   const background = readImageFrame("background");
   const backgroundType = elements.backgroundType?.value || state.topic.backgroundType || "default";
+  const comparisons = (state.topic.comparisons || []).map((item) => ({ ...item }));
+  if (isQuizProject()) {
+    comparisons.splice(1);
+    if (comparisons.length) {
+      comparisons[0].layout = "single";
+      comparisons[0].rightLabel = "";
+      comparisons[0].rightImage = "";
+    }
+  }
   return {
     ...state.topic,
     pasteImageMode: normalizePasteImageMode(state.topic.pasteImageMode),
     brand: state.topic.brand || "Aurex",
     leftLabel: elements.leftLabelInput.value.trim(),
-    rightLabel: elements.rightLabelInput.value.trim(),
+    rightLabel: isQuizProject() ? "" : elements.rightLabelInput.value.trim(),
     leftLabelColor: elements.leftLabelColor.value,
-    rightLabelColor: elements.rightLabelColor.value,
+    rightLabelColor: isQuizProject() ? elements.leftLabelColor.value : elements.rightLabelColor.value,
     labelColor: elements.leftLabelColor.value || state.topic.labelColor || "#090909",
     labelFontFamily: normalizeLabelFontFamily(elements.labelFontFamily?.value || state.topic.labelFontFamily),
     showSubLabels: hasSubLabelRow({
@@ -1336,7 +1361,7 @@ function draftTopic(forceRetime = false) {
     rightSubLabel: (elements.rightSubLabelInput?.value || "").trim().slice(0, 40),
     leftSubLabelColor: elements.leftSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
     rightSubLabelColor: elements.rightSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
-    comparisons: (state.topic.comparisons || []).map((item) => ({ ...item })),
+    comparisons,
     duration,
     leftImageZoom: left.zoom,
     leftImageX: left.x,
@@ -2070,11 +2095,12 @@ async function saveEditor(event, quiet = false) {
     if (uploadedVoice) reloadPreviewKeepingState(`/index.html?topic=${encodeURIComponent(`project/${project}/topic.json`)}&render=1&preview=1&v=${Date.now()}`);
     else sendDraftToPreview();
     elements.leftThumb.src = assetUrl(state.topic.leftImage);
-    elements.rightThumb.src = assetUrl(state.topic.rightImage);
+    elements.rightThumb.src = isQuizProject() && !state.topic.rightImage ? "" : assetUrl(state.topic.rightImage);
     renderCharacterPicker();
     renderPoseSfxMap();
     renderPoseList();
     renderComparisonList();
+    if (elements.rightLabelInput) elements.rightLabelInput.disabled = isQuizProject();
     applyImageFrameToThumb("left");
     applyImageFrameToThumb("right");
     syncBackgroundControls();
@@ -2135,11 +2161,33 @@ async function loadProject() {
   try {
     await Promise.all([loadSfxLibrary(), loadCharacters()]);
     const result = await api(`/api/projects/${encodeURIComponent(project)}/topic`);
+    state.topic = result.topic;
     if (String(result.topic?.projectType || "") === "custom") {
       window.location.replace(`/custom-editor?project=${encodeURIComponent(project)}`);
       return;
     }
-    state.topic = result.topic;
+    if (isQuizProject()) {
+      state.topic.leftLabel = state.topic.leftLabel || "Ảnh Quiz";
+      state.topic.rightLabel = "";
+      state.topic.rightImage = "";
+      if (!Array.isArray(state.topic.comparisons) || !state.topic.comparisons.length) {
+        state.topic.comparisons = [{
+          id: "quiz-image-1", layout: "single", startSentence: 1,
+          leftLabel: state.topic.leftLabel, rightLabel: "",
+          leftImage: state.topic.leftImage, rightImage: "",
+          leftImageZoom: 1, leftImageX: 0, leftImageY: 0,
+        }];
+      }
+      if (state.topic.comparisons?.length) {
+        state.topic.comparisons = [state.topic.comparisons[0]];
+        state.topic.comparisons[0].layout = "single";
+        state.topic.comparisons[0].leftLabel = state.topic.leftLabel;
+        state.topic.comparisons[0].leftImage = state.topic.leftImage;
+        state.topic.comparisons[0].rightLabel = "";
+        state.topic.comparisons[0].rightImage = "";
+      }
+    }
+    syncQuizEditorMode();
     await loadRenderedTiming();
     state.topic.pasteImageMode = normalizePasteImageMode(state.topic.pasteImageMode);
     syncPasteImageModeControls();
@@ -2163,9 +2211,10 @@ async function loadProject() {
     hydrateSpeakers();
     elements.projectTitle.textContent = project;
     elements.leftLabelInput.value = state.topic.leftLabel;
-    elements.rightLabelInput.value = state.topic.rightLabel;
+    elements.rightLabelInput.value = isQuizProject() ? "" : state.topic.rightLabel;
+    elements.rightLabelInput.disabled = isQuizProject();
     elements.leftLabelColor.value = state.topic.leftLabelColor || state.topic.labelColor || "#090909";
-    elements.rightLabelColor.value = state.topic.rightLabelColor || state.topic.labelColor || "#090909";
+    elements.rightLabelColor.value = isQuizProject() ? elements.leftLabelColor.value : (state.topic.rightLabelColor || state.topic.labelColor || "#090909");
     populateLabelFontSelect(elements.labelFontFamily, state.topic.labelFontFamily);
     if (state.topic.characterId && !state.topic.labelColor && elements.leftLabelColor.value === "#090909" && elements.rightLabelColor.value === "#090909") {
       const labelColor = await rememberedLabelColorFor(state.topic.characterId);
@@ -2407,6 +2456,7 @@ document.querySelectorAll('[data-action="remove-bg-base-image"]').forEach((butto
 }));
 function addComparisonScene(layout) {
   if (!state.topic) return;
+  if (isQuizProject()) return;
   const lines = scriptLines();
   const startSentence = Math.min(6, Math.max(1, lines.length));
   const single = layout === "single";
@@ -2430,6 +2480,7 @@ function addComparisonScene(layout) {
     leftImageZoom: 1, leftImageX: 0, leftImageY: 0,
     rightImageZoom: 1, rightImageX: 0, rightImageY: 0,
   };
+  if (isQuizProject()) return;
   state.topic.comparisons = [...(state.topic.comparisons || []), scene];
   renderComparisonList();
   jumpPreviewToComparison(scene);
