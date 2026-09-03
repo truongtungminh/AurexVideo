@@ -680,12 +680,14 @@ def quiz_audio_insertions(
         if missing_pause > 0.001:
             insertions.append((question_end, missing_pause))
         # Keep the revealed answer on screen and let its narration finish
-        # before advancing to the next question.
+        # before advancing to the next question. The final answer has no next
+        # question, so it does not need an extra trailing hold.
         try:
             answer_end = max(answer_start, float(answer.get("end") or answer_start) * scale)
         except (TypeError, ValueError):
             answer_end = answer_start
-        insertions.append((answer_end, 2.0))
+        if index + 2 < len(segments):
+            insertions.append((answer_end, 2.0))
     return insertions
 
 

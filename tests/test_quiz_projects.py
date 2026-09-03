@@ -28,7 +28,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 {"start": 11, "end": 13, "text": "Answer 2"},
             ],
         }
-        self.assertEqual(quiz_audio_insertions(topic, 1, 14), [(4, 4.5), (7, 2.0), (10, 4.0), (13, 2.0)])
+        self.assertEqual(quiz_audio_insertions(topic, 1, 14), [(4, 4.5), (7, 2.0), (10, 4.0)])
         self.assertEqual(
             quiz_audio_insertions({"projectType": "comparison", "segments": topic["segments"]}, 1),
             [],
