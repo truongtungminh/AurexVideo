@@ -177,12 +177,12 @@ body {
   z-index: 1;
 }
 
-.quiz-question {
+.quiz-question,
+.quiz-answer {
   width: 100%;
 
-  font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
-  font-weight: 900;
-  font-size: 6.2cqw;
+  font-weight: 900 !important;
+  font-size: 9cqw !important;
   line-height: 1.02;
   letter-spacing: -0.045em;
 
@@ -190,14 +190,11 @@ body {
   text-wrap: balance;
   text-align: center;
 
-  /* 1 màu duy nhất cho ruột chữ */
-  color: #FFD21C;
+  color: #FFD21C !important;
 
-  /* Viền đen comic dày */
   -webkit-text-stroke: 0.65cqw #080808;
   paint-order: stroke fill;
 
-  /* Bóng đen tạo chiều sâu */
   text-shadow:
     0 0.55cqw 0 #080808;
 
@@ -256,7 +253,7 @@ body {
 }
 
 .quiz-answer-card {
-  top: 55%;
+  top: 53%;
   width: 82%;
   min-height: 12.5cqw;
   display: grid;
