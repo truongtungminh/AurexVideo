@@ -177,6 +177,15 @@ body {
   z-index: 1;
 }
 
+.quiz-question {
+  color: #FFD21C;
+
+  -webkit-text-stroke: 0.62cqw #0B0B0B;
+  paint-order: stroke fill;
+
+  text-shadow: 0 0.55cqw 0 #0B0B0B;
+}
+
 .quiz-question,
 .quiz-answer {
   width: 100%;
