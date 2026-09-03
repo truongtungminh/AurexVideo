@@ -724,6 +724,168 @@ def quiz_segments_after_audio_pause(topic: dict, source_duration: float, speed: 
     return result
 
 
+def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[list[dict], float]:
+    """Build exact Quiz segment markers from independently rendered clips.
+
+    A Quiz timeline is intentionally serial.  Audio duration is measured per
+    sentence, then the renderer inserts only the two semantic pauses: the
+    countdown before each answer and the two-second hold after each answer.
+    This avoids deriving every later sentence from one global TTS alignment.
+    """
+    segments = topic.get("segments")
+    if not isinstance(segments, list):
+        return [], 0.0
+    try:
+        answer_delay = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
+    except (TypeError, ValueError):
+        answer_delay = 5.0
+    result: list[dict] = []
+    cursor = 0.0
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            duration = max(0.0, float(segment_durations[index]))
+        except (IndexError, TypeError, ValueError):
+            duration = 0.0
+        item = dict(segment)
+        item["start"] = round(cursor, 3)
+        cursor += duration
+        item["end"] = round(cursor, 3)
+        result.append(item)
+        if index % 2 == 0 and index + 1 < len(segments):
+            cursor += answer_delay
+        elif index % 2 == 1 and index + 1 < len(segments):
+            cursor += 2.0
+    return result, round(cursor, 3)
+
+
+def build_quiz_segment_audio(
+    project: Path,
+    topic: dict,
+    segment_audio: list[Path],
+    speed: float,
+    volume: float,
+    token: str,
+) -> tuple[Path, list[dict]]:
+    """Render independent Quiz clips into one deterministic narration track."""
+    segments = topic.get("segments")
+    if not isinstance(segments, list) or len(segment_audio) != len(segments):
+        raise ValueError("Quiz segment audio không khớp số lượng segment.")
+    try:
+        rate = max(0.01, float(speed))
+    except (TypeError, ValueError):
+        rate = 1.0
+    try:
+        gain = max(0.0, float(volume))
+    except (TypeError, ValueError):
+        gain = 1.0
+    try:
+        answer_delay = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
+    except (TypeError, ValueError):
+        answer_delay = 5.0
+
+    durations = [media_duration(path) / rate for path in segment_audio]
+    timeline, _ = quiz_segment_timeline(topic, durations)
+    output = project / "audio" / "cache" / f"quiz-segments-{token}.wav"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [str(ffmpeg_executable()), "-y"]
+    graph: list[str] = []
+    sequence: list[str] = []
+    input_index = 0
+    for index, path in enumerate(segment_audio):
+        command.extend(["-i", str(path)])
+        label = f"quizclip{index}"
+        graph.append(
+            f"[{input_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=mono,"
+            f"atempo={rate:g},volume={gain:g}[{label}]"
+        )
+        sequence.append(f"[{label}]")
+        input_index += 1
+        if index % 2 == 0 and index + 1 < len(segment_audio):
+            pause_label = f"quizpause{index}"
+            graph.append(f"anullsrc=r=48000:cl=mono:d={answer_delay:.3f}[{pause_label}]")
+            sequence.append(f"[{pause_label}]")
+        elif index % 2 == 1 and index + 1 < len(segment_audio):
+            pause_label = f"quizhold{index}"
+            graph.append(f"anullsrc=r=48000:cl=mono:d=2.000[{pause_label}]")
+            sequence.append(f"[{pause_label}]")
+    if not timeline or not sequence:
+        raise ValueError("Quiz chưa có segment audio hợp lệ.")
+    graph.append("".join(sequence) + f"concat=n={len(sequence)}:v=0:a=1[quizvoice]")
+    command.extend([
+        "-filter_complex", ";".join(graph),
+        "-map", "[quizvoice]", "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
+        str(output),
+    ])
+    run(command)
+    return output, timeline
+
+
+def quiz_pose_timeline_after_segment_audio(topic: dict, segments: list[dict]) -> list[dict]:
+    """Move existing Quiz pose events onto the measured segment starts."""
+    events = topic.get("poseTimeline")
+    if not isinstance(events, list) or not segments:
+        return []
+    result: list[dict] = []
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            continue
+        item = dict(event)
+        mapped_index = min(index, len(segments) - 1)
+        item["time"] = round(float(segments[mapped_index].get("start") or 0.0), 3)
+        result.append(item)
+    return result
+
+
+def create_quiz_segment_voiceover(
+    args: argparse.Namespace,
+    project: Path,
+    topic_path: Path,
+    token: str,
+) -> tuple[Path, list[dict]] | None:
+    """Generate one TTS cache file per Quiz segment.
+
+    A single uploaded full-script file cannot be split reliably without
+    speech timestamps, so leave that legacy path untouched and let the caller
+    report that it needs a sentence-capable TTS render.
+    """
+    topic = json.loads(topic_path.read_text(encoding="utf-8"))
+    segments = topic.get("segments")
+    if not isinstance(segments, list) or not segments:
+        return None
+    if args.engine in {"project", "upload"}:
+        raise ValueError(
+            "Quiz cần render bằng engine TTS để tạo audio riêng cho từng câu. "
+            "Một file audio dài không thể tách câu hỏi/đáp án chính xác."
+        )
+    segment_audio: list[Path] = []
+    temporary_topics: list[Path] = []
+    try:
+        for index, segment in enumerate(segments):
+            if not isinstance(segment, dict) or not str(segment.get("text") or "").strip():
+                raise ValueError(f"Quiz segment {index + 1} không có nội dung.")
+            segment_topic = dict(topic)
+            segment_topic["segments"] = [segment]
+            segment_topic["duration"] = max(0.1, float(segment.get("end") or 0) - float(segment.get("start") or 0))
+            temporary = project / f".quiz-segment-{token}-{index}.topic.json"
+            temporary.write_text(json.dumps(segment_topic, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            temporary_topics.append(temporary)
+            print(f"Quiz TTS segment {index + 1}/{len(segments)}: render riêng câu thoại", flush=True)
+            segment_audio.append(create_voiceover(args, project, temporary, token))
+        return build_quiz_segment_audio(
+            project,
+            topic,
+            segment_audio,
+            args.speed,
+            args.volume,
+            token,
+        )
+    finally:
+        for temporary in temporary_topics:
+            temporary.unlink(missing_ok=True)
+
+
 def prepare_render_audio(
     source: Path,
     project: Path,
@@ -733,11 +895,12 @@ def prepare_render_audio(
 ) -> Path:
     output = project / "output" / "render-voiceover.wav"
     output.parent.mkdir(parents=True, exist_ok=True)
-    filters = [f"atempo={speed:g}"]
-    if abs(volume - 1.0) > 0.001:
+    segment_timeline = bool((topic or {}).get("_quiz_segment_timeline"))
+    filters = [] if segment_timeline else [f"atempo={speed:g}"]
+    if not segment_timeline and abs(volume - 1.0) > 0.001:
         filters.append(f"volume={volume:g}")
     filters.append(AUDIO_PEAK_LIMITER)
-    insertions = quiz_audio_insertions(topic or {}, speed, media_duration(source))
+    insertions = [] if segment_timeline else quiz_audio_insertions(topic or {}, speed, media_duration(source))
     if insertions:
         # Split the speed/volume-normalized track at each answer boundary,
         # concatenate a real 5-second-timeline pause, then write one voice
@@ -1374,14 +1537,28 @@ def main() -> None:
 
     token = uuid.uuid4().hex[:8]
     write_script(project, original)
-    source_audio = create_voiceover(args, project, topic_path, token)
-    render_audio = prepare_render_audio(source_audio, project, args.speed, args.volume, original)
+    quiz_segment_result = None
+    if str(original.get("projectType") or "").strip().lower() == "quiz":
+        quiz_segment_result = create_quiz_segment_voiceover(args, project, topic_path, token)
+    if quiz_segment_result is not None:
+        source_audio, segment_timing = quiz_segment_result
+        audio_topic = dict(original)
+        audio_topic["_quiz_segment_timeline"] = True
+        audio_topic["segments"] = segment_timing
+        audio_topic["duration"] = max((float(item.get("end") or 0.0) for item in segment_timing), default=0.0)
+    else:
+        source_audio = create_voiceover(args, project, topic_path, token)
+        audio_topic = original
+    render_audio = prepare_render_audio(source_audio, project, args.speed, args.volume, audio_topic)
     duration = media_duration(render_audio)
 
     prepared = dict(original)
     prepared["voiceover"] = Path(os.path.relpath(render_audio, project)).as_posix()
     prepared["duration"] = round(duration, 3)
-    if str(original.get("projectType") or "").strip().lower() == "quiz":
+    if quiz_segment_result is not None:
+        prepared["segments"] = segment_timing
+        prepared["poseTimeline"] = quiz_pose_timeline_after_segment_audio(original, segment_timing)
+    elif str(original.get("projectType") or "").strip().lower() == "quiz":
         prepared["segments"] = quiz_segments_after_audio_pause(original, media_duration(source_audio), args.speed)
     prepared_topic = project / f"topic.render-{token}.json"
     prepared_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -1390,7 +1567,9 @@ def main() -> None:
     # Quiz segment markers are derived from the actual audio after inserting
     # countdown pauses. Do not let an older alignment cache restore pre-pause
     # markers and overwrite the synchronized Quiz timeline.
-    if str(original.get("projectType") or "").strip().lower() == "quiz":
+    if quiz_segment_result is not None:
+        aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    elif str(original.get("projectType") or "").strip().lower() == "quiz":
         aligned_topic.unlink(missing_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = (int(value) for value in args.size.split("x"))
@@ -1411,11 +1590,14 @@ def main() -> None:
     backend_outcome = RenderBackendOutcome(backend_used="browser")
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
-        run([
-            str(PYTHON), "-u", str(ROOT / "tools" / "align_voiceover.py"),
-            str(prepared_topic), str(render_audio), "--output", str(aligned_topic),
-            "--model", args.whisper_model,
-        ])
+        if quiz_segment_result is None:
+            run([
+                str(PYTHON), "-u", str(ROOT / "tools" / "align_voiceover.py"),
+                str(prepared_topic), str(render_audio), "--output", str(aligned_topic),
+                "--model", args.whisper_model,
+            ])
+        else:
+            print("Quiz: dùng timeline đo từ từng audio segment, bỏ qua căn lại toàn track.", flush=True)
         render_fps = max(1, int(args.fps))
         if character_css_compatibility or custom_intro_compatibility or text_style_compatibility:
             selectors = character_specific_css_selectors(original)
