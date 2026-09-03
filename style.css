@@ -136,7 +136,7 @@ body {
 }
 
 .quiz-question-card {
-  top: 20%;
+  top: 22%;
   width: 84%;
   min-height: 53cqw;
   display: grid;
@@ -215,7 +215,7 @@ body {
 }
 
 .quiz-countdown-wrap {
-  top: 46%;
+  top: 48%;
   width: 18cqw;
   height: 18cqw;
   display: grid;
