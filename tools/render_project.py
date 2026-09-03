@@ -682,6 +682,38 @@ def quiz_audio_insertions(
     return insertions
 
 
+def quiz_segments_after_audio_pause(topic: dict, source_duration: float, speed: float) -> list[dict]:
+    """Scale Quiz segment markers and apply the same pauses as the audio."""
+    segments = topic.get("segments")
+    if not isinstance(segments, list):
+        return []
+    try:
+        timeline_end = max(
+            [float(topic.get("duration") or 0.0)]
+            + [float(item.get("end") or 0.0) for item in segments if isinstance(item, dict)]
+        )
+        scale = (float(source_duration) / max(0.01, timeline_end)) if timeline_end > 0 else 1.0
+    except (TypeError, ValueError):
+        scale = 1.0
+    insertions = quiz_audio_insertions(topic, speed, source_duration)
+    result: list[dict] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        item = dict(segment)
+        try:
+            start = max(0.0, float(segment.get("start") or 0.0)) * scale
+            end = max(start, float(segment.get("end") or segment.get("start") or 0.0) * scale)
+        except (TypeError, ValueError):
+            result.append(item)
+            continue
+        shift = sum(duration for position, duration in insertions if position <= start + 0.0001)
+        item["start"] = round(start + shift, 3)
+        item["end"] = round(end + shift, 3)
+        result.append(item)
+    return result
+
+
 def prepare_render_audio(
     source: Path,
     project: Path,
@@ -1339,6 +1371,8 @@ def main() -> None:
     prepared = dict(original)
     prepared["voiceover"] = Path(os.path.relpath(render_audio, project)).as_posix()
     prepared["duration"] = round(duration, 3)
+    if str(original.get("projectType") or "").strip().lower() == "quiz":
+        prepared["segments"] = quiz_segments_after_audio_pause(original, media_duration(source_audio), args.speed)
     prepared_topic = project / f"topic.render-{token}.json"
     prepared_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

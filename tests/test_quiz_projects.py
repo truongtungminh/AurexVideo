@@ -12,7 +12,7 @@ ENGINE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_ROOT))
 
 import m3_backend as m3  # noqa: E402
-from tools.render_project import quiz_audio_insertions  # noqa: E402
+from tools.render_project import quiz_audio_insertions, quiz_segments_after_audio_pause  # noqa: E402
 
 
 class NewProjectPageRegressionTests(unittest.TestCase):
@@ -33,6 +33,9 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             quiz_audio_insertions({"projectType": "comparison", "segments": topic["segments"]}, 1),
             [],
         )
+        shifted = quiz_segments_after_audio_pause(topic, 10, 1)
+        self.assertEqual((shifted[0]["start"], shifted[0]["end"]), (0.0, 4.0))
+        self.assertEqual(shifted[2]["start"], 11.5)
 
     def test_quiz_countdown_sound_is_configured_for_project_render(self) -> None:
         topic = json.loads(
