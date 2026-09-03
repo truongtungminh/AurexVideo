@@ -208,6 +208,33 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
         mix_inputs.append(f"[{label}]")
         input_index += 1
 
+    countdown_value = str(topic.get("quizCountdownSound") or "").strip()
+    if str(topic.get("projectType") or "").lower() == "quiz" and countdown_value:
+        countdown_path = resolve_project_path(topic_path, countdown_value, data_root)
+        if countdown_path.is_file():
+            try:
+                countdown_duration = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
+            except (TypeError, ValueError):
+                countdown_duration = 5.0
+            for pair_index in range(0, len(topic.get("segments", [])) - 1, 2):
+                question = topic["segments"][pair_index]
+                if not isinstance(question, dict):
+                    continue
+                try:
+                    start = max(0.0, float(question.get("start") or 0.0))
+                except (TypeError, ValueError):
+                    continue
+                command.extend(["-i", str(countdown_path)])
+                label = f"countdown{input_index}"
+                delay_ms = round(start * 1000)
+                filters.append(
+                    f"[{input_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                    f"atrim=0:{countdown_duration:.3f},asetpts=PTS-STARTPTS,"
+                    f"adelay={delay_ms}:all=1,volume={float(topic.get('quizCountdownVolume', 0.3)):.3f}[{label}]"
+                )
+                mix_inputs.append(f"[{label}]")
+                input_index += 1
+
     music_path_value = str(topic.get("backgroundMusic") or "").strip()
     if music_path_value:
         music_path = resolve_project_path(topic_path, music_path_value, data_root)

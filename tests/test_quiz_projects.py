@@ -33,6 +33,12 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             [],
         )
 
+    def test_quiz_countdown_sound_is_configured_for_project_render(self) -> None:
+        topic = json.loads(
+            (Path(__file__).resolve().parents[1] / "../studio/project/quizzz/topic.json").resolve().read_text(encoding="utf-8")
+        )
+        self.assertEqual(topic["quizCountdownSound"], "audio/quiz-countdown.wav")
+
     def test_page_declares_project_type_before_quiz_sync_function(self) -> None:
         source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
         self.assertLess(source.index("const projectTypeInput"), source.index("const syncQuizProjectType"))
