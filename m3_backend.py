@@ -1792,6 +1792,19 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     if not cleaned_segments:
         raise ValueError("Subtitle không có nội dung hợp lệ.")
     topic["segments"] = cleaned_segments
+    if topic["projectType"] == "quiz":
+        raw_answer = normalize_display_text(payload.get("quizAnswer", current.get("quizAnswer", "")), "", 300)
+        if not raw_answer and len(cleaned_segments) > 1:
+            raw_answer = cleaned_segments[1]["text"]
+        topic["quizAnswer"] = re.sub(r"^(?:đáp án là|answer is)\s*", "", raw_answer, flags=re.IGNORECASE).strip()
+        try:
+            answer_delay = float(payload.get("quizAnswerDelay", current.get("quizAnswerDelay", 5)))
+        except (TypeError, ValueError):
+            answer_delay = 5.0
+        topic["quizAnswerDelay"] = round(max(0.5, min(60.0, answer_delay)), 2)
+    else:
+        topic.pop("quizAnswer", None)
+        topic.pop("quizAnswerDelay", None)
     if topic["projectType"] == "custom":
         topic["slides"] = normalize_custom_slides(payload.get("slides", current.get("slides")), len(cleaned_segments))
         topic["intro"] = normalize_custom_intro(payload.get("intro", current.get("intro")))
@@ -2412,6 +2425,8 @@ def create_project(payload: dict) -> dict:
         "rightImage": "" if project_type == "quiz" else "assets/placeholder-right.svg",
         "voiceover": "audio/silence.wav",
         "segments": [{"start": 0.0, "end": 1.0, "text": starter_text}],
+        "quizAnswer": "" if project_type == "quiz" else None,
+        "quizAnswerDelay": 5.0 if project_type == "quiz" else None,
         "characterId": character_id,
         "poseTimeline": [{"time": 0.0, "pose": first_pose}],
         "poseAssets": pose_assets,

@@ -115,6 +115,31 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertNotIn('.editor-mode-quiz .comparison-block-primary,', styles)
         self.assertIn('.editor-mode-quiz .comparison-list,', styles)
 
+    def test_quiz_normalizes_answer_and_uses_five_second_delay(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-quiz-answer-") as tmp:
+            root = Path(tmp)
+            project = root / "quiz-demo"
+            project.mkdir(parents=True)
+            (project / "topic.json").write_text(json.dumps({
+                "id": "quiz-demo", "projectType": "quiz", "brand": "Aurex",
+                "leftLabel": "Ảnh Quiz", "rightLabel": "", "leftImage": "assets/placeholder-left.svg",
+                "rightImage": "", "voiceover": "audio/silence.wav", "duration": 8,
+                "segments": [{"start": 0, "end": 4, "text": "Question"}, {"start": 4, "end": 8, "text": "Đáp án là cái hố."}],
+                "comparisons": [{"id": "quiz-image-1", "layout": "single", "startSentence": 1,
+                    "leftLabel": "Ảnh Quiz", "rightLabel": "", "leftImage": "assets/placeholder-left.svg", "rightImage": ""}],
+                "baseComparisonEnabled": False,
+            }), encoding="utf-8")
+            with patch.object(m3, "PROJECTS_ROOT", root), patch.object(m3, "character_pose_config", return_value=(m3.DEFAULT_POSE_ASSETS, m3.DEFAULT_POSE_LABELS)):
+                saved = m3.save_topic("quiz-demo", {
+                    "projectType": "quiz", "brand": "Aurex", "leftLabel": "Ảnh Quiz", "rightLabel": "",
+                    "leftImage": "assets/placeholder-left.svg", "rightImage": "", "voiceover": "audio/silence.wav",
+                    "duration": 8, "segments": [{"start": 0, "end": 4, "text": "Question"}, {"start": 4, "end": 8, "text": "Đáp án là cái hố."}],
+                    "comparisons": [{"id": "quiz-image-1", "layout": "single", "startSentence": 1,
+                        "leftLabel": "Ảnh Quiz", "rightLabel": "", "leftImage": "assets/placeholder-left.svg", "rightImage": ""}],
+                })
+            self.assertEqual(saved["quizAnswer"], "cái hố.")
+            self.assertEqual(saved["quizAnswerDelay"], 5.0)
+
 
 if __name__ == "__main__":
     unittest.main()

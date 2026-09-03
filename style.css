@@ -108,10 +108,38 @@ body {
 .topic-label-stack,
 .topic-label,
 .topic-sub-label,
-.karaoke {
+.karaoke,
+.quiz-answer {
   position: absolute;
   z-index: 5;
   text-align: center;
+}
+
+.quiz-answer {
+  left: 8%;
+  top: 45.5%;
+  width: 84%;
+  color: #fff;
+  font-size: 7.2cqw;
+  font-weight: 950;
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+  white-space: pre-wrap;
+  text-wrap: balance;
+  text-shadow: 0 0.35cqw 0.8cqw rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateY(0.7cqw) scale(0.96);
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: none;
+}
+
+.quiz-answer.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.stage.preview-blank .quiz-answer {
+  visibility: hidden;
 }
 
 .topic-label-stack {
