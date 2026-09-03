@@ -659,13 +659,11 @@ function isQuizProject() {
 function syncQuizEditorMode() {
   const quiz = isQuizProject();
   document.body.classList.toggle("editor-mode-quiz", quiz);
-  if (elements.addComparisonButton) elements.addComparisonButton.hidden = isQuizProject();
-  if (elements.addSingleImageButton) elements.addSingleImageButton.hidden = true;
+  if (elements.addComparisonButton) elements.addComparisonButton.hidden = quiz;
+  if (elements.addSingleImageButton) elements.addSingleImageButton.hidden = quiz;
   if (elements.deleteBaseComparison) elements.deleteBaseComparison.hidden = quiz;
   if (elements.primaryComparisonTitle) elements.primaryComparisonTitle.textContent = quiz ? tr("Ảnh Quiz", "Quiz image") : tr("So sánh 1", "Comparison 1");
-  if (quiz) {
-    document.querySelector(".comparison-block-primary")?.classList.add("quiz-image-only");
-  }
+  document.querySelector(".comparison-block-primary")?.classList.toggle("quiz-image-only", quiz);
 }
 
 function baseComparisonEnabled() {
