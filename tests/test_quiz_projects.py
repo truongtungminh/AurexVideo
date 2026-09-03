@@ -13,6 +13,7 @@ sys.path.insert(0, str(ENGINE_ROOT))
 
 import m3_backend as m3  # noqa: E402
 from tools.render_project import (  # noqa: E402
+    create_quiz_segment_voiceover,
     quiz_audio_insertions,
     quiz_segment_timeline,
     quiz_segments_after_audio_pause,
@@ -62,6 +63,38 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             (18.3, 19.4),
         ])
         self.assertEqual(duration, 19.4)
+
+    def test_quiz_maziao_uses_sentence_capable_fallback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-quiz-segment-tts-") as tmp:
+            project = Path(tmp)
+            topic_path = project / "topic.json"
+            topic_path.write_text(json.dumps({
+                "projectType": "quiz",
+                "segments": [
+                    {"start": 0, "end": 2, "text": "Câu hỏi ngắn?"},
+                    {"start": 2, "end": 4, "text": "Đáp án ngắn."},
+                ],
+            }), encoding="utf-8")
+            args = type("Args", (), {
+                "engine": "maziao",
+                "voice": "OncoinX",
+                "tts_config_json": "",
+                "speed": 1.0,
+                "volume": 1.0,
+            })()
+            rendered_engines = []
+
+            def fake_create_voiceover(segment_args, _project, _topic_path, _token):
+                rendered_engines.append((segment_args.engine, segment_args.voice))
+                return project / f"segment-{len(rendered_engines)}.wav"
+
+            with patch("tools.render_project.create_voiceover", side_effect=fake_create_voiceover), \
+                patch("tools.render_project.build_quiz_segment_audio", return_value=(project / "mix.wav", [])):
+                create_quiz_segment_voiceover(args, project, topic_path, "token")
+
+            self.assertEqual(len(rendered_engines), 2)
+            self.assertTrue(all(engine == "vieneu" for engine, _ in rendered_engines))
+            self.assertTrue(all(voice == "chautinhtri" for _, voice in rendered_engines))
 
     def test_quiz_countdown_sound_is_configured_for_project_render(self) -> None:
         topic = json.loads(

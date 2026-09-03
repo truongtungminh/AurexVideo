@@ -859,6 +859,36 @@ def create_quiz_segment_voiceover(
             "Quiz cần render bằng engine TTS để tạo audio riêng cho từng câu. "
             "Một file audio dài không thể tách câu hỏi/đáp án chính xác."
         )
+    segment_args = args
+    if args.engine == "maziao":
+        # Maziao rejects short submissions (<100 characters). Grouping short
+        # Quiz lines would bring back the original timing drift, while adding
+        # filler text would make the narration wrong. VieNeu is local and can
+        # synthesize each Quiz line independently, so use it as the exact
+        # sentence renderer for a Maziao-selected Quiz export.
+        try:
+            tts_config = json.loads((CONFIG_ROOT / "tts.json").read_text(encoding="utf-8"))
+        except (OSError, TypeError, json.JSONDecodeError):
+            tts_config = {}
+        vieneu_config = tts_config.get("vieneu") if isinstance(tts_config, dict) else {}
+        if not isinstance(vieneu_config, dict):
+            vieneu_config = {}
+        segment_args = argparse.Namespace(**vars(args))
+        segment_args.engine = "vieneu"
+        segment_args.voice = str(vieneu_config.get("voice") or "chautinhtri").strip()
+        segment_args.tts_config_json = json.dumps(
+            {
+                "mode": vieneu_config.get("mode") or "v3turbo",
+                "device": vieneu_config.get("device") or "cpu",
+                "refAudio": vieneu_config.get("ref_audio") or vieneu_config.get("refAudio") or "",
+            },
+            ensure_ascii=False,
+        )
+        print(
+            "Quiz: Maziao không hỗ trợ câu ngắn dưới 100 ký tự; "
+            f"dùng VieNeu ({segment_args.voice}) để render từng câu độc lập.",
+            flush=True,
+        )
     segment_audio: list[Path] = []
     temporary_topics: list[Path] = []
     try:
@@ -872,7 +902,7 @@ def create_quiz_segment_voiceover(
             temporary.write_text(json.dumps(segment_topic, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             temporary_topics.append(temporary)
             print(f"Quiz TTS segment {index + 1}/{len(segments)}: render riêng câu thoại", flush=True)
-            segment_audio.append(create_voiceover(args, project, temporary, token))
+            segment_audio.append(create_voiceover(segment_args, project, temporary, token))
         return build_quiz_segment_audio(
             project,
             topic,
