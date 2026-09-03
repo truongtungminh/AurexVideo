@@ -80,6 +80,8 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             self.assertEqual(topic["comparisons"][0]["rightLabel"], "")
             self.assertEqual(topic["comparisons"][0]["rightImage"], "")
             self.assertTrue(topic["comparisons"][0]["leftImage"])
+            self.assertEqual(topic["quizCountdownSound"], "audio/quiz-countdown.wav")
+            self.assertTrue((projects_root / "quiz-demo" / "audio" / "quiz-countdown.wav").is_file())
 
     def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:
