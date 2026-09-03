@@ -164,6 +164,8 @@ const elements = Object.fromEntries([
   "leftImageZoom", "rightImageZoom", "leftZoomText", "rightZoomText",
   "leftLabelColor", "rightLabelColor", "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
   "labelFontFamily",
+  "quizQuestionFont", "quizQuestionColor", "quizQuestionSize", "quizQuestionSizeText", "quizCountdownColor",
+  "quizAnswerFont", "quizAnswerColor", "quizAnswerSize", "quizAnswerSizeText",
   "primarySubLabelRow",
   "comparisonList", "addComparisonButton", "addSingleImageButton", "deleteBaseComparison", "primaryComparisonTitle",
   "backgroundType", "backgroundColor", "backgroundColorField", "backgroundImagePanel",
@@ -2221,6 +2223,15 @@ async function loadProject() {
     elements.leftLabelColor.value = state.topic.leftLabelColor || state.topic.labelColor || "#090909";
     elements.rightLabelColor.value = isQuizProject() ? elements.leftLabelColor.value : (state.topic.rightLabelColor || state.topic.labelColor || "#090909");
     populateLabelFontSelect(elements.labelFontFamily, state.topic.labelFontFamily);
+    populateLabelFontSelect(elements.quizQuestionFont, state.topic.quizQuestionFontFamily);
+    populateLabelFontSelect(elements.quizAnswerFont, state.topic.quizAnswerFontFamily);
+    elements.quizQuestionColor.value = state.topic.quizQuestionColor || "#ffffff";
+    elements.quizCountdownColor.value = state.topic.quizCountdownColor || "#ffd166";
+    elements.quizAnswerColor.value = state.topic.quizAnswerColor || "#ffffff";
+    elements.quizQuestionSize.value = String(state.topic.quizQuestionSize || 7.2);
+    elements.quizAnswerSize.value = String(state.topic.quizAnswerSize || 6.2);
+    elements.quizQuestionSizeText.textContent = `${elements.quizQuestionSize.value}cqw`;
+    elements.quizAnswerSizeText.textContent = `${elements.quizAnswerSize.value}cqw`;
     if (state.topic.characterId && !state.topic.labelColor && elements.leftLabelColor.value === "#090909" && elements.rightLabelColor.value === "#090909") {
       const labelColor = await rememberedLabelColorFor(state.topic.characterId);
       if (labelColor) {
@@ -2400,7 +2411,7 @@ function handleEditorInput(event) {
   markDirty();
   if ([
     "leftLabelInput", "rightLabelInput", "leftLabelColor", "rightLabelColor",
-    "labelFontFamily",
+    "labelFontFamily", "quizQuestionFont", "quizQuestionColor", "quizQuestionSize", "quizCountdownColor", "quizAnswerFont", "quizAnswerColor", "quizAnswerSize",
     "leftSubLabelInput", "rightSubLabelInput", "leftSubLabelColor", "rightSubLabelColor",
     "scriptInput", "karaokeActiveColor", "karaokeColor", "karaokeSize",
     "backgroundType", "backgroundColor",
@@ -2409,6 +2420,8 @@ function handleEditorInput(event) {
  if (event.target.id === "sfxVolumeInput") elements.sfxVolumeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "scriptInput") schedulePoseListRender();
  if (event.target.id === "karaokeSize") elements.karaokeSizeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
+  if (event.target.id === "quizQuestionSize") elements.quizQuestionSizeText.textContent = `${event.target.value}cqw`;
+  if (event.target.id === "quizAnswerSize") elements.quizAnswerSizeText.textContent = `${event.target.value}cqw`;
   if (event.target.id === "backgroundMusicVolume") {
     const volume = clamp(Number(event.target.value) || DEFAULT_BACKGROUND_MUSIC_VOLUME, 0.05, 0.5);
     if (state.topic) state.topic.backgroundMusicVolume = volume;
@@ -2475,6 +2488,13 @@ function addComparisonScene(layout) {
     rightLabelColor: single ? "#090909" : (elements.rightLabelColor.value || "#090909"),
     labelColor: elements.leftLabelColor.value || "#090909",
     labelFontFamily: normalizeLabelFontFamily(elements.labelFontFamily?.value || state.topic.labelFontFamily),
+    quizQuestionFontFamily: normalizeLabelFontFamily(elements.quizQuestionFont?.value || state.topic.quizQuestionFontFamily),
+    quizAnswerFontFamily: normalizeLabelFontFamily(elements.quizAnswerFont?.value || state.topic.quizAnswerFontFamily),
+    quizQuestionColor: elements.quizQuestionColor?.value || "#ffffff",
+    quizCountdownColor: elements.quizCountdownColor?.value || "#ffd166",
+    quizAnswerColor: elements.quizAnswerColor?.value || "#ffffff",
+    quizQuestionSize: Number(elements.quizQuestionSize?.value || state.topic.quizQuestionSize || 7.2),
+    quizAnswerSize: Number(elements.quizAnswerSize?.value || state.topic.quizAnswerSize || 6.2),
     showSubLabels: false,
     leftSubLabel: "",
     rightSubLabel: "",

@@ -647,6 +647,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .editor-mode-quiz .comparison-block-primary .upload-grid { grid-template-columns: minmax(0, 1fr); }
 .editor-mode-quiz .comparison-block-primary .upload-card[data-side="right"] { display: none !important; }
 .editor-mode-quiz .scene-add-actions { display: none !important; }
+.quiz-text-settings { display: none; }
+.editor-mode-quiz .quiz-text-settings { display: grid; gap: 12px; }
+.quiz-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.quiz-setting-grid label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 750; }
+.quiz-setting-grid select, .quiz-setting-grid input[type="color"] { width: 100%; min-height: 34px; }
+.quiz-setting-grid input[type="range"] { width: 100%; }
+.quiz-setting-grid output { color: var(--ink); font-size: 12px; font-weight: 800; }
 
 .background-style,
 .subtitle-style,
