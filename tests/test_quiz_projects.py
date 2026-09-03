@@ -43,6 +43,8 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         )
         self.assertTrue((topic_path := topic.get("quizCountdownSound", "audio/quiz-countdown.wav")))
         self.assertEqual(topic_path, "audio/quiz-countdown.wav")
+        renderer = (ENGINE_ROOT / "tools" / "render_demo.py").read_text(encoding="utf-8")
+        self.assertIn("silenceremove=start_periods=1", renderer)
 
     def test_page_declares_project_type_before_quiz_sync_function(self) -> None:
         source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
