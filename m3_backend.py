@@ -1509,8 +1509,13 @@ CUSTOM_INTRO_VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 
 
 def normalize_project_type(value: object) -> str:
-    """Return the two supported editor contracts, never an arbitrary client value."""
-    return "custom" if str(value or "").strip().lower() == "custom" else "comparison"
+    """Return one of the supported editor contracts."""
+    normalized = str(value or "").strip().lower()
+    if normalized == "custom":
+        return "custom"
+    if normalized == "quiz":
+        return "quiz"
+    return "comparison"
 
 
 def _custom_token(prefix: str) -> str:
@@ -1712,11 +1717,14 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     topic["projectType"] = normalize_project_type(payload.get("projectType", current.get("projectType")))
     for field in ("brand", "leftLabel", "rightLabel"):
         text = normalize_display_text(payload.get(field, current.get(field, "")), "", 100)
-        if not text:
+        if not text and not (topic["projectType"] == "quiz" and field == "rightLabel"):
             raise ValueError(f"Trường {field} không được để trống.")
         topic[field] = text
     for field in ("leftImage", "rightImage", "voiceover"):
-        topic[field] = safe_relative_asset(payload.get(field, current.get(field)), field)
+        if topic["projectType"] == "quiz" and field == "rightImage":
+            topic[field] = ""
+        else:
+            topic[field] = safe_relative_asset(payload.get(field, current.get(field)), field)
 
     raw_sfx = payload.get("sfx", current.get("sfx", {}))
     if not isinstance(raw_sfx, dict):
@@ -1788,6 +1796,10 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         topic["slides"] = normalize_custom_slides(payload.get("slides", current.get("slides")), len(cleaned_segments))
         topic["intro"] = normalize_custom_intro(payload.get("intro", current.get("intro")))
         topic["baseComparisonEnabled"] = False
+    elif topic["projectType"] == "quiz":
+        topic["slides"] = []
+        topic["intro"] = default_custom_intro()
+        topic["baseComparisonEnabled"] = False
     else:
         # Comparison projects retain their established scene contract and never
         # carry stale Custom layers into the renderer.
@@ -1830,12 +1842,14 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     raw_comparisons = payload.get("comparisons", current.get("comparisons", []))
     if not isinstance(raw_comparisons, list):
         raise ValueError("Danh sách so sánh không hợp lệ.")
+    if topic["projectType"] == "quiz":
+        raw_comparisons = raw_comparisons[:1]
     cleaned_comparisons = []
     for index, item in enumerate(raw_comparisons[:20], 2):
         if not isinstance(item, dict):
             continue
         raw_id = str(item.get("id") or f"comparison-{index}")
-        layout = "single" if str(item.get("layout") or "").lower() == "single" or raw_id.startswith("single-image-") else "pair"
+        layout = "single" if topic["projectType"] == "quiz" or str(item.get("layout") or "").lower() == "single" or raw_id.startswith("single-image-") else "pair"
         left_label = normalize_display_text(item.get("leftLabel"), "", 100)
         right_label = normalize_display_text(item.get("rightLabel"), "", 100)
         if not left_label or (layout == "pair" and not right_label):
@@ -1892,8 +1906,44 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         cleaned_comparisons.append(comparison)
     cleaned_comparisons.sort(key=lambda item: item["startSentence"])
     topic["comparisons"] = cleaned_comparisons
+    if topic["projectType"] == "quiz":
+        # Quiz projects expose one and only one image scene. The right slot is
+        # deliberately cleared so API clients cannot accidentally turn it into
+        # a comparison after creation.
+        if topic["comparisons"]:
+            topic["comparisons"] = [topic["comparisons"][0]]
+            topic["comparisons"][0]["layout"] = "single"
+            topic["comparisons"][0]["leftLabel"] = topic["leftLabel"]
+            topic["comparisons"][0]["leftImage"] = topic["leftImage"]
+            topic["comparisons"][0]["rightLabel"] = ""
+            topic["comparisons"][0]["rightImage"] = ""
+            topic["comparisons"][0]["rightSubLabel"] = ""
+        else:
+            topic["comparisons"] = [{
+                "id": "quiz-image-1",
+                "layout": "single",
+                "startSentence": 1,
+                "leftLabel": topic["leftLabel"],
+                "rightLabel": "",
+                "labelFontFamily": topic["labelFontFamily"],
+                "showSubLabels": False,
+                "leftSubLabel": "",
+                "rightSubLabel": "",
+                "leftImage": topic["leftImage"],
+                "rightImage": "",
+                "leftLabelColor": topic["leftLabelColor"],
+                "rightLabelColor": topic["rightLabelColor"],
+                "leftSubLabelColor": topic["leftSubLabelColor"],
+                "rightSubLabelColor": topic["rightSubLabelColor"],
+                "leftImageZoom": 1.0,
+                "leftImageX": 0.0,
+                "leftImageY": 0.0,
+                "rightImageZoom": 1.0,
+                "rightImageX": 0.0,
+                "rightImageY": 0.0,
+            }]
     topic["baseComparisonEnabled"] = (
-        False if topic["projectType"] == "custom"
+        False if topic["projectType"] in {"custom", "quiz"}
         else bool(payload.get("baseComparisonEnabled", current.get("baseComparisonEnabled", True)))
     )
 
@@ -2225,6 +2275,9 @@ def create_project(payload: dict) -> dict:
     )
     default_left = normalize_display_text("Content A" if is_en else "Nội dung A")
     default_right = normalize_display_text("Content B" if is_en else "Nội dung B")
+    if project_type == "quiz":
+        default_left = normalize_display_text("Quiz image" if is_en else "Ảnh Quiz")
+        default_right = ""
     custom_catalog = defaults.get("customSfx") if isinstance(defaults.get("customSfx"), dict) else {}
     default_pose_sfx = {
         pose: {
@@ -2353,7 +2406,7 @@ def create_project(payload: dict) -> dict:
         "leftLabel": normalize_display_text(payload.get("leftLabel"), default_left, 80),
         "rightLabel": normalize_display_text(payload.get("rightLabel"), default_right, 80),
         "leftImage": "assets/placeholder-left.svg",
-        "rightImage": "assets/placeholder-right.svg",
+        "rightImage": "" if project_type == "quiz" else "assets/placeholder-right.svg",
         "voiceover": "audio/silence.wav",
         "segments": [{"start": 0.0, "end": 1.0, "text": starter_text}],
         "characterId": character_id,
@@ -2385,7 +2438,7 @@ def create_project(payload: dict) -> dict:
         "leftLabelColor": remembered_label_color(character_id),
         "rightLabelColor": remembered_label_color(character_id),
         "comparisons": [],
-        "baseComparisonEnabled": project_type != "custom",
+        "baseComparisonEnabled": project_type not in {"custom", "quiz"},
         "slides": [custom_slide] if project_type == "custom" else [],
         "intro": custom_intro if project_type == "custom" else default_custom_intro(),
         "karaokeColor": karaoke_color,
@@ -2395,6 +2448,18 @@ def create_project(payload: dict) -> dict:
     }
     atomic_write_json(destination / "topic.json", topic)
     (destination / "script.txt").write_text(starter_text + "\n", encoding="utf-8")
+    if project_type == "quiz":
+        topic = normalize_topic(slug, topic)
+        topic["rightLabel"] = ""
+        topic["rightImage"] = ""
+        if topic["comparisons"]:
+            topic["comparisons"][0]["leftLabel"] = topic["leftLabel"]
+            topic["comparisons"][0]["leftImage"] = topic["leftImage"]
+        atomic_write_json(destination / "topic.json", topic)
+        (destination / "script.txt").write_text(
+            "\n".join(segment["text"] for segment in topic["segments"]) + "\n",
+            encoding="utf-8",
+        )
     return project_summary(destination)
 
 
