@@ -290,12 +290,6 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     document.addEventListener('click',event=>{const link=event.target.closest('a[href]');if(!link)return;const url=new URL(link.href,location.href);if(!/^https?:$/.test(url.protocol)||url.origin===location.origin)return;event.preventDefault();openExternal(url.href).catch(error=>{statusEl.textContent=tr(`Không mở được trình duyệt: ${error.message}`,`Could not open the browser: ${error.message}`)})});
     function selectedCharacter(){return characters.find(item=>item.id===characterSelect.value)||characters[0]||null}
     function renderCharacters(selected=''){const preferred=selected||characterSelect.value;characterSelect.disabled=false;characterSelect.innerHTML=characters.map(c=>`<option value="${esc(c.id)}" ${c.id===preferred?'selected':''}>${esc(c.name||c.id)}</option>`).join('');const c=selectedCharacter();if(c&&characterSelect.value!==c.id)characterSelect.value=c.id;characterCover.src=c?.coverUrl||'';characterCover.hidden=!c;characterMeta.textContent=c?tr(`${c.poseCount} dáng pose · mã ${c.id}`,`${c.poseCount} poses · id ${c.id}`):tr('Chưa có nhân vật','No character yet');editCharacterButton.disabled=!c;deleteCharacterButton.disabled=!c;}
-    function syncQuizProjectType(){
-      const quiz=projectTypeInput.value==='quiz';
-      characterMeta.textContent=quiz
-        ? tr('Template Quiz · một ảnh duy nhất','Quiz template · one image only')
-        : (selectedCharacter()?tr(`${selectedCharacter().poseCount} dáng pose · mã ${selectedCharacter().id}`,`${selectedCharacter().poseCount} poses · id ${selectedCharacter().id}`):tr('Chưa có nhân vật','No character yet'));
-    }
     async function load(){try{const chars=await api('/api/characters');characters=Array.isArray(chars.characters)?chars.characters:[];renderCharacters(chars.defaultCharacterId||'');}catch(error){characters=[];showLibraryError(error);throw error;}}
     function setCharacterSaveVisible(visible){characterNameField.hidden=!visible;saveCharacter.hidden=!visible;saveCharacter.disabled=!visible}
     function renderDraft(){draft.innerHTML=(split?.poses||[]).map((p,i)=>`<label class="pose"><img src="${esc(p.url)}" alt="Pose ${i+1}"><span>${tr(`Dáng ${i+1}`,`Pose ${i+1}`)}</span><input data-name required value="${tr(`Dáng ${i+1}`,`Pose ${i+1}`)}"></label>`).join('');setCharacterSaveVisible(Boolean(split));}
