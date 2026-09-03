@@ -178,16 +178,6 @@ body {
 }
 
 .quiz-question {
-  color: #FFD21C;
-
-  -webkit-text-stroke: 0.62cqw #0B0B0B;
-  paint-order: stroke fill;
-
-  text-shadow: 0 0.55cqw 0 #0B0B0B;
-}
-
-.quiz-question,
-.quiz-answer {
   width: 100%;
 
   font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
@@ -200,16 +190,16 @@ body {
   text-wrap: balance;
   text-align: center;
 
-  /* Ruột chữ */
-  color: #ffffff;
+  /* 1 màu duy nhất cho ruột chữ */
+  color: #FFD21C;
 
-  /* Viền đen dày giống mẫu */
-  -webkit-text-stroke: 0.72cqw #080808;
+  /* Viền đen comic dày */
+  -webkit-text-stroke: 0.65cqw #080808;
   paint-order: stroke fill;
 
-  /* Bóng comic cứng */
+  /* Bóng đen tạo chiều sâu */
   text-shadow:
-    0 0.72cqw 0 #080808;
+    0 0.55cqw 0 #080808;
 
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
@@ -285,6 +275,7 @@ body {
 }
 
 .quiz-answer {
+  font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
   width: 100%;
   color: #ffffff;
   font-size: 6.2cqw;
