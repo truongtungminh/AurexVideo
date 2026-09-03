@@ -633,7 +633,7 @@ def quiz_audio_insertions(
     speed: float,
     source_duration: float | None = None,
 ) -> list[tuple[float, float]]:
-    """Return extra silences needed before Quiz answer narration.
+    """Return extra silences needed around Quiz answer narration.
 
     The editor reveals an answer ``quizAnswerDelay`` seconds after its
     question starts.  TTS audio is normally generated as one continuous
@@ -679,6 +679,13 @@ def quiz_audio_insertions(
         missing_pause = max(0.0, delay - elapsed)
         if missing_pause > 0.001:
             insertions.append((question_end, missing_pause))
+        # Keep the revealed answer on screen and let its narration finish
+        # before advancing to the next question.
+        try:
+            answer_end = max(answer_start, float(answer.get("end") or answer_start) * scale)
+        except (TypeError, ValueError):
+            answer_end = answer_start
+        insertions.append((answer_end, 2.0))
     return insertions
 
 
@@ -1377,6 +1384,11 @@ def main() -> None:
     prepared_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     aligned_topic = project / "topic.rendered.json"
+    # Quiz segment markers are derived from the actual audio after inserting
+    # countdown pauses. Do not let an older alignment cache restore pre-pause
+    # markers and overwrite the synchronized Quiz timeline.
+    if str(original.get("projectType") or "").strip().lower() == "quiz":
+        aligned_topic.unlink(missing_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = (int(value) for value in args.size.split("x"))
     needs_finalization = bool(
