@@ -136,11 +136,16 @@ SOURCE_ROOT_IS_PROJECT = False
 # Keep the venv launcher path as-is. On macOS Homebrew, `.venv/bin/python` is a
 # symlink into the framework binary; `.resolve()` would drop out of the venv and
 # render with a bare interpreter (no Pillow / Whisper / Playwright).
-VENV_PYTHON = Path(
-    os.environ.get("AUREX_PYTHON")
-    or REPO_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
-).expanduser()
-RENDER_PYTHON = VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable)
+_PYTHON_NAME = "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python3.11"
+_PYTHON_CANDIDATES = [
+    Path(os.environ["AUREX_PYTHON"]).expanduser() if os.environ.get("AUREX_PYTHON") else None,
+    REPO_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"),
+    REPO_ROOT.parent / "runtime" / "python_base" / _PYTHON_NAME,
+    REPO_ROOT.parent / "python_base" / _PYTHON_NAME,
+    REPO_ROOT / "python_base" / _PYTHON_NAME,
+]
+VENV_PYTHON = next((candidate for candidate in _PYTHON_CANDIDATES if candidate and candidate.exists()), Path(sys.executable))
+RENDER_PYTHON = VENV_PYTHON
 OCR_TOOL_PATH = REPO_ROOT / "tools" / "ocr_universal_deepseek2.py"
 VENV_ROOT = (REPO_ROOT / ".venv").resolve()
 DEFAULT_HOST = "127.0.0.1"

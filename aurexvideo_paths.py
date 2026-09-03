@@ -25,8 +25,14 @@ def bundled_python() -> Path:
         # Do not resolve venv launchers: on macOS they are symlinks to the base
         # framework binary, and resolving drops site-packages such as Playwright.
         return Path(configured).expanduser().absolute()
-    candidate = RESOURCE_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
-    return candidate if candidate.exists() else Path(sys.executable).absolute()
+    python_name = "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python3.11"
+    candidates = [
+        RESOURCE_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"),
+        RESOURCE_ROOT.parent / "runtime" / "python_base" / python_name,
+        RESOURCE_ROOT.parent / "python_base" / python_name,
+        RESOURCE_ROOT / "python_base" / python_name,
+    ]
+    return next((candidate for candidate in candidates if candidate.exists()), Path(sys.executable).absolute())
 
 
 PYTHON_EXECUTABLE = bundled_python()
