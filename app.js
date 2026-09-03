@@ -1420,6 +1420,8 @@ function isQuizProject(nextTopic = topic) {
   return String(nextTopic?.projectType || "").toLowerCase() === "quiz";
 }
 
+const QUIZ_ANSWER_HOLD_SECONDS = 1;
+
 function quizAnswerStartTime() {
   const configured = Number(topic?.quizAnswerDelay);
   return Math.max(0, Number.isFinite(configured) ? configured : 5);
@@ -1462,7 +1464,7 @@ function renderQuizText(time) {
     const nextQuestionStart = index + 1 < pairs.length
       ? (Number(pairs[index + 1].question?.start) || questionEnd + delay)
       : Infinity;
-    const sceneEnd = Math.max(nextQuestionStart, answerEnd + 2);
+    const sceneEnd = Math.max(nextQuestionStart, answerEnd + QUIZ_ANSWER_HOLD_SECONDS);
     if (Number(time) <= sceneEnd || index === pairs.length - 1) {
       pair = candidate;
       break;
