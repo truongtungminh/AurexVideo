@@ -628,16 +628,89 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
     return output
 
 
-def prepare_render_audio(source: Path, project: Path, speed: float, volume: float = 1.0) -> Path:
+def quiz_audio_insertions(topic: dict, speed: float) -> list[tuple[float, float]]:
+    """Return extra silences needed before Quiz answer narration.
+
+    The editor reveals an answer ``quizAnswerDelay`` seconds after its
+    question starts.  TTS audio is normally generated as one continuous
+    track, so preserve the existing narration and insert only the missing
+    pause before each answer.  Positions are on the post-speed audio track.
+    """
+    if str(topic.get("projectType") or "").strip().lower() != "quiz":
+        return []
+    try:
+        rate = max(0.01, float(speed))
+    except (TypeError, ValueError):
+        rate = 1.0
+    try:
+        delay = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
+    except (TypeError, ValueError):
+        delay = 5.0
+    segments = topic.get("segments")
+    if not isinstance(segments, list):
+        return []
+    insertions: list[tuple[float, float]] = []
+    for index in range(0, len(segments) - 1, 2):
+        question, answer = segments[index], segments[index + 1]
+        if not isinstance(question, dict) or not isinstance(answer, dict):
+            continue
+        try:
+            question_start = max(0.0, float(question.get("start") or 0.0))
+            answer_start = max(question_start, float(answer.get("start") or question_start))
+        except (TypeError, ValueError):
+            continue
+        elapsed = max(0.0, (answer_start - question_start) / rate)
+        missing_pause = max(0.0, delay - elapsed)
+        if missing_pause > 0.001:
+            insertions.append((answer_start / rate, missing_pause))
+    return insertions
+
+
+def prepare_render_audio(
+    source: Path,
+    project: Path,
+    speed: float,
+    volume: float = 1.0,
+    topic: dict | None = None,
+) -> Path:
     output = project / "output" / "render-voiceover.wav"
     output.parent.mkdir(parents=True, exist_ok=True)
     filters = [f"atempo={speed:g}"]
     if abs(volume - 1.0) > 0.001:
         filters.append(f"volume={volume:g}")
     filters.append(AUDIO_PEAK_LIMITER)
+    insertions = quiz_audio_insertions(topic or {}, speed)
+    if insertions:
+        # Split the speed/volume-normalized track at each answer boundary,
+        # concatenate a real 5-second-timeline pause, then write one voice
+        # track.  This keeps the later alignment and both render backends in
+        # sync with the Quiz preview.
+        base = "[0:a]" + ",".join(filters) + "[base]"
+        graph = [base]
+        pieces: list[str] = []
+        cursor = 0.0
+        for index, (position, silence_duration) in enumerate(insertions):
+            position = max(cursor, position)
+            part = f"part{index}"
+            graph.append(
+                f"[base]atrim=start={cursor:.3f}:end={position:.3f},"
+                f"asetpts=PTS-STARTPTS[{part}]"
+            )
+            silence = f"silence{index}"
+            graph.append(f"anullsrc=r=48000:cl=mono:d={silence_duration:.3f}[{silence}]")
+            pieces.extend([f"[{part}]", f"[{silence}]"])
+            cursor = position
+        graph.append(f"[base]atrim=start={cursor:.3f},asetpts=PTS-STARTPTS[tail]")
+        pieces.append("[tail]")
+        graph.append("".join(pieces) + f"concat=n={len(pieces)}:v=0:a=1[voice]")
+        filter_complex = ";".join(graph)
+        audio_map = "[voice]"
+    else:
+        filter_complex = "[0:a]" + ",".join(filters) + "[voice]"
+        audio_map = "[voice]"
     run([
-        str(ffmpeg_executable()), "-y", "-i", str(source), "-vn", "-filter:a", ",".join(filters),
-        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(output),
+        str(ffmpeg_executable()), "-y", "-i", str(source), "-vn", "-filter_complex", filter_complex,
+        "-map", audio_map, "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(output),
     ])
     return output
 
@@ -1243,7 +1316,7 @@ def main() -> None:
     token = uuid.uuid4().hex[:8]
     write_script(project, original)
     source_audio = create_voiceover(args, project, topic_path, token)
-    render_audio = prepare_render_audio(source_audio, project, args.speed, args.volume)
+    render_audio = prepare_render_audio(source_audio, project, args.speed, args.volume, original)
     duration = media_duration(render_audio)
 
     prepared = dict(original)
