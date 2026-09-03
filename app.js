@@ -16,6 +16,7 @@ const elements = {
   leftImage: document.querySelector("#leftImage"),
   rightImage: document.querySelector("#rightImage"),
   karaoke: document.querySelector("#karaoke"),
+  quizAnswer: document.querySelector("#quizAnswer"),
   teacher: document.querySelector("#teacher"),
   teacherWrap: document.querySelector("#teacherWrap"),
   loading: document.querySelector("#loading"),
@@ -1367,6 +1368,15 @@ async function syncPresenterToOfflineTimeline(event, timelineTime) {
 
 function renderKaraoke(time) {
   const activeIndex = activeWordAt(time);
+  if (isQuizProject() && activeIndex >= 0 && quizAnswerStartTime() > time
+    && timedWords[activeIndex].segmentStart >= quizAnswerSegmentStart()) {
+    if (lastKaraokeRenderKey !== "") {
+      elements.karaoke.classList.remove("visible");
+      elements.karaoke.replaceChildren();
+      lastKaraokeRenderKey = "";
+    }
+    return;
+  }
   if (activeIndex < 0) {
     if (lastKaraokeRenderKey !== "") {
       elements.karaoke.classList.remove("visible");
@@ -1407,6 +1417,34 @@ function renderKaraoke(time) {
   }
 }
 
+function isQuizProject(nextTopic = topic) {
+  return String(nextTopic?.projectType || "").toLowerCase() === "quiz";
+}
+
+function quizAnswerSegmentStart() {
+  return Number(topic?.segments?.[1]?.start) || 0;
+}
+
+function quizAnswerStartTime() {
+  const configured = Number(topic?.quizAnswerDelay);
+  return Math.max(0, Number.isFinite(configured) ? configured : 5);
+}
+
+function quizAnswerText() {
+  const raw = String(topic?.quizAnswer || topic?.segments?.[1]?.text || "").trim();
+  if (!raw) return "";
+  return raw.replace(/^(?:đáp án là|answer is)\s*/iu, "").trim() || raw;
+}
+
+function renderQuizAnswer(time) {
+  if (!elements.quizAnswer) return;
+  const answer = isQuizProject() ? quizAnswerText() : "";
+  const visible = Boolean(answer) && time >= quizAnswerStartTime();
+  elements.quizAnswer.textContent = visible ? answer : "";
+  elements.quizAnswer.hidden = !visible;
+  elements.quizAnswer.classList.toggle("visible", visible);
+}
+
 function renderAt(time, allowPoseSfx = false) {
   if (previewFrame && previewTimeLock !== null) time = previewTimeLock;
   elements.stage.classList.remove("preview-blank");
@@ -1414,6 +1452,7 @@ function renderAt(time, allowPoseSfx = false) {
   else applyComparisonToView(comparisonAt(time));
   applyIntro(topic, time);
   renderKaraoke(time);
+  renderQuizAnswer(time);
   setPose(poseAt(time), time, allowPoseSfx);
   const duration = previewDuration();
   elements.timeText.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
