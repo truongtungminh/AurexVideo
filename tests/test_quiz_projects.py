@@ -17,8 +17,8 @@ import m3_backend as m3  # noqa: E402
 class NewProjectPageRegressionTests(unittest.TestCase):
     def test_page_declares_project_type_before_quiz_sync_function(self) -> None:
         source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
-        self.assertLess(source.index("const projectTypeInput"), source.index("function syncQuizProjectType"))
-        self.assertEqual(source.count("function syncQuizProjectType"), 1)
+        self.assertLess(source.index("const projectTypeInput"), source.index("const syncQuizProjectType"))
+        self.assertEqual(source.count("const syncQuizProjectType"), 1)
 
     def test_page_has_a_safe_character_library_failure_state(self) -> None:
         source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
