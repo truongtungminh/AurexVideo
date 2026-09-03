@@ -110,6 +110,10 @@ const presenterAlphaBounds = new Map();
 const presenterFrameCache = new Map();
 const IMPORTED_PRESENTER_GAP_PX = 24;
 const IMPORTED_PRESENTER_BOTTOM_PX = 28;
+// Quiz text occupies the upper half of the canvas. Lift its character a
+// little while keeping the original size, so the presenter remains visible
+// below the answer card without changing other project types.
+const IMPORTED_PRESENTER_QUIZ_LIFT_PX = 64;
 const IMPORTED_PRESENTER_MAX_WIDTH = 0.58;
 const IMPORTED_PRESENTER_MAX_HEIGHT = 0.52;
 const OFFLINE_MEDIA_SYNC_TOLERANCE = 1 / 120;
@@ -1035,8 +1039,9 @@ async function layoutImportedPresenter(generation = presenterLayoutGeneration) {
   const logicalScale = stageRect.height / 1920;
   const visibleWidth = bounds.right - bounds.left;
   const visibleHeight = bounds.bottom - bounds.top;
-  const visibleTop = subtitleBottom - stageRect.top + IMPORTED_PRESENTER_GAP_PX * logicalScale;
-  const visibleBottom = stageRect.height - IMPORTED_PRESENTER_BOTTOM_PX * logicalScale;
+  const presenterLift = isQuizProject(topic) ? IMPORTED_PRESENTER_QUIZ_LIFT_PX * logicalScale : 0;
+  const visibleTop = subtitleBottom - stageRect.top + IMPORTED_PRESENTER_GAP_PX * logicalScale - presenterLift;
+  const visibleBottom = stageRect.height - IMPORTED_PRESENTER_BOTTOM_PX * logicalScale - presenterLift;
   const heightScale = Math.max(0.01, (visibleBottom - visibleTop) / visibleHeight);
   const widthScale = stageRect.width * IMPORTED_PRESENTER_MAX_WIDTH / visibleWidth;
   const heightCapScale = stageRect.height * IMPORTED_PRESENTER_MAX_HEIGHT / visibleHeight;
