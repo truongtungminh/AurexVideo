@@ -628,7 +628,11 @@ def create_voiceover(args: argparse.Namespace, project: Path, topic_path: Path, 
     return output
 
 
-def quiz_audio_insertions(topic: dict, speed: float) -> list[tuple[float, float]]:
+def quiz_audio_insertions(
+    topic: dict,
+    speed: float,
+    source_duration: float | None = None,
+) -> list[tuple[float, float]]:
     """Return extra silences needed before Quiz answer narration.
 
     The editor reveals an answer ``quizAnswerDelay`` seconds after its
@@ -649,23 +653,32 @@ def quiz_audio_insertions(topic: dict, speed: float) -> list[tuple[float, float]
     segments = topic.get("segments")
     if not isinstance(segments, list):
         return []
+    timeline_end = max(
+        [float(topic.get("duration") or 0.0)]
+        + [float(item.get("end") or 0.0) for item in segments if isinstance(item, dict)]
+    )
+    try:
+        audio_length = max(0.0, float(source_duration or 0.0)) / rate
+    except (TypeError, ValueError):
+        audio_length = 0.0
+    scale = audio_length / timeline_end if audio_length > 0.0 and timeline_end > 0.0 else 1.0
     insertions: list[tuple[float, float]] = []
     for index in range(0, len(segments) - 1, 2):
         question, answer = segments[index], segments[index + 1]
         if not isinstance(question, dict) or not isinstance(answer, dict):
             continue
         try:
-            question_start = max(0.0, float(question.get("start") or 0.0))
-            question_end = max(question_start, float(question.get("end") or question_start))
-            answer_start = max(question_start, float(answer.get("start") or question_start))
+            question_start = max(0.0, float(question.get("start") or 0.0)) * scale
+            question_end = max(question_start, float(question.get("end") or question.get("start") or 0.0) * scale)
+            answer_start = max(question_start, float(answer.get("start") or question.get("start") or 0.0) * scale)
         except (TypeError, ValueError):
             continue
         # The visual countdown starts after the question has been spoken.
         # Insert at question end so the answer lands at question_end + delay.
-        elapsed = max(0.0, (answer_start - question_end) / rate)
+        elapsed = max(0.0, answer_start - question_end)
         missing_pause = max(0.0, delay - elapsed)
         if missing_pause > 0.001:
-            insertions.append((question_end / rate, missing_pause))
+            insertions.append((question_end, missing_pause))
     return insertions
 
 
@@ -682,7 +695,7 @@ def prepare_render_audio(
     if abs(volume - 1.0) > 0.001:
         filters.append(f"volume={volume:g}")
     filters.append(AUDIO_PEAK_LIMITER)
-    insertions = quiz_audio_insertions(topic or {}, speed)
+    insertions = quiz_audio_insertions(topic or {}, speed, media_duration(source))
     if insertions:
         # Split the speed/volume-normalized track at each answer boundary,
         # concatenate a real 5-second-timeline pause, then write one voice
