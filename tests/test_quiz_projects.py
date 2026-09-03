@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -14,7 +14,17 @@ sys.path.insert(0, str(ENGINE_ROOT))
 import m3_backend as m3  # noqa: E402
 
 
-class QuizProjectTemplateTests(unittest.TestCase):
+class NewProjectPageRegressionTests(unittest.TestCase):
+    def test_page_declares_project_type_before_quiz_sync_function(self) -> None:
+        source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
+        self.assertLess(source.index("const projectTypeInput"), source.index("function syncQuizProjectType"))
+        self.assertEqual(source.count("function syncQuizProjectType"), 1)
+
+    def test_page_has_a_safe_character_library_failure_state(self) -> None:
+        source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
+        self.assertIn("Không tải được thư viện", source)
+        self.assertIn("characterSelect.disabled=true", source)
+
     def test_quiz_project_is_single_image_only(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-project-") as tmp:
             root = Path(tmp)
@@ -90,7 +100,7 @@ class QuizProjectTemplateTests(unittest.TestCase):
             self.assertEqual(saved["comparisons"][0]["layout"], "single")
             self.assertEqual(saved["comparisons"][0]["rightImage"], "")
 
-    def test_quiz_is_listed_and_pair_scene_action_is_locked_in_ui(self) -> None:
+    def test_quiz_is_listed_and_editor_hides_pair_controls(self) -> None:
         new_project = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
         editor = (ENGINE_ROOT / "webui" / "editor.js").read_text(encoding="utf-8")
         self.assertIn('data-project-type="quiz"', new_project)
