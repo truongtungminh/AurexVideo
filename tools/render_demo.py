@@ -233,6 +233,10 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
                 delay_ms = round(start * 1000)
                 filters.append(
                     f"[{input_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                    # The supplied countdown file contains a leading silent
+                    # intro. Remove it so its first tick starts immediately
+                    # when the visual countdown begins.
+                    f"silenceremove=start_periods=1:start_duration=0.05:start_threshold=-45dB,"
                     f"atrim=0:{countdown_duration:.3f},asetpts=PTS-STARTPTS,"
                     f"adelay={delay_ms}:all=1,volume={float(topic.get('quizCountdownVolume', 0.3)):.3f}[{label}]"
                 )
