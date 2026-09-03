@@ -788,6 +788,7 @@ def render_signature(topic_path: Path, args: argparse.Namespace, *, topic_value:
     topic_assets: list[str] = []
     candidate_values: list[object] = [
         topic_value.get("voiceover"),
+        topic_value.get("quizCountdownSound"),
         topic_value.get("backgroundMusic"),
         topic_value.get("leftImage"),
         topic_value.get("rightImage"),
