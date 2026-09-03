@@ -141,7 +141,7 @@ body {
   min-height: 53cqw;
   display: grid;
   place-items: center;
-  padding: 7cqw 7cqw 8cqw;
+  padding: 3cqw;
   background: linear-gradient(150deg, #ffffff 0%, #fffefa 62%, #f2f2f2 100%);
   border: 0.85cqw solid #0b0b0b;
   border-radius: 6cqw;
