@@ -209,6 +209,9 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
         input_index += 1
 
     countdown_value = str(topic.get("quizCountdownSound") or "").strip()
+    if str(topic.get("projectType") or "").lower() == "quiz" and not countdown_value:
+        # Keep existing Quiz projects compatible after the asset is installed.
+        countdown_value = "audio/quiz-countdown.wav"
     if str(topic.get("projectType") or "").lower() == "quiz" and countdown_value:
         countdown_path = resolve_project_path(topic_path, countdown_value, data_root)
         if countdown_path.is_file():
@@ -222,6 +225,7 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
                     continue
                 try:
                     start = max(0.0, float(question.get("start") or 0.0))
+                    start = max(start, float(question.get("end") or start))
                 except (TypeError, ValueError):
                     continue
                 command.extend(["-i", str(countdown_path)])

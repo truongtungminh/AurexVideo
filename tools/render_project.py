@@ -656,13 +656,16 @@ def quiz_audio_insertions(topic: dict, speed: float) -> list[tuple[float, float]
             continue
         try:
             question_start = max(0.0, float(question.get("start") or 0.0))
+            question_end = max(question_start, float(question.get("end") or question_start))
             answer_start = max(question_start, float(answer.get("start") or question_start))
         except (TypeError, ValueError):
             continue
-        elapsed = max(0.0, (answer_start - question_start) / rate)
+        # The visual countdown starts after the question has been spoken.
+        # Insert at question end so the answer lands at question_end + delay.
+        elapsed = max(0.0, (answer_start - question_end) / rate)
         missing_pause = max(0.0, delay - elapsed)
         if missing_pause > 0.001:
-            insertions.append((answer_start / rate, missing_pause))
+            insertions.append((question_end / rate, missing_pause))
     return insertions
 
 

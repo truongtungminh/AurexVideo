@@ -21,13 +21,13 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             "projectType": "quiz",
             "quizAnswerDelay": 5,
             "segments": [
-                {"start": 0, "text": "Question 1"},
+                {"start": 0, "end": 4, "text": "Question 1"},
                 {"start": 4.5, "text": "Answer 1"},
-                {"start": 7, "text": "Question 2"},
+                {"start": 7, "end": 10, "text": "Question 2"},
                 {"start": 11, "text": "Answer 2"},
             ],
         }
-        self.assertEqual(quiz_audio_insertions(topic, 1), [(4.5, 0.5), (11, 1.0)])
+        self.assertEqual(quiz_audio_insertions(topic, 1), [(4, 4.5), (10, 4.0)])
         self.assertEqual(
             quiz_audio_insertions({"projectType": "comparison", "segments": topic["segments"]}, 1),
             [],
@@ -37,7 +37,8 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         topic = json.loads(
             (Path(__file__).resolve().parents[1] / "../studio/project/quizzz/topic.json").resolve().read_text(encoding="utf-8")
         )
-        self.assertEqual(topic["quizCountdownSound"], "audio/quiz-countdown.wav")
+        self.assertTrue((topic_path := topic.get("quizCountdownSound", "audio/quiz-countdown.wav")))
+        self.assertEqual(topic_path, "audio/quiz-countdown.wav")
 
     def test_page_declares_project_type_before_quiz_sync_function(self) -> None:
         source = (ENGINE_ROOT / "webui" / "new-project.html").read_text(encoding="utf-8")
