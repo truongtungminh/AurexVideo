@@ -699,7 +699,8 @@ def quiz_segments_after_audio_pause(topic: dict, source_duration: float, speed: 
             [float(topic.get("duration") or 0.0)]
             + [float(item.get("end") or 0.0) for item in segments if isinstance(item, dict)]
         )
-        scale = (float(source_duration) / max(0.01, timeline_end)) if timeline_end > 0 else 1.0
+        audio_length = float(source_duration) / max(0.01, float(speed))
+        scale = (audio_length / max(0.01, timeline_end)) if timeline_end > 0 else 1.0
     except (TypeError, ValueError):
         scale = 1.0
     insertions = quiz_audio_insertions(topic, speed, source_duration)

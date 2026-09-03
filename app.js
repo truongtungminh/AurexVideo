@@ -1450,10 +1450,14 @@ function renderQuizText(time) {
     const candidate = pairs[index];
     const questionStart = Number(candidate.question?.start) || 0;
     const questionEnd = Math.max(questionStart, Number(candidate.question?.end) || questionStart);
+    const answerEnd = Math.max(
+      questionEnd,
+      Number(candidate.answer?.end) || Number(candidate.answer?.start) || questionEnd,
+    );
     const nextQuestionStart = index + 1 < pairs.length
       ? (Number(pairs[index + 1].question?.start) || questionEnd + delay)
       : Infinity;
-    const sceneEnd = Math.max(nextQuestionStart, questionEnd + delay);
+    const sceneEnd = Math.max(nextQuestionStart, answerEnd + 2);
     if (Number(time) <= sceneEnd || index === pairs.length - 1) {
       pair = candidate;
       break;

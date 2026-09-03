@@ -708,26 +708,44 @@ def align_topic_without_whisper(
             cursor += weight
             raw_starts.append(duration * cursor / total_weight)
 
-    silences = detect_silences(audio, silence_noise, silence_min_duration)
-    interior_silences = [
-        silence for silence in silences
-        if silence[0] > 0.05 and silence[1] < duration - 0.05
-    ]
-    if len(interior_silences) == len(rows) - 1:
+    is_quiz = str(topic.get("projectType") or "").strip().lower() == "quiz"
+    if is_quiz and all(
+        isinstance(segment, dict)
+        and float(segment.get("end") or 0) >= float(segment.get("start") or 0)
+        for segment in rows
+    ):
+        # Quiz markers are authored by render_project after its explicit
+        # countdown/answer-hold pauses are inserted. Re-detecting silences
+        # here would mistake the countdown silence for a sentence boundary
+        # and make the answer appear while the clock is still running.
+        starts = [min(duration, max(0.0, float(segment.get("start") or 0))) for segment in rows]
+        ends = [
+            min(duration, max(starts[index] + 0.12, float(segment.get("end") or starts[index])))
+            for index, segment in enumerate(rows)
+        ]
+        silences = []
+        print("Quiz: giữ nguyên timeline hỏi → countdown → đáp án → nghỉ 2 giây.")
+    else:
+        silences = detect_silences(audio, silence_noise, silence_min_duration)
+        interior_silences = [
+            silence for silence in silences
+            if silence[0] > 0.05 and silence[1] < duration - 0.05
+        ]
+        if len(interior_silences) == len(rows) - 1:
         # Full-script TTS inserts one pause between each source line. In that
         # common case silence ends are more accurate than proportional guesses.
-        starts = [0.0, *(float(end) for _start, end, _duration in interior_silences)]
-        print("Số khoảng lặng khớp số câu; dùng trực tiếp thời điểm giọng bắt đầu lại.")
-    else:
-        starts = [
-            raw_starts[0],
-            *snap_split_points_to_speech_starts(raw_starts[1:], silences, 0.75),
-        ]
-    # Preserve order even if two expected boundaries snap to one silence.
-    for index in range(1, len(starts)):
-        starts[index] = max(starts[index], starts[index - 1] + 0.12)
-    ends = [max(starts[index] + 0.12, starts[index + 1]) for index in range(len(starts) - 1)]
-    ends.append(duration)
+            starts = [0.0, *(float(end) for _start, end, _duration in interior_silences)]
+            print("Số khoảng lặng khớp số câu; dùng trực tiếp thời điểm giọng bắt đầu lại.")
+        else:
+            starts = [
+                raw_starts[0],
+                *snap_split_points_to_speech_starts(raw_starts[1:], silences, 0.75),
+            ]
+        # Preserve order even if two expected boundaries snap to one silence.
+        for index in range(1, len(starts)):
+            starts[index] = max(starts[index], starts[index - 1] + 0.12)
+        ends = [max(starts[index] + 0.12, starts[index + 1]) for index in range(len(starts) - 1)]
+        ends.append(duration)
 
     aligned = []
     pose_rows = []
