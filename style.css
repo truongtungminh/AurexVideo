@@ -217,7 +217,7 @@ body {
 
 /* FIX QUIZ QUESTION SIZE: bản chữ lớn */
 .quiz-question {
-  font-size: 8cqw !important;
+  font-size: 8.5cqw !important;
   line-height: 1.2;
 }
 
