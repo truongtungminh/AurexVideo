@@ -110,10 +110,8 @@ const presenterAlphaBounds = new Map();
 const presenterFrameCache = new Map();
 const IMPORTED_PRESENTER_GAP_PX = 24;
 const IMPORTED_PRESENTER_BOTTOM_PX = 28;
-// Quiz text occupies the upper half of the canvas. Lift its character a
-// little while keeping the original size, so the presenter remains visible
-// below the answer card without changing other project types.
-const IMPORTED_PRESENTER_QUIZ_LIFT_PX = 30;
+// Keep the Quiz presenter at its original/default vertical position.
+const IMPORTED_PRESENTER_QUIZ_LIFT_PX = 0;
 const IMPORTED_PRESENTER_MAX_WIDTH = 0.58;
 const IMPORTED_PRESENTER_MAX_HEIGHT = 0.52;
 const OFFLINE_MEDIA_SYNC_TOLERANCE = 1 / 120;
