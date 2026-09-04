@@ -215,9 +215,10 @@ body {
   text-rendering: geometricPrecision;
 }
 
-/* FIX QUIZ FONT QUESTION */
+/* FIX QUIZ QUESTION SIZE: bản chữ lớn */
 .quiz-question {
-  font-size: 6.2cqw !important;
+  font-size: 7.5cqw !important;
+  line-height: 0.98;
 }
 
 .quiz-answer {
