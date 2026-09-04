@@ -141,6 +141,16 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             self.assertTrue(topic["comparisons"][0]["leftImage"])
             self.assertEqual(topic["quizCountdownSound"], "audio/quiz-countdown.wav")
             self.assertTrue((projects_root / "quiz-demo" / "audio" / "quiz-countdown.wav").is_file())
+            self.assertEqual(topic["poseSfx"], {pose: "" for pose in topic["poseAssets"]})
+
+    def test_quizz_default_pose_sequence_and_no_sound_contract(self) -> None:
+        self.assertEqual(
+            m3.default_pose_sequence("quizz", {f"pose-{index}": {} for index in range(1, 4)}),
+            ["pose-1", "pose-2", "pose-1", "pose-2", "pose-1", "pose-2", "pose-3"],
+        )
+        editor = (ENGINE_ROOT / "webui" / "editor.js").read_text(encoding="utf-8")
+        self.assertIn('quizz: ["pose-1", "pose-2", "pose-1", "pose-2", "pose-1", "pose-2", "pose-3"]', editor)
+        self.assertIn('if (String(state.topic?.projectType || "").toLowerCase() === "quiz")', editor)
 
     def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:

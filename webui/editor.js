@@ -331,6 +331,7 @@ let POSE_OPTIONS = [
 ];
 
 const CUSTOM_POSE_SEQUENCES = {
+  quizz: ["pose-1", "pose-2", "pose-1", "pose-2", "pose-1", "pose-2", "pose-3"],
   bietchichomet: ["pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5"],
   july: ["pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5"],
   popsy: ["pose-9", "pose-1", "pose-2", "pose-3", "pose-4", "pose-5", "pose-6"],
@@ -355,10 +356,11 @@ function configurePoseOptions(topic) {
   const labels = topic?.poseLabels && typeof topic.poseLabels === "object" ? topic.poseLabels : {};
   const ids = Object.keys(assets);
   if (!ids.length) return;
+  const quiz = String(topic?.projectType || "").toLowerCase() === "quiz";
   POSE_OPTIONS = ids.map((id, index) => ({
     id,
     label: localizedPoseLabel(id, labels[id] || id.replace(/-/g, " ")),
-    defaultSfx: topic.poseSfx?.[id] || ["pose-hard-pop-click", "pose-hard-pop-click", "pose-bubble-pop", "pose-explainer-pop-whoosh", "pose-explainer-pop-whoosh"][index] || "",
+    defaultSfx: quiz ? "" : (topic.poseSfx?.[id] || ["pose-hard-pop-click", "pose-hard-pop-click", "pose-bubble-pop", "pose-explainer-pop-whoosh", "pose-explainer-pop-whoosh"][index] || ""),
   }));
   if (!ids.includes(state.activePoseSfx)) state.activePoseSfx = POSE_OPTIONS[0].id;
 }
@@ -1209,6 +1211,9 @@ function poseForTime(time) {
 }
 
 function defaultPoseSfx() {
+  if (String(state.topic?.projectType || "").toLowerCase() === "quiz") {
+    return Object.fromEntries(POSE_OPTIONS.map((item) => [item.id, ""]));
+  }
   return Object.fromEntries(POSE_OPTIONS.map((item) => [item.id, item.defaultSfx]));
 }
 
