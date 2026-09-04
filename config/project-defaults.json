@@ -45,11 +45,11 @@
       "pose-5": "pose-explainer-pop-whoosh"
     },
     "default-human": {
-      "neutral-left": "pose-hard-pop-click",
-      "neutral-right": "pose-hard-pop-click",
-      "question": "pose-bubble-pop",
-      "smile-left": "pose-explainer-pop-whoosh",
-      "smile-right": "pose-explainer-pop-whoosh"
+      "neutral-left": "",
+      "neutral-right": "",
+      "question": "",
+      "smile-left": "",
+      "smile-right": ""
     }
   },
   "customSfx": {},

@@ -88,6 +88,7 @@ DEFAULT_POSE_LABELS_EN = {
 
 BIETCHICHOMET_DEFAULT_POSE_SEQUENCE = ("pose-1", "pose-2", "pose-3", "pose-1", "pose-2", "pose-4", "pose-1", "pose-2", "pose-5")
 POPSY_DEFAULT_POSE_SEQUENCE = ("pose-9", "pose-1", "pose-2", "pose-3", "pose-4", "pose-5", "pose-6")
+QUIZZ_DEFAULT_POSE_SEQUENCE = ("pose-1", "pose-2", "pose-1", "pose-2", "pose-1", "pose-2", "pose-3")
 
 
 def normalize_ui_language(value: object) -> str:
@@ -518,6 +519,10 @@ def default_pose_sequence(character_id: str, pose_assets: dict[str, dict[str, st
             return sequence
     if character_id == "popsy":
         sequence = [pose for pose in POPSY_DEFAULT_POSE_SEQUENCE if pose in pose_assets]
+        if sequence:
+            return sequence
+    if character_id == "quizz":
+        sequence = [pose for pose in QUIZZ_DEFAULT_POSE_SEQUENCE if pose in pose_assets]
         if sequence:
             return sequence
     return ids
@@ -2043,6 +2048,8 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     ]
     for index, pose in enumerate(valid_poses):
         default_pose_sfx.setdefault(pose, positional_pose_sfx[index] if index < len(positional_pose_sfx) else "")
+    if topic["projectType"] == "quiz":
+        default_pose_sfx = {pose: "" for pose in valid_poses}
     raw_pose_sfx = payload.get("poseSfx", current.get("poseSfx", default_pose_sfx))
     if not isinstance(raw_pose_sfx, dict):
         raw_pose_sfx = default_pose_sfx
@@ -2342,7 +2349,10 @@ def create_project(payload: dict) -> dict:
         }.get(pose, "")
         for pose in pose_assets
     }
-    default_pose_sfx.update(remembered_pose_sfx(character_id, pose_assets, custom_catalog))
+    if project_type != "quiz":
+        default_pose_sfx.update(remembered_pose_sfx(character_id, pose_assets, custom_catalog))
+    else:
+        default_pose_sfx = {pose: "" for pose in pose_assets}
 
     sfx_map = dict(DEFAULT_SFX)
     used_custom = {
