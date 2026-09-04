@@ -114,12 +114,25 @@ body {
   text-align: center;
 }
 
+/* FIX QUIZ FLOW 1: container chính - cho Question/Countdown/Answer chạy dọc */
 .quiz-text {
   position: absolute;
-  inset: 0;
+
+  /* FIX: thay inset: 0 */
+  top: 21%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+
   z-index: 8;
   pointer-events: none;
   text-align: center;
+
+  /* FIX: thêm flow dọc */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3cqw;
 }
 
 .quiz-text[hidden],
@@ -127,45 +140,40 @@ body {
   visibility: hidden;
 }
 
+/* FIX QUIZ FLOW 2: bỏ absolute để các block tự đẩy nhau */
 .quiz-question-card,
 .quiz-countdown-wrap,
 .quiz-answer-card {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
 }
 
+/* FIX QUIZ FLOW 3: question tự cao theo nội dung */
 .quiz-question-card {
-  top: 21%;
-  width: 90%;
-  min-height: 43cqw;
+  /* XÓA: top: 21%; */
+
+  /* FIX: quiz-text đã width 90% rồi */
+  width: 100%;
+
+  /* FIX: bỏ chiều cao tối thiểu 43cqw */
+  min-height: 0;
+
   display: grid;
   place-items: center;
   padding: 3cqw;
+
   background: linear-gradient(150deg, #ffffff 0%, #fffefa 62%, #f2f2f2 100%);
   border: 0.85cqw solid #0b0b0b;
   border-radius: 6cqw;
-  box-shadow: 0 1.15cqw 0 rgba(0, 0, 0, 0.26), inset 0 0 0 0.45cqw rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 1.15cqw 0 rgba(0, 0, 0, 0.26),
+    inset 0 0 0 0.45cqw rgba(255, 255, 255, 0.92);
+
   isolation: isolate;
   animation: quiz-card-pop 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
 }
-
-/* Layered tail keeps the speech-card outline crisp at every video size. 
-.quiz-question-card::before,
-.quiz-question-card::after {
-  content: "";
-  position: absolute;
-  left: 57%;
-  bottom: -6.1cqw;
-  width: 0;
-  height: 0;
-  border-left: 6.2cqw solid transparent;
-  border-right: 1.8cqw solid transparent;
-  border-top: 8.2cqw solid #0b0b0b;
-  transform: skewX(-12deg);
-  z-index: -1;
-}
-*/
 
 .quiz-question-card::after {
   left: calc(57% + 0.65cqw);
@@ -177,12 +185,17 @@ body {
   z-index: 1;
 }
 
+/* FIX QUIZ FONT: KHÔNG set font-size chung ở đây */
 .quiz-question,
 .quiz-answer {
   width: 100%;
 
   font-weight: 900 !important;
-  font-size: 9cqw !important;
+
+  /* XÓA:
+     font-size: 9cqw !important;
+  */
+
   line-height: 1.02;
   letter-spacing: -0.045em;
 
@@ -202,16 +215,19 @@ body {
   text-rendering: geometricPrecision;
 }
 
+/* FIX QUIZ FONT QUESTION */
 .quiz-question {
-  font-size: 6.2cqw;
+  font-size: 6.2cqw !important;
 }
 
 .quiz-answer {
   font-size: 5cqw;
 }
 
+/* FIX QUIZ FLOW 4: countdown nằm sau question */
 .quiz-countdown-wrap {
-  top: 48%;
+  /* XÓA: top: 48%; */
+
   width: 18cqw;
   height: 18cqw;
   display: grid;
@@ -252,25 +268,47 @@ body {
   -webkit-text-stroke: 0.18cqw #0b0b0b;
 }
 
+/* FIX QUIZ FLOW 5: answer tự nằm sau countdown */
 .quiz-answer-card {
-  top: 46%;
-  width: 90%;
+  /* XÓA: top: 46%; */
+
+  /* FIX: 90% -> 100% vì parent đã là 90% */
+  width: 100%;
+
   min-height: 12.5cqw;
   display: grid;
   place-items: center;
+
   padding: 1.3cqw 12.4cqw;
-  background: linear-gradient(180deg, #8ee92c 0%, #69d318 54%, #5bc10f 100%);
+
+  background: linear-gradient(
+    180deg,
+    #8ee92c 0%,
+    #69d318 54%,
+    #5bc10f 100%
+  );
+
   border: 0.72cqw solid #0b0b0b;
   border-radius: 999px;
-  box-shadow: 0 0.95cqw 0 #3c8b10, 0 1.8cqw 2.4cqw rgba(0, 0, 0, 0.18);
+
+  box-shadow:
+    0 0.95cqw 0 #3c8b10,
+    0 1.8cqw 2.4cqw rgba(0, 0, 0, 0.18);
+
   isolation: isolate;
-  animation: quiz-answer-pop 0.34s cubic-bezier(0.2, 0.95, 0.2, 1.18) both;
+
+  animation:
+    quiz-answer-pop
+    0.34s
+    cubic-bezier(0.2, 0.95, 0.2, 1.18)
+    both;
 }
 
 .quiz-answer-card:has(.quiz-answer:empty) {
   visibility: hidden;
 }
 
+/* QUIZ ANSWER TEXT */
 .quiz-answer {
   font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
   width: 100%;
@@ -279,8 +317,10 @@ body {
   font-weight: 950;
   line-height: 1.04;
   letter-spacing: -0.035em;
+
   white-space: pre-wrap;
   text-wrap: balance;
+
   -webkit-text-stroke: 0.32cqw #0b0b0b;
   paint-order: stroke fill;
   text-shadow: none;
