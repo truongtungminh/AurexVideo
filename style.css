@@ -136,9 +136,9 @@ body {
 }
 
 .quiz-question-card {
-  top: 22%;
-  width: 84%;
-  min-height: 53cqw;
+  top: 21%;
+  width: 90%;
+  min-height: 40cqw;
   display: grid;
   place-items: center;
   padding: 3cqw;
