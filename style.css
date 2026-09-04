@@ -138,7 +138,7 @@ body {
 .quiz-question-card {
   top: 21%;
   width: 90%;
-  min-height: 40cqw;
+  min-height: 43cqw;
   display: grid;
   place-items: center;
   padding: 3cqw;
@@ -207,7 +207,7 @@ body {
 }
 
 .quiz-answer {
-  font-size: 6.2cqw;
+  font-size: 5cqw;
 }
 
 .quiz-countdown-wrap {
@@ -253,12 +253,12 @@ body {
 }
 
 .quiz-answer-card {
-  top: 53%;
-  width: 82%;
+  top: 46%;
+  width: 90%;
   min-height: 12.5cqw;
   display: grid;
   place-items: center;
-  padding: 2.3cqw 13cqw;
+  padding: 1.3cqw 12.4cqw;
   background: linear-gradient(180deg, #8ee92c 0%, #69d318 54%, #5bc10f 100%);
   border: 0.72cqw solid #0b0b0b;
   border-radius: 999px;
