@@ -432,6 +432,63 @@ def finish_youtube_oauth(query: dict[str, list[str]]) -> str:
     return str(state_data.get("project") or "")
 
 
+def extract_thumbnail_frame(video_path, at_seconds: float = 1.0):
+    """Extract a JPEG frame from the final video (default: second 1) for the YT thumbnail.
+
+    Cached next to the MP4 as thumbnail_1s.jpg; regenerated when older than the MP4.
+    Returns the Path or None when ffmpeg fails (caller degrades gracefully).
+    """
+    video_path = os.fspath(video_path)
+    thumb_path = os.path.join(os.path.dirname(video_path), "thumbnail_1s.jpg")
+    try:
+        stale = (not os.path.exists(thumb_path)) or os.path.getmtime(thumb_path) < os.path.getmtime(video_path)
+        if not stale:
+            return thumb_path
+        import subprocess
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(at_seconds), "-i", video_path,
+             "-frames:v", "1", "-q:v", "2", thumb_path],
+            capture_output=True, timeout=60,
+        )
+        if result.returncode == 0 and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 1024:
+            return thumb_path
+    except Exception:
+        pass
+    return None
+
+
+def set_youtube_thumbnail(access_token: str, video_id: str, video_path) -> dict:
+    """Best-effort thumbnails.set for an uploaded YouTube video (frame from second 1)."""
+    thumb = extract_thumbnail_frame(video_path, 1.0)
+    if not thumb:
+        return {"ok": False, "error": "thumbnail extract failed"}
+    thumb_bytes = open(thumb, "rb").read()
+    if len(thumb_bytes) > 2 * 1024 * 1024:
+        return {"ok": False, "error": f"thumbnail too large: {len(thumb_bytes)}B"}
+    url = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?" + urlencode(
+        {"videoId": video_id, "uploadType": "media"}
+    )
+    request = Request(
+        url,
+        data=thumb_bytes,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "image/jpeg",
+            "Content-Length": str(len(thumb_bytes)),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=60) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        return {"ok": True, "items": body.get("items", []) if isinstance(body, dict) else []}
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        return {"ok": False, "error": f"thumbnails.set failed: HTTP {exc.code}: {detail}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"thumbnails.set failed: {exc}"}
+
+
 def youtube_upload_video(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     video_path = final_video_path_for_project(project)
@@ -547,6 +604,11 @@ def youtube_upload_video(payload: dict) -> dict:
         )
     else:
         message = "Uploaded to YouTube. Review in YouTube Studio before publishing."
+    # Fix thumbnail from second 1 of the video (best-effort, never blocks the upload result).
+    try:
+        thumbnail_result = set_youtube_thumbnail(access_token, video_id, video_path)
+    except Exception as thumb_exc:
+        thumbnail_result = {"ok": False, "error": f"thumbnail error: {thumb_exc}"}
     return {
         "ok": True,
         "platform": "youtube",
@@ -559,5 +621,6 @@ def youtube_upload_video(payload: dict) -> dict:
         "studio_url": f"https://studio.youtube.com/video/{video_id}/edit",
         "privacyStatus": privacy_status,
         "scheduledPublishAt": scheduled_publish_at or "",
+        "thumbnail": thumbnail_result,
         "message": message,
     }
