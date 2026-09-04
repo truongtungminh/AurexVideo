@@ -365,19 +365,43 @@ body {
 .stage.quiz-text-only .media-slot,
 .stage.quiz-text-only .karaoke { display: none !important; }
 
+/* FIX QUIZ FLOW 6: bỏ translateX vì card giờ chạy bằng flex */
 @keyframes quiz-card-pop {
-  from { opacity: 0; transform: translateX(-50%) scale(0.94); }
-  to { opacity: 1; transform: translateX(-50%) scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-@keyframes quiz-countdown-pop {
-  from { opacity: 0; transform: translateX(-50%) scale(0.78); }
-  to { opacity: 1; transform: translateX(-50%) scale(1); }
-}
-
+/* FIX QUIZ FLOW 7: bỏ translateX vì answer giờ chạy bằng flex */
 @keyframes quiz-answer-pop {
-  from { opacity: 0; transform: translateX(-50%) translateY(1.8cqw) scale(0.94); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(1.8cqw) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* FIX QUIZ FLOW 8: bỏ translateX */
+@keyframes quiz-countdown-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.78);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .topic-label-stack {
