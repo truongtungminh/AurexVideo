@@ -236,8 +236,11 @@ body {
   animation: quiz-countdown-pop 0.25s ease-out both;
 }
 
+/* FIX QUIZ FLOW 9:
+   Countdown rỗng thì bỏ hẳn khỏi layout,
+   để Answer nằm sát sau Question */
 .quiz-countdown-wrap:has(.quiz-countdown:empty) {
-  visibility: hidden;
+  display: none;
 }
 
 .quiz-countdown-wrap::before {
@@ -305,8 +308,9 @@ body {
     both;
 }
 
+/* FIX QUIZ FLOW 10 */
 .quiz-answer-card:has(.quiz-answer:empty) {
-  visibility: hidden;
+  display: none;
 }
 
 /* QUIZ ANSWER TEXT */
