@@ -1,9 +1,0 @@
-- main [ref=e2]:
-  - region "Video so sánh một cảnh" [ref=e3]:
-    - generic "Intro mở đầu, nửa trên khung hình":
-      - generic:
-        - paragraph: Tin Tức Bitcoin
-    - generic "Custom slide":
-      - generic [ref=e5]:
-        - paragraph
-    - generic [ref=e8]: Đang chuẩn bị bài giảng...
