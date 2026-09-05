@@ -755,10 +755,11 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
         cursor += duration
         item["end"] = round(cursor, 3)
         result.append(item)
-        if quiz_v2 and index % 5 == 3:
-            cursor += answer_delay
-        elif quiz_v2 and index % 5 == 4 and index + 1 < len(segments):
-            cursor += QUIZ_ANSWER_HOLD_SECONDS
+        if quiz_v2:
+            if index % 5 == 3:
+                cursor += answer_delay
+            elif index % 5 == 4 and index + 1 < len(segments):
+                cursor += QUIZ_ANSWER_HOLD_SECONDS
         elif index % 2 == 0 and index + 1 < len(segments):
             cursor += answer_delay
         elif index % 2 == 1 and index + 1 < len(segments):
