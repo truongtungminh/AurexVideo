@@ -167,6 +167,12 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         styles = (ENGINE_ROOT / "style.css").read_text(encoding="utf-8")
         self.assertIn(".stage.quiz-text-only .teacher-wrap { display: none !important; }", styles)
 
+    def test_editor_parses_five_line_quiz_tts_blocks(self) -> None:
+        editor = (ENGINE_ROOT / "webui" / "editor.js").read_text(encoding="utf-8")
+        self.assertIn("function quizItemsFromScript(lines = scriptLines())", editor)
+        self.assertIn("Đáp án chính xác là|đáp án đúng là|correct answer is", editor)
+        self.assertIn("quizItems: isQuizProject() ? (parsedQuizItems || state.topic.quizItems)", editor)
+
     def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:
             root = Path(tmp)
