@@ -370,6 +370,9 @@ body {
 .stage.quiz-text-only .media-slot,
 .stage.quiz-text-only .karaoke { display: none !important; }
 
+/* Quiz Scroll V2 follows the static brand artwork and has no presenter layer. */
+.stage.quiz-text-only .teacher-wrap { display: none !important; }
+
 /* Quiz Scroll V2: the question, choices, and countdown share one normal flow. */
 .quiz-text.quiz-v2 {
   top: 20.5%;
@@ -455,8 +458,8 @@ body {
 .quiz-v2 .quiz-answer-card { display: none !important; }
 .quiz-v2-enter { animation: quiz-v2-scroll-in .5s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes quiz-v2-scroll-in {
-  from { opacity: 0; transform: translateY(8cqw); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateX(-50%) translateY(8cqw); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* FIX QUIZ FLOW 6: bỏ translateX vì card giờ chạy bằng flex */

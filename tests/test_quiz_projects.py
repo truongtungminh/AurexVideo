@@ -163,6 +163,10 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "0, 1 hoặc 2"):
             m3.normalize_quiz_items([{"question": "Q", "options": ["A", "B", "C"], "correct_index": 3}] * 3)
 
+    def test_quiz_v2_hides_presenter_layer(self) -> None:
+        styles = (ENGINE_ROOT / "style.css").read_text(encoding="utf-8")
+        self.assertIn(".stage.quiz-text-only .teacher-wrap { display: none !important; }", styles)
+
     def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:
             root = Path(tmp)
@@ -263,7 +267,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertIn('elements.stage.classList.toggle("quiz-text-only", isQuizProject());', app)
         self.assertIn('id="quizQuestion"', index)
         self.assertIn(".stage.quiz-text-only .media-slot", styles)
-        self.assertNotIn(".stage.quiz-text-only .teacher-wrap", styles)
+        self.assertIn(".stage.quiz-text-only .teacher-wrap", styles)
         self.assertIn("setPose(poseAt(time), time, allowPoseSfx && !isQuizProject());", app)
         self.assertIn("if is_quiz:", (ENGINE_ROOT / "tools" / "render_demo.py").read_text(encoding="utf-8"))
         self.assertIn("quizQuestionFontFamily", app)
