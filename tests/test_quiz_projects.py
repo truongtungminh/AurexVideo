@@ -173,6 +173,14 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertIn("Đáp án chính xác là|đáp án đúng là|correct answer is", editor)
         self.assertIn("quizItems: isQuizProject() ? (parsedQuizItems || state.topic.quizItems)", editor)
 
+    def test_quiz_v2_tts_timeline_pauses_after_three_options(self) -> None:
+        topic = {"projectType": "quiz", "quizAnswerDelay": 5, "quizItems": [{}, {}, {}], "segments": [{"text": str(i)} for i in range(15)]}
+        timeline, duration = quiz_segment_timeline(topic, [1.0] * 15)
+        self.assertEqual(timeline[3]["end"], 4.0)
+        self.assertEqual(timeline[4]["start"], 9.0)
+        self.assertEqual(timeline[5]["start"], 10.0)
+        self.assertEqual(duration, 25.0)
+
     def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:
             root = Path(tmp)
