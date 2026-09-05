@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aurex Settings</title>
+<style>
+  :root {
+    --bg: #f7f3ec;
+    --card: #fffdf9;
+    --border: #e8d9c4;
+    --border-strong: #d9c3a3;
+    --text: #4a4036;
+    --text-soft: #8a7d6c;
+    --accent: #f0b35e;
+    --accent-soft: #fcefd9;
+    --sel: #fbe9cf;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 32px 16px;
+    min-height: 100vh;
+  }
+  .window {
+    width: 100%;
+    max-width: 460px;
+    background: var(--bg);
+  }
+  .title {
+    text-align: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 22px;
+    letter-spacing: 0.2px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .card-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+    padding-left: 2px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .row + .row { margin-top: 6px; }
+  .row:hover { background: var(--accent-soft); }
+  .row.selected { background: var(--sel); border-color: var(--border-strong); }
+  .badge {
+    width: 38px; height: 38px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 13px; color: var(--text);
+    flex-shrink: 0;
+  }
+  .badge.icon { font-size: 17px; }
+  .row-text { flex: 1; min-width: 0; }
+  .row-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .row-sub { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+  .check {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    color: #fff;
+    background: transparent;
+  }
+  .row.selected .check {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .check svg { width: 13px; height: 13px; display: none; }
+  .row.selected .check svg { display: block; }
+  .action {
+    width: 100%;
+    text-align: left;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 15px; font-weight: 600;
+    transition: background 0.15s;
+  }
+  .action:hover { background: var(--accent-soft); }
+  .action .badge { background: var(--accent-soft); }
+  .meta { font-size: 13px; color: var(--text-soft); padding: 2px 4px 10px; }
+  .status {
+    font-size: 12.5px; color: var(--text-soft);
+    padding: 8px 14px 0; text-align: center;
+    min-height: 18px;
+  }
+  .spin {
+    display: inline-block; width: 13px; height: 13px;
+    border: 2px solid var(--border-strong); border-top-color: var(--accent);
+    border-radius: 50%; animation: sp 0.7s linear infinite;
+    vertical-align: -2px; margin-right: 6px;
+  }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="window">
+    <div class="title" id="title">Aurex Settings</div>
+
+    <!-- Language -->
+    <div class="card">
+      <div class="card-label" id="langLabel">Language</div>
+      <div class="row" data-lang="en" id="row-en">
+        <div class="badge">EN</div>
+        <div class="row-text">
+          <div class="row-title" id="enTitle">English</div>
+          <div class="row-sub" id="enSub">Use the English interface</div>
+        </div>
+        <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+      </div>
+      <div class="row" data-lang="vi" id="row-vi">
+        <div class="badge">VI</div>
+        <div class="row-text">
+          <div class="row-title" id="viTitle">Vietnamese</div>
+          <div class="row-sub" id="viSub">Use the Vietnamese interface</div>
+        </div>
+        <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+      </div>
+    </div>
+
+    <!-- Updates -->
+    <div class="card">
+      <div class="card-label" id="updLabel">Updates</div>
+      <div class="meta" id="verMeta">Current version: …</div>
+      <button class="action" id="btnUpdate">
+        <div class="badge icon">⟳</div>
+        <div class="row-text">
+          <div class="row-title" id="updTitle">Check for updates</div>
+          <div class="row-sub" id="updSub">Get the latest Aurex engine release</div>
+        </div>
+      </button>
+      <div class="status" id="updStatus"></div>
+      <button class="action" id="btnInstall" style="display:none;margin-top:8px;background:var(--accent-soft);border-color:var(--border-strong);">
+        <div class="badge icon">⤓</div>
+        <div class="row-text">
+          <div class="row-title" id="instTitle">Update now</div>
+          <div class="row-sub" id="instSub">Download &amp; install engine upgrade</div>
+        </div>
+      </button>
+    </div>
+
+    <!-- Support -->
+    <div class="card">
+      <div class="card-label" id="supLabel">Support</div>
+      <button class="action" id="btnContact">
+        <div class="badge icon">↗</div>
+        <div class="row-text">
+          <div class="row-title" id="supTitle">Contact Aurex</div>
+          <div class="row-sub" id="supSub">Message us on Messenger</div>
+        </div>
+      </button>
+    </div>
+  </div>
+
+<script>
+const VI = {
+  title: "Cài đặt AurexVideo",
+  langLabel: "Ngôn ngữ",
+  enTitle: "Tiếng Anh", enSub: "Dùng giao diện tiếng Anh",
+  viTitle: "Tiếng Việt", viSub: "Dùng giao diện tiếng Việt",
+  updLabel: "Cập nhật", verMeta: "Phiên bản hiện tại: ",
+  updTitle: "Kiểm tra cập nhật", updSub: "Tải bản Aurex engine mới nhất",
+  updChecking: "Đang kiểm tra…", updNone: "Đã là bản mới nhất.",
+  updAvail: "Có bản mới", updInstall: "Đang cài đặt…", updDone: "Đã cài xong — khởi động lại để áp dụng.",
+  instTitle: "Cập nhật ngay", instSub: "Tải & cài engine mới",
+  supLabel: "Hỗ trợ", supTitle: "Liên hệ AurexVideo", supSub: "Nhắn tin qua Messenger",
+};
+const EN = {
+  title: "Aurex Settings",
+  langLabel: "Language",
+  enTitle: "English", enSub: "Use the English interface",
+  viTitle: "Vietnamese", viSub: "Use the Vietnamese interface",
+  updLabel: "Updates", verMeta: "Current version: ",
+  updTitle: "Check for updates", updSub: "Get the latest Aurex engine release",
+  updChecking: "Checking…", updNone: "You are on the latest version.",
+  updAvail: "Update available", updInstall: "Installing…", updDone: "Installed — restart to apply.",
+  instTitle: "Update now", instSub: "Download & install engine upgrade",
+  supLabel: "Support", supTitle: "Contact Aurex", supSub: "Message us on Messenger",
+};
+
+let currentLang = "vi";
+let currentVersion = "";
+
+function applyLang(lang) {
+  currentLang = lang;
+  const t = lang === "vi" ? VI : EN;
+  for (const k in t) {
+    const el = document.getElementById(k);
+    if (el) el.textContent = t[k];
+  }
+  document.documentElement.lang = lang;
+  document.getElementById("row-en").classList.toggle("selected", lang === "en");
+  document.getElementById("row-vi").classList.toggle("selected", lang === "vi");
+  const vm = document.getElementById("verMeta");
+  if (vm) vm.textContent = (lang === "vi" ? VI.verMeta : EN.verMeta) + (currentVersion || "…");
+}
+
+async function loadState() {
+  try {
+    const r = await fetch("/api/settings");
+    const d = await r.json();
+    currentVersion = d.version || "";
+    applyLang(d.language === "en" ? "en" : "vi");
+  } catch (e) {
+    applyLang("vi");
+  }
+}
+
+async function setLang(lang) {
+  applyLang(lang);
+  try {
+    await fetch("/api/settings/language", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: lang }),
+    });
+  } catch (e) {}
+}
+
+document.getElementById("row-en").addEventListener("click", () => setLang("en"));
+document.getElementById("row-vi").addEventListener("click", () => setLang("vi"));
+
+let pendingUpdate = null;
+
+document.getElementById("btnUpdate").addEventListener("click", async () => {
+  const s = document.getElementById("updStatus");
+  const instBtn = document.getElementById("btnInstall");
+  instBtn.style.display = "none";
+  pendingUpdate = null;
+  s.innerHTML = '<span class="spin"></span>' + (currentLang === "vi" ? VI.updChecking : EN.updChecking);
+  try {
+    const r = await fetch("/api/app-update/check", { method: "POST" });
+    const d = await r.json();
+    if (d.available) {
+      pendingUpdate = d;
+      const notes = d.notes ? ` — ${d.notes}` : "";
+      s.textContent = (currentLang === "vi" ? VI.updAvail : EN.updAvail) + ` (${d.latestVersion})${notes}`;
+      instBtn.style.display = "flex";
+    } else {
+      s.textContent = (currentLang === "vi" ? VI.updNone : EN.updNone);
+    }
+  } catch (e) {
+    s.textContent = (currentLang === "vi" ? VI.updNone : EN.updNone);
+  }
+});
+
+document.getElementById("btnInstall").addEventListener("click", async () => {
+  const s = document.getElementById("updStatus");
+  const instBtn = document.getElementById("btnInstall");
+  instBtn.disabled = true;
+  s.innerHTML = '<span class="spin"></span>' + (currentLang === "vi" ? VI.updInstall : EN.updInstall);
+  try {
+    const r = await fetch("/api/app-update/install", { method: "POST" });
+    const d = await r.json();
+    if (d.ok) {
+      s.textContent = (currentLang === "vi" ? VI.updDone : EN.updDone);
+      instBtn.style.display = "none";
+    } else {
+      s.textContent = "Error: " + (d.error || "unknown");
+      instBtn.disabled = false;
+    }
+  } catch (e) {
+    s.textContent = "Error: " + e.message;
+    instBtn.disabled = false;
+  }
+});
+
+document.getElementById("btnContact").addEventListener("click", () => {
+  // open Messenger (external) — fallback no-op on backup
+  try { window.open("https://m.me/fastscene", "_blank"); } catch (e) {}
+});
+
+loadState();
+</script>
+</body>
+</html>

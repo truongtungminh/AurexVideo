@@ -1,0 +1,148 @@
+- generic [active] [ref=f58e1]:
+  - banner [ref=f58e2]:
+    - generic [ref=f58e3]:
+      - link "AurexVideo" [ref=f58e4] [cursor=pointer]:
+        - /url: /
+        - strong [ref=f58e5]: Aurex
+      - link [ref=f58e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f58e7]: ←
+    - button "Render MP4" [ref=f58e9] [cursor=pointer]
+  - main [ref=f58e10]:
+    - region "Preview video" [ref=f58e11]:
+      - generic "Change sentence" [ref=f58e12]:
+        - button "Previous sentence" [ref=f58e13] [cursor=pointer]: ↑
+        - generic [ref=f58e14]: 1/1
+        - button "Next sentence" [ref=f58e15] [cursor=pointer]: ↓
+      - iframe [ref=f58e18]:
+        - main [ref=f59e2]:
+          - region "Video so sánh một cảnh" [ref=f59e3]:
+            - generic: Inox 304
+            - generic: Inox 316
+            - img "Hình minh họa đối tượng bên trái" [ref=f59e6]
+            - img "Hình minh họa đối tượng bên phải" [ref=f59e8]
+            - img "Nhân vật đang trình bày" [ref=f59e11]
+            - generic [ref=f59e12]: Đang chuẩn bị bài giảng...
+    - generic [ref=f58e19]:
+      - tablist [ref=f58e20]:
+        - button "Content" [ref=f58e21] [cursor=pointer]
+      - generic [ref=f58e24]:
+        - paragraph [ref=f58e25]: Display content
+        - generic [ref=f58e26]:
+          - paragraph [ref=f58e27]:
+            - generic [ref=f58e28]:
+              - generic [ref=f58e29]: ⌘ V
+              - img "macOS" [ref=f58e30]: 
+            - text: ·
+            - generic [ref=f58e31]:
+              - generic [ref=f58e32]: Ctrl V
+              - img "Windows" [ref=f58e33]
+            - text: —paste into the first empty image slot
+          - paragraph [ref=f58e36]: drag on the preview to move text, images, and subtitles
+        - generic [ref=f58e38]:
+          - generic [ref=f58e39]:
+            - generic [ref=f58e40]:
+              - strong [ref=f58e41]: Slide 1
+              - button "Delete" [ref=f58e42] [cursor=pointer]
+            - generic [ref=f58e43]:
+              - text: Start at sentence
+              - combobox "Start at sentence" [ref=f58e44]:
+                - option "Sentence 1 · Enter your first line here." [selected]
+          - generic [ref=f58e46]:
+            - generic [ref=f58e47]:
+              - generic [ref=f58e48]: Slide text
+              - generic [ref=f58e49]:
+                - textbox "Title or text on the slide" [ref=f58e50]
+                - textbox "Slide text color" [ref=f58e51] [cursor=pointer]: "#090909"
+            - generic [ref=f58e52]:
+              - generic [ref=f58e53]: Text font
+              - combobox "Text font" [ref=f58e54]:
+                - option "Inter · Default" [selected]
+                - option "Manrope · Modern"
+                - option "Literata · Elegant"
+                - option "Nunito · Friendly"
+                - option "Playfair · Classic"
+                - option "Be Vietnam Pro · Vietnamese"
+                - option "Lexend · Clear"
+                - option "Quicksand · Soft round"
+                - option "Saira · Dynamic"
+                - option "Roboto · Universal"
+            - generic [ref=f58e55]:
+              - generic [ref=f58e56]:
+                - text: Text size
+                - status "Text size 1.2" [ref=f58e57]: 120%
+              - slider [ref=f58e58]: "1.2"
+          - button "＋ Add text" [ref=f58e59] [cursor=pointer]
+          - generic [ref=f58e61]:
+            - generic [ref=f58e62]: Image
+            - generic "Drag to reposition" [ref=f58e63]
+            - generic [ref=f58e64]:
+              - generic [ref=f58e65]:
+                - text: Zoom
+                - status "Zoom 1" [ref=f58e66]: 100%
+              - slider [ref=f58e67]: "1"
+            - generic [ref=f58e68]:
+              - generic [ref=f58e69] [cursor=pointer]: Replace media
+              - button "Delete" [ref=f58e70] [cursor=pointer]
+          - generic [ref=f58e72]:
+            - generic [ref=f58e73]: Effect
+            - combobox "Effect" [ref=f58e74]:
+              - option "None"
+              - option "Fade"
+              - option "Zoom"
+              - option "Slide up"
+              - option "Slide left" [selected]
+        - button "＋ Add slide" [ref=f58e76] [cursor=pointer]
+        - generic [ref=f58e77]:
+          - paragraph [ref=f58e78]: Video background
+          - generic [ref=f58e79]:
+            - generic [ref=f58e80]:
+              - text: Background type
+              - combobox "Background type" [ref=f58e81]:
+                - option "Default" [selected]
+                - option "Solid color"
+                - option "Background image"
+            - generic [ref=f58e82]:
+              - text: Background color
+              - textbox "Background color" [ref=f58e83] [cursor=pointer]: "#f3ebdd"
+          - generic [ref=f58e85]:
+            - generic "Drag to reposition" [ref=f58e86]
+            - generic [ref=f58e87]:
+              - generic [ref=f58e88]:
+                - text: Zoom
+                - status "Zoom 1" [ref=f58e89]: 100%
+              - slider [ref=f58e90]: "1"
+            - generic [ref=f58e91]:
+              - generic [ref=f58e92] [cursor=pointer]: Upload image
+              - button "Delete image" [ref=f58e93] [cursor=pointer]
+        - generic [ref=f58e94]:
+          - paragraph [ref=f58e95]: Subtitles
+          - generic [ref=f58e96]:
+            - generic [ref=f58e97]:
+              - text: Active word color
+              - textbox "Active word color" [ref=f58e98] [cursor=pointer]: "#de370d"
+            - generic [ref=f58e99]:
+              - text: Base text color
+              - textbox "Base text color" [ref=f58e100] [cursor=pointer]: "#271f11"
+          - generic [ref=f58e101]:
+            - generic [ref=f58e102]:
+              - text: Text size
+              - status "Text size 1.2" [ref=f58e103]: 120%
+            - slider [ref=f58e104]: "1.2"
+        - generic [ref=f58e105]:
+          - paragraph [ref=f58e106]: Background music
+          - paragraph [ref=f58e107]: No music file yet
+          - generic [ref=f58e108]:
+            - generic [ref=f58e109] [cursor=pointer]: Upload music
+            - button "Remove music" [disabled] [ref=f58e110] [cursor=pointer]
+          - generic [ref=f58e111]:
+            - generic [ref=f58e112]:
+              - text: Volume
+              - status "Volume 0.18" [ref=f58e113]: 18%
+            - slider [ref=f58e114]: "0.18"
+    - complementary [ref=f58e115]:
+      - generic [ref=f58e117]:
+        - paragraph [ref=f58e118]: Script
+        - heading "One spoken beat per line" [level=2] [ref=f58e119]
+      - textbox "Enter one sentence or spoken beat per line…" [ref=f58e120]: Enter your first line here.
+      - paragraph [ref=f58e121]: Keep the same line count to preserve timing. Adding or removing lines recalculates timing on autosave.

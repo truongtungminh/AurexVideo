@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Editor · Custom</title>
+    <script>document.documentElement.dataset.theme=localStorage.getItem('aurexvideo-theme')==='dark'?'dark':'light';</script>
+    <link rel="stylesheet" href="/webui/styles.css?v=20260828-custom-intro-3" />
+    <link rel="icon" href="/web/aurexvideo-logo.png" />
+  </head>
+  <body class="editor-page editor-mode-custom">
+    <script>
+      if (window.__TAURI_INTERNALS__ || new URLSearchParams(location.search).get('desktopApp') === '1') {
+        document.documentElement.classList.add('aurexvideo-desktop-app');
+      }
+      if (window.__TAURI_INTERNALS__ && /Mac/.test(navigator.platform)) document.documentElement.classList.add('tauri-macos');
+    </script>
+    <div class="native-titlebar-drag-region" data-tauri-drag-region aria-hidden="true"></div>
+    <header class="topbar editor-topbar">
+      <div class="editor-brand-group">
+        <a class="editor-brand" href="/" aria-label="AurexVideo">
+          <img src="/web/aurexvideo-logo.png" alt="" />
+          <strong>Aurex</strong>
+        </a>
+        <a class="editor-projects-link" href="/"><span aria-hidden="true">←</span><span class="projects-link-label">Tất cả dự án</span></a>
+      </div>
+      <div class="editor-title"><strong id="projectTitle">Đang mở...</strong><span id="saveState">Chưa có thay đổi</span></div>
+      <div class="top-actions">
+        <button class="button primary" id="renderButton" type="button">Render MP4</button>
+      </div>
+    </header>
+
+    <main class="editor-shell custom-editor-shell">
+      <section class="preview-panel" aria-label="Preview video">
+        <div class="time-tools" aria-label="Chuyển câu">
+          <button id="previousSentence" type="button" aria-label="Câu trước" title="Câu trước">↑</button>
+          <span id="previewTime">—/—</span>
+          <button id="nextSentence" type="button" aria-label="Câu sau" title="Câu sau">↓</button>
+        </div>
+        <div class="phone-stage"><div class="phone-frame" id="phoneFrame"><iframe id="previewFrame" title="Preview video"></iframe></div></div>
+      </section>
+
+      <section class="editor-panel panel custom-editor-panel">
+        <div class="editor-tabs" role="tablist">
+          <button class="active" data-tab="content" type="button">Nội dung</button>
+        </div>
+        <form id="editorForm">
+          <div class="editor-main-panes">
+            <section class="tab-pane active" data-pane="content">
+              <p class="eyebrow">Thông tin hiển thị</p>
+              <div class="paste-tools">
+                <p class="paste-hint"><span class="paste-platform paste-platform-macos"><kbd>⌘ V</kbd><span class="platform-icon platform-macos" role="img" aria-label="macOS" title="macOS"></span></span><span class="paste-platform-separator">·</span><span class="paste-platform paste-platform-windows"><kbd>Ctrl V</kbd><span class="platform-icon platform-windows" role="img" aria-label="Windows" title="Windows"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5 10.7 3.4v7.5H3zm8.8-1.3L21 2v8.9h-9.2zM3 12h7.7v7.5L3 18.4zm8.8 0H21v9l-9.2-1.3z" /></svg></span></span><span>—</span>dán vào ô ảnh trống đầu tiên</p>
+                <p class="paste-drag-hint">kéo thả trên preview để di chuyển chữ, ảnh và phụ đề tới vị trí mong muốn</p>
+              </div>
+
+              <div class="slide-list" id="slides"></div>
+              <div class="scene-add-actions" id="slideAddActions">
+                <button class="button secondary add-scene-button" id="addSlideButton" type="button">＋ Thêm slide</button>
+              </div>
+
+              <div class="background-style">
+                <p class="eyebrow">Nền video</p>
+                <div class="form-grid background-controls-row">
+                  <label>Kiểu nền
+                    <select id="backgroundType">
+                      <option value="default">Mặc định</option>
+                      <option value="color">Màu đơn</option>
+                      <option value="image">Ảnh nền</option>
+                    </select>
+                  </label>
+                  <label id="backgroundColorField">Màu nền<input id="backgroundColor" type="color" value="#f5eee3" /></label>
+                </div>
+                <div class="background-image-panel" id="backgroundImagePanel" hidden>
+                  <div class="upload-card background-upload-card">
+                    <div class="image-viewport background-viewport" id="backgroundViewport" title="Kéo để di chuyển vị trí hiển thị">
+                      <img id="backgroundThumb" alt="" hidden />
+                    </div>
+                    <label class="image-zoom"><span>Zoom <output id="backgroundZoomText">100%</output></span><input id="backgroundImageZoom" type="range" min="1" max="3" step="0.01" value="1" /></label>
+                    <div class="image-actions background-image-actions">
+                      <label class="replace-image background-upload-button">Tải ảnh lên<input id="backgroundImageFile" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+                      <button class="delete-image" id="deleteBackgroundImage" type="button">Xoá ảnh</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="intro-style">
+                <div class="intro-section-heading">
+                  <div>
+                    <p class="eyebrow">Intro mở đầu</p>
+                    <p class="form-note">Lớp intro nằm ở 60% phía dưới khung 9:16 trong 3 giây đầu, chuyển màu gradient nhẹ lên video.</p>
+                  </div>
+                  <span class="intro-duration-badge">0–3 giây · 60% khung</span>
+                </div>
+                <div class="form-grid background-controls-row intro-controls-row">
+                  <label>Kiểu intro
+                    <select id="introType">
+                      <option value="none">Tắt intro</option>
+                      <option value="color">Màu đơn</option>
+                      <option value="media">Ảnh / video intro</option>
+                    </select>
+                  </label>
+                  <label id="introColorField">Màu intro<input id="introColor" type="color" value="#0b1020" /></label>
+                </div>
+                <div class="background-image-panel" id="introMediaPanel" hidden>
+                  <div class="upload-card background-upload-card">
+                    <div class="image-viewport background-viewport intro-viewport" id="introViewport" title="Kéo để di chuyển vị trí hiển thị">
+                      <img id="introThumb" alt="" hidden />
+                      <video id="introThumbVideo" muted playsinline loop preload="metadata" hidden></video>
+                    </div>
+                    <label class="image-zoom"><span>Zoom intro <output id="introMediaZoomText">100%</output></span><input id="introMediaZoom" type="range" min="1" max="3" step="0.01" value="1" /></label>
+                    <div class="image-actions background-image-actions">
+                      <label class="replace-image background-upload-button">Tải intro lên<input id="introMediaFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.m4v" /></label>
+                      <button class="delete-image" id="deleteIntroMedia" type="button">Xoá intro</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="intro-overlays">
+                  <div class="intro-logo-control">
+                    <span class="intro-field-label">Logo intro</span>
+                    <div class="intro-logo-preview" id="introLogoPreview">
+                      <img id="introLogoThumb" alt="" hidden />
+                      <span id="introLogoPlaceholder">Chưa có logo</span>
+                    </div>
+                    <div class="image-actions background-image-actions">
+                      <label class="replace-image background-upload-button">Tải logo<input id="introLogoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.ico" /></label>
+                      <button class="delete-image" id="deleteIntroLogo" type="button">Xoá logo</button>
+                    </div>
+                  </div>
+                  <div class="intro-copy-controls">
+                    <label>Tiêu đề intro<input id="introTitle" type="text" maxlength="180" placeholder="Ví dụ: Bitcoin đối mặt bức tường 80.000 USD" /></label>
+                    <div class="form-grid intro-title-options">
+                      <label>Màu tiêu đề<input id="introTitleColor" type="color" value="#ffffff" /></label>
+                      <label class="image-zoom"><span>Cỡ tiêu đề <output id="introTitleSizeText">100%</output></span><input id="introTitleSize" type="range" min="0.6" max="1.5" step="0.05" value="1" /></label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="subtitle-style">
+                <p class="eyebrow">Phụ đề</p>
+                <div class="form-grid">
+                  <label>Màu chữ chạy<input id="karaokeActiveColor" type="color" value="#de370d" /></label>
+                  <label>Màu chữ nền<input id="karaokeColor" type="color" value="#271f11" /></label>
+                </div>
+                <label class="image-zoom"><span>Cỡ chữ <output id="karaokeSizeText">120%</output></span><input id="karaokeSize" type="range" min="0.6" max="1.5" step="0.05" value="1.2" /></label>
+              </div>
+
+              <div class="music-style">
+                <p class="eyebrow">Nhạc nền</p>
+                <p class="music-file-name" id="backgroundMusicName">Chưa có file nhạc</p>
+                <div class="image-actions background-image-actions">
+                  <label class="replace-image background-upload-button">Upload nhạc<input id="backgroundMusicFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" /></label>
+                  <button class="delete-image" id="deleteBackgroundMusic" type="button">Xoá nhạc</button>
+                </div>
+                <label class="image-zoom"><span>Âm lượng <output id="backgroundMusicVolumeText">18%</output></span><input id="backgroundMusicVolume" type="range" min="0.05" max="0.5" step="0.01" value="0.18" /></label>
+              </div>
+            </section>
+          </div>
+        </form>
+      </section>
+
+      <aside class="script-dock panel" aria-labelledby="scriptDockTitle">
+        <div class="script-dock-heading"><div><p class="eyebrow">Kịch bản</p><h2 id="scriptDockTitle">Mỗi dòng là một nhịp đọc</h2></div></div>
+        <textarea id="script" rows="18" spellcheck="false" autocorrect="off" autocapitalize="off" placeholder="Nhập một câu hoặc nhịp đọc trên mỗi dòng..."></textarea>
+        <p class="form-note">Giữ nguyên số dòng để giữ timing cũ. Thêm hoặc bớt dòng sẽ tự chia lại timing khi tự động lưu.</p>
+      </aside>
+    </main>
+
+    <script src="/webui/custom-editor.js?v=20260828-custom-intro-3"></script>
+  </body>
+</html>

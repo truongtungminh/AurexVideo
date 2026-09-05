@@ -1,0 +1,610 @@
+[
+  {
+    "key": "chi-tay",
+    "name": "Chỉ tay (trái / phải)",
+    "path": "../../assets/sfx/library/chi-tay.wav",
+    "part": 0,
+    "duration": 0.497,
+    "defaultFor": "neutral-left,neutral-right",
+    "source": "Kenney Interface Sounds · switch_004 (CC0)"
+  },
+  {
+    "key": "mo-hai-tay",
+    "name": "Mở hai tay",
+    "path": "../../assets/sfx/library/mo-hai-tay.wav",
+    "part": 0,
+    "duration": 0.314,
+    "defaultFor": "question",
+    "source": "Kenney Interface Sounds · open_002 (CC0)"
+  },
+  {
+    "key": "alert-sound",
+    "name": "Alert sound",
+    "path": "../../assets/sfx/library/alert-sound.wav",
+    "part": 3,
+    "duration": 0.3
+  },
+  {
+    "key": "aww",
+    "name": "aww",
+    "path": "../../assets/sfx/library/aww.wav",
+    "part": 5,
+    "duration": 0.56
+  },
+  {
+    "key": "bright-fm",
+    "name": "Bright FM",
+    "path": "../../assets/sfx/library/bright-fm.wav",
+    "part": 4,
+    "duration": 0.88
+  },
+  {
+    "key": "bright-recorder",
+    "name": "Bright recorder",
+    "path": "../../assets/sfx/library/bright-recorder.wav",
+    "part": 5,
+    "duration": 0.16
+  },
+  {
+    "key": "camera-flash",
+    "name": "Camera Flash",
+    "path": "../../assets/sfx/library/camera-flash.wav",
+    "part": 2,
+    "duration": 0.22
+  },
+  {
+    "key": "camera-shutter",
+    "name": "Camera shutter",
+    "path": "../../assets/sfx/library/camera-shutter.wav",
+    "part": 1,
+    "duration": 0.14
+  },
+  {
+    "key": "cash-money",
+    "name": "cash money",
+    "path": "../../assets/sfx/library/cash-money.wav",
+    "part": 1,
+    "duration": 0.2
+  },
+  {
+    "key": "cheer-and-applause",
+    "name": "cheer and applause",
+    "path": "../../assets/sfx/library/cheer-and-applause.wav",
+    "part": 5,
+    "duration": 1.2
+  },
+  {
+    "key": "cheerful-piano",
+    "name": "cheerful piano",
+    "path": "../../assets/sfx/library/cheerful-piano.wav",
+    "part": 5,
+    "duration": 0.14
+  },
+  {
+    "key": "cinematic-sfx",
+    "name": "Cinematic SFX",
+    "path": "../../assets/sfx/library/cinematic-sfx.wav",
+    "part": 4,
+    "duration": 0.48
+  },
+  {
+    "key": "cinematic-sound-logo",
+    "name": "Cinematic sound logo",
+    "path": "../../assets/sfx/library/cinematic-sound-logo.wav",
+    "part": 2,
+    "duration": 0.22
+  },
+  {
+    "key": "cinematic-wine",
+    "name": "Cinematic wine",
+    "path": "../../assets/sfx/library/cinematic-wine.wav",
+    "part": 2,
+    "duration": 0.28
+  },
+  {
+    "key": "click-mouse",
+    "name": "Click mouse",
+    "path": "../../assets/sfx/library/click-mouse.wav",
+    "part": 1,
+    "duration": 0.2
+  },
+  {
+    "key": "comedyaccent",
+    "name": "ComedyAccent",
+    "path": "../../assets/sfx/library/comedyaccent.wav",
+    "part": 3,
+    "duration": 0.22
+  },
+  {
+    "key": "correct-sound",
+    "name": "Correct sound",
+    "path": "../../assets/sfx/library/correct-sound.wav",
+    "part": 3,
+    "duration": 0.32
+  },
+  {
+    "key": "dawn",
+    "name": "dawn",
+    "path": "../../assets/sfx/library/dawn.wav",
+    "part": 5,
+    "duration": 0.62
+  },
+  {
+    "key": "drop-water",
+    "name": "Drop water",
+    "path": "../../assets/sfx/library/drop-water.wav",
+    "part": 2,
+    "duration": 0.14
+  },
+  {
+    "key": "electric-shock",
+    "name": "Electric shock",
+    "path": "../../assets/sfx/library/electric-shock.wav",
+    "part": 4,
+    "duration": 0.48
+  },
+  {
+    "key": "follow-ding",
+    "name": "Follow ding",
+    "path": "../../assets/sfx/library/follow-ding.wav",
+    "part": 1,
+    "duration": 0.42
+  },
+  {
+    "key": "futuris-display",
+    "name": "Futuris Display",
+    "path": "../../assets/sfx/library/futuris-display.wav",
+    "part": 4,
+    "duration": 0.26
+  },
+  {
+    "key": "fx-boom",
+    "name": "Fx Boom",
+    "path": "../../assets/sfx/library/fx-boom.wav",
+    "part": 3,
+    "duration": 1.1
+  },
+  {
+    "key": "glitch",
+    "name": "Glitch",
+    "path": "../../assets/sfx/library/glitch.wav",
+    "part": 1,
+    "duration": 0.34
+  },
+  {
+    "key": "happy",
+    "name": "Happy",
+    "path": "../../assets/sfx/library/happy.wav",
+    "part": 3,
+    "duration": 0.2
+  },
+  {
+    "key": "happy-brass",
+    "name": "Happy Brass",
+    "path": "../../assets/sfx/library/happy-brass.wav",
+    "part": 3,
+    "duration": 0.44
+  },
+  {
+    "key": "heartbeat",
+    "name": "HeartBeat",
+    "path": "../../assets/sfx/library/heartbeat.wav",
+    "part": 3,
+    "duration": 0.14
+  },
+  {
+    "key": "hit-a-rock",
+    "name": "Hit a rock",
+    "path": "../../assets/sfx/library/hit-a-rock.wav",
+    "part": 1,
+    "duration": 0.14
+  },
+  {
+    "key": "huh-boys",
+    "name": "huh (boys)",
+    "path": "../../assets/sfx/library/huh-boys.wav",
+    "part": 5,
+    "duration": 0.32
+  },
+  {
+    "key": "irish-swoosh",
+    "name": "irish swoosh",
+    "path": "../../assets/sfx/library/irish-swoosh.wav",
+    "part": 1,
+    "duration": 0.32
+  },
+  {
+    "key": "jump-sound",
+    "name": "Jump Sound",
+    "path": "../../assets/sfx/library/jump-sound.wav",
+    "part": 3,
+    "duration": 0.36
+  },
+  {
+    "key": "paper",
+    "name": "Paper",
+    "path": "../../assets/sfx/library/paper.wav",
+    "part": 1,
+    "duration": 0.2
+  },
+  {
+    "key": "ping-pong",
+    "name": "Ping pong",
+    "path": "../../assets/sfx/library/ping-pong.wav",
+    "part": 1,
+    "duration": 0.74
+  },
+  {
+    "key": "punch-sound",
+    "name": "Punch Sound",
+    "path": "../../assets/sfx/library/punch-sound.wav",
+    "part": 3,
+    "duration": 0.18
+  },
+  {
+    "key": "ring-rise",
+    "name": "Ring Rise",
+    "path": "../../assets/sfx/library/ring-rise.wav",
+    "part": 3,
+    "duration": 0.78
+  },
+  {
+    "key": "sundawn",
+    "name": "Sundawn",
+    "path": "../../assets/sfx/library/sundawn.wav",
+    "part": 4,
+    "duration": 0.28
+  },
+  {
+    "key": "sundown-impact",
+    "name": "Sundown impact",
+    "path": "../../assets/sfx/library/sundown-impact.wav",
+    "part": 4,
+    "duration": 0.74
+  },
+  {
+    "key": "surprise",
+    "name": "Surprise",
+    "path": "../../assets/sfx/library/surprise.wav",
+    "part": 1,
+    "duration": 0.5
+  },
+  {
+    "key": "sword-sound",
+    "name": "Sword Sound",
+    "path": "../../assets/sfx/library/sword-sound.wav",
+    "part": 3,
+    "duration": 0.36
+  },
+  {
+    "key": "twinkle",
+    "name": "Twinkle",
+    "path": "../../assets/sfx/library/twinkle.wav",
+    "part": 5,
+    "duration": 0.28
+  },
+  {
+    "key": "ui-ding",
+    "name": "Ui Ding",
+    "path": "../../assets/sfx/library/ui-ding.wav",
+    "part": 1,
+    "duration": 0.12
+  },
+  {
+    "key": "win-1",
+    "name": "win 1",
+    "path": "../../assets/sfx/library/win-1.wav",
+    "part": 3,
+    "duration": 0.34
+  },
+  {
+    "key": "wow",
+    "name": "WOW",
+    "path": "../../assets/sfx/library/wow.wav",
+    "part": 2,
+    "duration": 0.6
+  },
+  {
+    "key": "wrong-answer",
+    "name": "Wrong Answer",
+    "path": "../../assets/sfx/library/wrong-answer.wav",
+    "part": 1,
+    "duration": 0.34
+  },
+  {
+    "key": "pose-hard-pop-click",
+    "name": "Pose · Pop click gọn",
+    "path": "../../assets/sfx/library/mixkit-hard-pop-click.wav",
+    "part": 0,
+    "duration": 0.146,
+    "source": "Mixkit · Hard pop click · Mixkit License"
+  },
+  {
+    "key": "pose-explainer-pop-whoosh",
+    "name": "Pose · Pop whoosh giải thích",
+    "path": "../../assets/sfx/library/mixkit-explainer-pop-whoosh.wav",
+    "part": 0,
+    "duration": 0.157,
+    "source": "Mixkit · Explainer video pops whoosh light pop · Mixkit License"
+  },
+  {
+    "key": "pose-bubble-pop",
+    "name": "Pose · Bubble pop mềm",
+    "path": "../../assets/sfx/library/mixkit-bubble-pop.wav",
+    "part": 0,
+    "duration": 0.362,
+    "source": "Mixkit · Bubble pop up alert notification · Mixkit License"
+  },
+  {
+    "key": "pose-fast-small-sweep",
+    "name": "Pose · Sweep chuyển tay",
+    "path": "../../assets/sfx/library/mixkit-fast-small-sweep.wav",
+    "part": 0,
+    "duration": 0.676,
+    "source": "Mixkit · Fast small sweep transition · Mixkit License"
+  },
+  {
+    "key": "anime-wow-sound-effect",
+    "name": "Anime Wow Sound Effect",
+    "path": "../../assets/sfx/library/anime-wow-sound-effect.wav",
+    "part": 1,
+    "duration": 4.18,
+    "source": "User pack Jul 2025 · anime-wow-sound-effect.mp3"
+  },
+  {
+    "key": "audio-glitch",
+    "name": "Audio Glitch",
+    "path": "../../assets/sfx/library/audio-glitch.wav",
+    "part": 1,
+    "duration": 1.158,
+    "source": "User pack Jul 2025 · audio-glitch.mp3"
+  },
+  {
+    "key": "build-up-fast",
+    "name": "Build Up Fast",
+    "path": "../../assets/sfx/library/build-up-fast.wav",
+    "part": 1,
+    "duration": 0.94,
+    "source": "User pack Jul 2025 · build up fast.MP3"
+  },
+  {
+    "key": "camera-burst",
+    "name": "Camera Burst",
+    "path": "../../assets/sfx/library/camera-burst.wav",
+    "part": 1,
+    "duration": 0.522,
+    "source": "User pack Jul 2025 · camera burst.MP3"
+  },
+  {
+    "key": "camera-flash-2",
+    "name": "Camera Flash 2",
+    "path": "../../assets/sfx/library/camera-flash-2.wav",
+    "part": 1,
+    "duration": 6.504,
+    "source": "User pack Jul 2025 · camera flash.MP3"
+  },
+  {
+    "key": "camera-shutter-2",
+    "name": "Camera Shutter 2",
+    "path": "../../assets/sfx/library/camera-shutter-2.wav",
+    "part": 1,
+    "duration": 2.064,
+    "source": "User pack Jul 2025 · camera shutter.MP3"
+  },
+  {
+    "key": "charger-iphone",
+    "name": "Charger Iphone",
+    "path": "../../assets/sfx/library/charger-iphone.wav",
+    "part": 1,
+    "duration": 0.575,
+    "source": "User pack Jul 2025 · charger iphone.MP3"
+  },
+  {
+    "key": "counter-burst",
+    "name": "Counter Burst",
+    "path": "../../assets/sfx/library/counter-burst.wav",
+    "part": 1,
+    "duration": 1.646,
+    "source": "User pack Jul 2025 · counter burst.MP3"
+  },
+  {
+    "key": "counter",
+    "name": "Counter",
+    "path": "../../assets/sfx/library/counter.wav",
+    "part": 1,
+    "duration": 1.202,
+    "source": "User pack Jul 2025 · counter.MP3"
+  },
+  {
+    "key": "crisp",
+    "name": "Crisp",
+    "path": "../../assets/sfx/library/crisp.wav",
+    "part": 1,
+    "duration": 0.235,
+    "source": "User pack Jul 2025 · crisp.MP3"
+  },
+  {
+    "key": "digital",
+    "name": "Digital",
+    "path": "../../assets/sfx/library/digital.wav",
+    "part": 1,
+    "duration": 0.679,
+    "source": "User pack Jul 2025 · digital .MP3"
+  },
+  {
+    "key": "digital-camera",
+    "name": "Digital Camera",
+    "path": "../../assets/sfx/library/digital-camera.wav",
+    "part": 1,
+    "duration": 1.332,
+    "source": "User pack Jul 2025 · digital camera.MP3"
+  },
+  {
+    "key": "digital-zoom",
+    "name": "Digital Zoom",
+    "path": "../../assets/sfx/library/digital-zoom.wav",
+    "part": 1,
+    "duration": 2.351,
+    "source": "User pack Jul 2025 · digital zoom.MP3"
+  },
+  {
+    "key": "drama",
+    "name": "Drama",
+    "path": "../../assets/sfx/library/drama.wav",
+    "part": 1,
+    "duration": 3.709,
+    "source": "User pack Jul 2025 · drama.MP3"
+  },
+  {
+    "key": "dramatic-woosh",
+    "name": "Dramatic Woosh",
+    "path": "../../assets/sfx/library/dramatic-woosh.wav",
+    "part": 1,
+    "duration": 1.829,
+    "source": "User pack Jul 2025 · dramatic woosh.MP3"
+  },
+  {
+    "key": "faaah",
+    "name": "Faaah",
+    "path": "../../assets/sfx/library/faaah.wav",
+    "part": 1,
+    "duration": 1.927,
+    "source": "User pack Jul 2025 · faaah.mp3"
+  },
+  {
+    "key": "fast-typing",
+    "name": "Fast Typing",
+    "path": "../../assets/sfx/library/fast-typing.wav",
+    "part": 1,
+    "duration": 1.254,
+    "source": "User pack Jul 2025 · fast typing.MP3"
+  },
+  {
+    "key": "finger-snap",
+    "name": "Finger Snap",
+    "path": "../../assets/sfx/library/finger-snap.wav",
+    "part": 1,
+    "duration": 0.862,
+    "source": "User pack Jul 2025 · finger snap.MP3"
+  },
+  {
+    "key": "follow-ding-2",
+    "name": "Follow Ding 2",
+    "path": "../../assets/sfx/library/follow-ding-2.wav",
+    "part": 1,
+    "duration": 4.049,
+    "source": "User pack Jul 2025 · follow ding.MP3"
+  },
+  {
+    "key": "impact",
+    "name": "Impact",
+    "path": "../../assets/sfx/library/impact.wav",
+    "part": 1,
+    "duration": 2.403,
+    "source": "User pack Jul 2025 · impact.MP3"
+  },
+  {
+    "key": "iphone-typing-1",
+    "name": "Iphone Typing 1",
+    "path": "../../assets/sfx/library/iphone-typing-1.wav",
+    "part": 1,
+    "duration": 10.841,
+    "source": "User pack Jul 2025 · iphone typing 1.MP3"
+  },
+  {
+    "key": "mac-quack",
+    "name": "Mac Quack",
+    "path": "../../assets/sfx/library/mac-quack.wav",
+    "part": 1,
+    "duration": 1.149,
+    "source": "User pack Jul 2025 · mac-quack.mp3"
+  },
+  {
+    "key": "mixkit-glitch-crackles-1044",
+    "name": "Mixkit Glitch Crackles 1044",
+    "path": "../../assets/sfx/library/mixkit-glitch-crackles-1044.wav",
+    "part": 1,
+    "duration": 2.009,
+    "source": "User pack Jul 2025 · mixkit-glitch-crackles-1044.wav"
+  },
+  {
+    "key": "mouse-click",
+    "name": "Mouse Click",
+    "path": "../../assets/sfx/library/mouse-click.wav",
+    "part": 1,
+    "duration": 0.679,
+    "source": "User pack Jul 2025 · mouse click.MP3"
+  },
+  {
+    "key": "pop-plus-woosh",
+    "name": "Pop Plus Woosh",
+    "path": "../../assets/sfx/library/pop-plus-woosh.wav",
+    "part": 1,
+    "duration": 1.855,
+    "source": "User pack Jul 2025 · pop + woosh.MP3"
+  },
+  {
+    "key": "popular-riser-metallic-sound-effect",
+    "name": "Popular Riser Metallic Sound Effect",
+    "path": "../../assets/sfx/library/popular-riser-metallic-sound-effect.wav",
+    "part": 1,
+    "duration": 2.763,
+    "source": "User pack Jul 2025 · popular-riser-metallic-sound-effect.mp3"
+  },
+  {
+    "key": "riser",
+    "name": "Riser",
+    "path": "../../assets/sfx/library/riser.wav",
+    "part": 1,
+    "duration": 1.829,
+    "source": "User pack Jul 2025 · riser.MP3"
+  },
+  {
+    "key": "rizz-sound-effect",
+    "name": "Rizz Sound Effect",
+    "path": "../../assets/sfx/library/rizz-sound-effect.wav",
+    "part": 1,
+    "duration": 1.933,
+    "source": "User pack Jul 2025 · rizz-sound-effect.mp3"
+  },
+  {
+    "key": "roblox-death-sound-1",
+    "name": "Roblox Death Sound 1",
+    "path": "../../assets/sfx/library/roblox-death-sound-1.wav",
+    "part": 1,
+    "duration": 1.0,
+    "source": "User pack Jul 2025 · roblox-death-sound_1.mp3"
+  },
+  {
+    "key": "synth-hit",
+    "name": "Synth Hit",
+    "path": "../../assets/sfx/library/synth-hit.wav",
+    "part": 1,
+    "duration": 2.978,
+    "source": "User pack Jul 2025 · synth hit.MP3"
+  },
+  {
+    "key": "tear-paper",
+    "name": "Tear Paper",
+    "path": "../../assets/sfx/library/tear-paper.wav",
+    "part": 1,
+    "duration": 0.444,
+    "source": "User pack Jul 2025 · tear paper.MP3"
+  },
+  {
+    "key": "tieng-beep",
+    "name": "Tieng Beep",
+    "path": "../../assets/sfx/library/tieng-beep.wav",
+    "part": 1,
+    "duration": 1.405,
+    "source": "User pack Jul 2025 · tieng_beep.mp3"
+  },
+  {
+    "key": "vine-boom",
+    "name": "Vine Boom",
+    "path": "../../assets/sfx/library/vine-boom.wav",
+    "part": 1,
+    "duration": 1.255,
+    "source": "User pack Jul 2025 · vine-boom.mp3"
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "account": {
+    "name": "Tùng Minh Trương (Henry Trương)",
+    "entitlement": {
+      "plan": "pro",
+      "status": "active",
+      "valid_until": "2036-07-26T12:54:47.862588+00:00",
+      "product_id": "pro",
+      "watermark_required": false,
+      "trial_export_limit": 0,
+      "trial_exports_used": 0,
+      "user_id": "",
+      "created_at": "",
+      "updated_at": "2026-07-26T12:54:47.862813+00:00"
+    }
+  },
+  "language": "en"
+}
