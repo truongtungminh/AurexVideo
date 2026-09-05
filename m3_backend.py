@@ -2504,7 +2504,7 @@ def create_project(payload: dict) -> dict:
         "quizCountdownSound": quiz_countdown_sound if project_type == "quiz" else None,
         "quizQuestionFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
         "quizAnswerFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
-        "quizQuestionColor": "#ffffff" if project_type == "quiz" else None,
+        "quizQuestionColor": "#ffd21c" if project_type == "quiz" else None,
         "quizCountdownColor": "#ffd166" if project_type == "quiz" else None,
         "quizAnswerColor": "#ffffff" if project_type == "quiz" else None,
         "quizQuestionSize": 7.2 if project_type == "quiz" else None,
