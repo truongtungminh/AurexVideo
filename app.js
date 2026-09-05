@@ -1434,12 +1434,36 @@ function quizItems() {
 }
 
 function quizV2Duration() {
+  const segments = Array.isArray(topic?.segments) ? topic.segments : [];
+  if (segments.length === 15) {
+    const last = segments[14];
+    const end = Number(last?.end) || 0;
+    if (end > 0) return end + QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS;
+  }
   return quizItems().length * (QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS);
 }
 
 function quizV2ItemAt(time) {
   const items = quizItems();
   if (!items.length) return null;
+  const segments = Array.isArray(topic?.segments) ? topic.segments : [];
+  if (segments.length === items.length * 5) {
+    const groups = items.map((item, index) => {
+      const rows = segments.slice(index * 5, index * 5 + 5);
+      const start = Number(rows[0]?.start) || 0;
+      const optionsEnd = Number(rows[3]?.end) || start;
+      const answerEnd = Number(rows[4]?.end) || optionsEnd;
+      return { item, index, start, revealAt: Math.max(0, optionsEnd - start) + QUIZ_V2_THINKING_SECONDS, end: answerEnd - start + QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS };
+    });
+    let selected = groups[groups.length - 1];
+    for (let index = 0; index < groups.length; index += 1) {
+      if ((Number(time) || 0) < groups[index].start || index === groups.length - 1) {
+        selected = groups[Math.max(0, index - (Number(time) < groups[index].start ? 1 : 0))];
+        break;
+      }
+    }
+    return { ...selected, elapsed: Math.max(0, (Number(time) || 0) - selected.start), sceneDuration: selected.end };
+  }
   const sceneDuration = QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS;
   const index = Math.min(items.length - 1, Math.max(0, Math.floor(Math.max(0, Number(time) || 0) / sceneDuration)));
   const start = index * sceneDuration;
@@ -1531,7 +1555,7 @@ function renderQuizText(time) {
 
 function renderQuizV2(scene) {
   const { item, index, elapsed } = scene;
-  const reveal = elapsed >= QUIZ_V2_THINKING_SECONDS;
+  const reveal = elapsed >= Number(scene.revealAt || QUIZ_V2_THINKING_SECONDS);
   const correctIndex = Math.max(0, Math.min(2, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);
   elements.quizText.hidden = false;
