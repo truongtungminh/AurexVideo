@@ -370,6 +370,95 @@ body {
 .stage.quiz-text-only .media-slot,
 .stage.quiz-text-only .karaoke { display: none !important; }
 
+/* Quiz Scroll V2: the question, choices, and countdown share one normal flow. */
+.quiz-text.quiz-v2 {
+  top: 20.5%;
+  width: 89%;
+  gap: 2.2cqw;
+  pointer-events: none;
+}
+.quiz-v2 .quiz-question-card {
+  width: 100%;
+  padding: 3.2cqw 3.8cqw;
+  border-radius: 4.8cqw;
+  border-width: .72cqw;
+  box-shadow: 0 .9cqw 0 #0b0b0b, .7cqw 1.3cqw 0 #ffd21c;
+}
+.quiz-v2 .quiz-question {
+  color: var(--quiz-question-color, #ffd21c) !important;
+  font-family: var(--quiz-question-font, "Arial Black", Arial, sans-serif) !important;
+  font-size: 7.1cqw !important;
+  line-height: 1.04;
+  letter-spacing: 0;
+  -webkit-text-stroke: .42cqw #0b0b0b;
+  text-shadow: .22cqw .3cqw 0 #0b0b0b;
+}
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 1.7cqw;
+}
+.quiz-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2.4cqw;
+  min-height: 12.5cqw;
+  padding: 2cqw 4.2cqw 2cqw 2cqw;
+  background: #fffdf4;
+  border: .62cqw solid #0b0b0b;
+  border-radius: 999px;
+  box-shadow: 0 .7cqw 0 rgba(11,11,11,.8);
+  box-sizing: border-box;
+  transition: opacity .25s ease, transform .25s ease, background .25s ease;
+}
+.quiz-option-label {
+  display: grid;
+  flex: 0 0 8.8cqw;
+  width: 8.8cqw;
+  height: 8.8cqw;
+  place-items: center;
+  border: .45cqw solid #0b0b0b;
+  border-radius: 50%;
+  color: #fff;
+  font: 900 5cqw/1 Arial, sans-serif;
+  text-shadow: .18cqw .18cqw 0 #0b0b0b;
+}
+.quiz-option:nth-child(1) .quiz-option-label { background: #f0445d; }
+.quiz-option:nth-child(2) .quiz-option-label { background: #3478de; }
+.quiz-option:nth-child(3) .quiz-option-label { background: #43b965; }
+.quiz-option-text {
+  min-width: 0;
+  color: #0b0b0b;
+  font: 900 5.15cqw/1.08 "Be Vietnam Pro", Arial, sans-serif;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.quiz-option-check {
+  display: none;
+  margin-left: auto;
+  color: #fff;
+  font: 900 6cqw/1 Arial, sans-serif;
+  -webkit-text-stroke: .2cqw #0b0b0b;
+}
+.quiz-option.is-correct {
+  background: linear-gradient(180deg, #79df46, #32ae59);
+  transform: scale(1.02);
+  color: #fff;
+}
+.quiz-option.is-correct .quiz-option-text { color: #fff; text-shadow: .16cqw .16cqw 0 #0b0b0b; }
+.quiz-option.is-correct .quiz-option-check { display: block; }
+.quiz-option.is-wrong { opacity: .45; }
+.quiz-v2 .quiz-countdown-wrap { margin-top: .8cqw; }
+.quiz-v2 .quiz-countdown-wrap[hidden] { display: none; }
+.quiz-v2 .quiz-answer-card { display: none !important; }
+.quiz-v2-enter { animation: quiz-v2-scroll-in .5s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes quiz-v2-scroll-in {
+  from { opacity: 0; transform: translateY(8cqw); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* FIX QUIZ FLOW 6: bỏ translateX vì card giờ chạy bằng flex */
 @keyframes quiz-card-pop {
   from {

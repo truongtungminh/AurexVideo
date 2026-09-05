@@ -1798,6 +1798,8 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         raise ValueError("Subtitle không có nội dung hợp lệ.")
     topic["segments"] = cleaned_segments
     if topic["projectType"] == "quiz":
+        if "quizItems" in payload or "quiz_items" in payload:
+            topic["quizItems"] = normalize_quiz_items(payload.get("quizItems", payload.get("quiz_items")))
         raw_answer = normalize_display_text(payload.get("quizAnswer", current.get("quizAnswer", "")), "", 300)
         if not raw_answer and len(cleaned_segments) > 1:
             raw_answer = cleaned_segments[1]["text"]
@@ -1824,6 +1826,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
                 value = fallback
             topic[key] = round(max(4.0, min(12.0, value)), 1)
     else:
+        topic.pop("quizItems", None)
         topic.pop("quizAnswer", None)
         topic.pop("quizAnswerDelay", None)
         topic.pop("quizCountdownSound", None)
@@ -2232,6 +2235,31 @@ def normalize_display_text(value: object, fallback: str = "", limit: int = 200) 
     if not text:
         return fallback
     return text[:limit]
+
+
+def normalize_quiz_items(value: object) -> list[dict[str, object]]:
+    """Validate the fixed three-question Multiple Choice Quiz Scroll contract."""
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError("Quiz Scroll phải có đúng 3 câu hỏi.")
+    result: list[dict[str, object]] = []
+    for index, raw in enumerate(value, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Câu Quiz {index} không hợp lệ.")
+        question = normalize_display_text(raw.get("question"), "", 90)
+        options = raw.get("options")
+        if not question or not isinstance(options, list) or len(options) != 3:
+            raise ValueError(f"Câu Quiz {index} phải có câu hỏi và đúng 3 lựa chọn.")
+        cleaned_options = [normalize_display_text(option, "", 35) for option in options]
+        if any(not option for option in cleaned_options):
+            raise ValueError(f"Lựa chọn của câu Quiz {index} không được để trống.")
+        try:
+            correct_index = int(raw.get("correct_index", raw.get("correctIndex")))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"correct_index của câu Quiz {index} phải là 0, 1 hoặc 2.") from exc
+        if correct_index not in {0, 1, 2}:
+            raise ValueError(f"correct_index của câu Quiz {index} phải là 0, 1 hoặc 2.")
+        result.append({"question": question, "options": cleaned_options, "correct_index": correct_index})
+    return result
 
 
 def create_project(payload: dict) -> dict:

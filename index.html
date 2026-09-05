@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Người dẫn chuyện - One Scene Video</title>
-    <link rel="stylesheet" href="style.css?v=20260903-quiz-css-1" />
+    <link rel="stylesheet" href="style.css?v=20260905-quiz-v2-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -43,10 +43,15 @@
           <div class="quiz-question-card">
             <div class="quiz-question" id="quizQuestion"></div>
           </div>
-          <div class="quiz-countdown-wrap">
+          <div class="quiz-options" id="quizOptions" hidden>
+            <div class="quiz-option" data-option="A"><div class="quiz-option-label">A</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+            <div class="quiz-option" data-option="B"><div class="quiz-option-label">B</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+            <div class="quiz-option" data-option="C"><div class="quiz-option-label">C</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+          </div>
+          <div class="quiz-countdown-wrap" id="quizCountdownWrap">
             <div class="quiz-countdown" id="quizCountdown"></div>
           </div>
-          <div class="quiz-answer-card">
+          <div class="quiz-answer-card" id="quizLegacyAnswerCard">
             <div class="quiz-answer" id="quizAnswer"></div>
           </div>
         </div>

@@ -18,8 +18,11 @@ const elements = {
   karaoke: document.querySelector("#karaoke"),
   quizText: document.querySelector("#quizText"),
   quizQuestion: document.querySelector("#quizQuestion"),
+  quizOptions: document.querySelector("#quizOptions"),
+  quizCountdownWrap: document.querySelector("#quizCountdownWrap"),
   quizCountdown: document.querySelector("#quizCountdown"),
   quizAnswer: document.querySelector("#quizAnswer"),
+  quizLegacyAnswerCard: document.querySelector("#quizLegacyAnswerCard"),
   teacher: document.querySelector("#teacher"),
   teacherWrap: document.querySelector("#teacherWrap"),
   loading: document.querySelector("#loading"),
@@ -57,6 +60,7 @@ let poseSwapRaf = 0;
 let currentComparisonKey = "";
 let currentComparisonScene = null;
 let currentCharacterMeta = null;
+let lastQuizItemIndex = -1;
 let lastHeadingFitKey = "";
 const characterMetaCache = new Map();
 const characterMetaRequests = new Map();
@@ -174,6 +178,7 @@ function formatTime(value) {
 }
 
 function previewDuration() {
+  if (quizItems().length) return quizV2Duration();
   const audioDuration = Number(elements.voiceover.duration);
   if (voiceoverAvailable && Number.isFinite(audioDuration) && audioDuration > 0) return audioDuration;
   return Math.max(0, Number(topic?.duration) || 0);
@@ -1419,6 +1424,27 @@ function isQuizProject(nextTopic = topic) {
 }
 
 const QUIZ_ANSWER_HOLD_SECONDS = 1;
+const QUIZ_V2_THINKING_SECONDS = 5;
+const QUIZ_V2_REVEAL_HOLD_SECONDS = 1.4;
+const QUIZ_V2_TRANSITION_SECONDS = 1.0;
+
+function quizItems() {
+  if (!Array.isArray(topic?.quizItems)) return [];
+  return topic.quizItems.filter((item) => item && Array.isArray(item.options) && item.options.length === 3);
+}
+
+function quizV2Duration() {
+  return quizItems().length * (QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS);
+}
+
+function quizV2ItemAt(time) {
+  const items = quizItems();
+  if (!items.length) return null;
+  const sceneDuration = QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS;
+  const index = Math.min(items.length - 1, Math.max(0, Math.floor(Math.max(0, Number(time) || 0) / sceneDuration)));
+  const start = index * sceneDuration;
+  return { item: items[index], index, start, elapsed: Math.max(0, (Number(time) || 0) - start), sceneDuration };
+}
 
 function quizAnswerStartTime() {
   const configured = Number(topic?.quizAnswerDelay);
@@ -1446,6 +1472,11 @@ function quizPairs() {
 
 function renderQuizText(time) {
   if (!elements.quizText) return;
+  const v2 = quizV2ItemAt(time);
+  if (v2) {
+    renderQuizV2(v2);
+    return;
+  }
   const pairs = quizPairs();
   const delay = quizAnswerStartTime();
   let pair = pairs[0];
@@ -1496,6 +1527,38 @@ function renderQuizText(time) {
   elements.quizAnswer.textContent = answerVisible
     ? (/^(?:đáp án là|answer is)\s*/iu.test(answer) ? answer : `Đáp án là ${answer}`)
     : "";
+}
+
+function renderQuizV2(scene) {
+  const { item, index, elapsed } = scene;
+  const reveal = elapsed >= QUIZ_V2_THINKING_SECONDS;
+  const correctIndex = Math.max(0, Math.min(2, Number(item.correct_index ?? item.correctIndex) || 0));
+  const style = (key, fallback) => String(topic?.[key] || fallback);
+  elements.quizText.hidden = false;
+  elements.quizText.classList.toggle("quiz-v2", true);
+  elements.quizText.style.setProperty("--quiz-question-font", style("quizQuestionFontFamily", '"Arial Black", Arial, sans-serif'));
+  elements.quizText.style.setProperty("--quiz-question-color", style("quizQuestionColor", "#ffd21c"));
+  elements.quizQuestion.textContent = String(item.question || "").trim();
+  elements.quizQuestion.style.fontFamily = "var(--quiz-question-font)";
+  elements.quizQuestion.style.color = "var(--quiz-question-color)";
+  elements.quizQuestion.style.fontSize = `${Number(topic?.quizQuestionSize) || 7.2}cqw`;
+  if (elements.quizOptions) {
+    elements.quizOptions.hidden = false;
+    Array.from(elements.quizOptions.querySelectorAll(".quiz-option")).forEach((option, optionIndex) => {
+      option.classList.toggle("is-correct", reveal && optionIndex === correctIndex);
+      option.classList.toggle("is-wrong", reveal && optionIndex !== correctIndex);
+      option.querySelector(".quiz-option-text").textContent = String(item.options[optionIndex] || "").trim();
+    });
+  }
+  elements.quizCountdown.textContent = reveal ? "" : String(Math.max(1, Math.ceil(QUIZ_V2_THINKING_SECONDS - elapsed)));
+  if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = reveal;
+  if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
+  if (index !== lastQuizItemIndex) {
+    elements.quizText.classList.remove("quiz-v2-enter");
+    void elements.quizText.offsetWidth;
+    elements.quizText.classList.add("quiz-v2-enter");
+    lastQuizItemIndex = index;
+  }
 }
 
 function renderAt(time, allowPoseSfx = false) {
