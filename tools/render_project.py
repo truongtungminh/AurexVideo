@@ -742,6 +742,7 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
         answer_delay = 5.0
     result: list[dict] = []
     cursor = 0.0
+    quiz_v2 = isinstance(topic.get("quizItems"), list) and len(topic.get("quizItems", [])) == 3 and len(segment_durations) == 15
     for index, segment in enumerate(segments):
         if not isinstance(segment, dict):
             continue
@@ -754,7 +755,11 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
         cursor += duration
         item["end"] = round(cursor, 3)
         result.append(item)
-        if index % 2 == 0 and index + 1 < len(segments):
+        if quiz_v2 and index % 5 == 3:
+            cursor += answer_delay
+        elif quiz_v2 and index % 5 == 4 and index + 1 < len(segments):
+            cursor += QUIZ_ANSWER_HOLD_SECONDS
+        elif index % 2 == 0 and index + 1 < len(segments):
             cursor += answer_delay
         elif index % 2 == 1 and index + 1 < len(segments):
             cursor += QUIZ_ANSWER_HOLD_SECONDS
@@ -803,7 +808,16 @@ def build_quiz_segment_audio(
         )
         sequence.append(f"[{label}]")
         input_index += 1
-        if index % 2 == 0 and index + 1 < len(segment_audio):
+        quiz_v2 = isinstance(topic.get("quizItems"), list) and len(topic.get("quizItems", [])) == 3 and len(segment_audio) == 15
+        if quiz_v2 and index % 5 == 3:
+            pause_label = f"quizpause{index}"
+            graph.append(f"anullsrc=r=48000:cl=mono:d={answer_delay:.3f}[{pause_label}]")
+            sequence.append(f"[{pause_label}]")
+        elif quiz_v2 and index % 5 == 4 and index + 1 < len(segment_audio):
+            pause_label = f"quizhold{index}"
+            graph.append(f"anullsrc=r=48000:cl=mono:d={QUIZ_ANSWER_HOLD_SECONDS:.3f}[{pause_label}]")
+            sequence.append(f"[{pause_label}]")
+        elif index % 2 == 0 and index + 1 < len(segment_audio):
             pause_label = f"quizpause{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={answer_delay:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")

@@ -995,6 +995,27 @@ function scriptLines() {
   return elements.scriptInput.value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+function quizItemsFromScript(lines = scriptLines()) {
+  if (!isQuizProject() || lines.length !== 15) return null;
+  const items = [];
+  for (let offset = 0; offset < lines.length; offset += 5) {
+    const question = lines[offset];
+    const options = lines.slice(offset + 1, offset + 4).map((line, index) => {
+      const expected = String.fromCharCode(65 + index);
+      return line.replace(new RegExp(`^${expected}\\s*[.)]\\s*`, "i"), "").trim();
+    });
+    const answerLine = lines[offset + 4];
+    const answerMatch = answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$/iu);
+    if (!question || options.some((option) => !option) || !answerMatch) return null;
+    items.push({
+      question,
+      options,
+      correct_index: answerMatch[1].toUpperCase().charCodeAt(0) - 65,
+    });
+  }
+  return items;
+}
+
 function defaultSpeakerDefinitions() {
   return [
     ["voice_a", { alias: tr("Voice A · Mở đầu + kết", "Voice A · Opening + ending"), voiceId: "oncoinx", speed: 1, pitch: 1 }],
@@ -1334,6 +1355,7 @@ function timelineFromPoses(segments) {
 
 function draftTopic(forceRetime = false) {
   const segments = segmentsFromEditor(forceRetime);
+  const parsedQuizItems = quizItemsFromScript(scriptLines());
   const ttsConfig = topicTtsConfig(state.topic);
   const speakerConfig = Object.fromEntries(speakerEntries({ ...state.topic, segments }));
   const duration = hasPlaceholderVoiceover()
@@ -1380,6 +1402,7 @@ function draftTopic(forceRetime = false) {
     rightSubLabelColor: elements.rightSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
     comparisons,
     quizAnswer: isQuizProject() ? String(segments[1]?.text || state.topic.quizAnswer || "").trim() : "",
+    quizItems: isQuizProject() ? (parsedQuizItems || state.topic.quizItems) : undefined,
     quizAnswerDelay: isQuizProject() ? Number(state.topic.quizAnswerDelay || 5) : undefined,
     duration,
     leftImageZoom: left.zoom,
