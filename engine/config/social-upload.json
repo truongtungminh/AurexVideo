@@ -1,0 +1,35 @@
+{
+  "zernio": {
+    "api_key": "sk_8a5d68ada0f400ed7868695130125a1b4acafbc01fb78db7c98acfc0d13c0e07",
+    "account_id": "6a852eb977555aae01e3b3b6",
+    "base_url": "https://zernio.com/api/v1",
+    "connections": {
+      "popsy-legacy": {
+        "account_id": "6a852eb977555aae01e3b3b6",
+        "api_key": "sk_8a5d68ada0f400ed7868695130125a1b4acafbc01fb78db7c98acfc0d13c0e07",
+        "base_url": "https://zernio.com/api/v1",
+        "brand": "popsy",
+        "display_name": "Popsy TikTok",
+        "_legacy_top_level": true
+      }
+    }
+  },
+  "brand_routes": {
+    "popsy": {
+      "tiktok": {
+        "connection_id": "popsy-legacy",
+        "name": "Popsy TikTok"
+      }
+    }
+  },
+  "brand_routes_version": 1,
+  "brand_connections_version": 1,
+  "social_worker": {
+    "url": "https://social-worker.tintucbitcoin.com",
+    "api_key": "a8afab9dad59fbac7c4ce8ac88cb1305e4ad85a65eaa340c6eb4f9bd25be8b76",
+    "ssh": "root@15.235.165.146",
+    "ssh_port": "54321",
+    "ssh_key": "/Users/truongminh/.ssh/id_ed25519",
+    "media_root": "/opt/aurex-social-worker/media"
+  }
+}

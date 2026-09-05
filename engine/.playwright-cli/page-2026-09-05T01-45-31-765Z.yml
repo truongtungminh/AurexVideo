@@ -1,0 +1,8 @@
+- main [ref=e2]:
+  - region "Video so sánh một cảnh" [ref=e3]:
+    - generic: Inox 304
+    - generic: Inox 316
+    - img "Hình minh họa đối tượng bên trái" [ref=e6]
+    - img "Hình minh họa đối tượng bên phải" [ref=e8]
+    - img "Nhân vật đang trình bày" [ref=e11]
+    - generic [ref=e12]: "Không mở được bài giảng: Không tải được topic: 404"

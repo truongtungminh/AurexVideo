@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ast
 import base64
-from collections import deque
 import html
 import io
 import json
@@ -24,73 +23,27 @@ import urllib.request
 import uuid
 import webbrowser
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from social_upload import (
-    affiliate_brand_context,
-    affiliate_overview,
-    create_affiliate_link,
-    delete_product_pool,
-    delete_product_pool_bulk,
-    discover_products,
-    ingest_conversion_rows,
-    list_product_pool,
-    list_saved_products,
-    save_affiliate_settings,
-    save_product_pool,
-    save_product_pool_links,
-    run_affiliate_backfill,
-    shopee_status,
-    update_shopee_config,
-    disconnect_shopee,
     binance_config,
     binance_upload_video,
     build_upload_metadata,
     disconnect_binance,
-    disconnect_instagram,
     facebook_comment_source,
     facebook_upload_video,
     finish_youtube_oauth,
-    instagram_upload_video,
-    r2_config,
-    publish_instagram_facebook_threads,
-    threads_upload_video,
-    tiktok_upload_video,
-    update_zernio_config,
-    disconnect_zernio,
     set_facebook_active_page,
     set_youtube_active_channel,
     social_status,
     start_youtube_oauth,
     update_binance_config,
     update_facebook_page_config,
-    update_instagram_config,
-    update_r2_config,
-    update_threads_config,
-    disconnect_threads,
     update_youtube_oauth_config,
     youtube_upload_video,
 )
 import social_upload.metadata as social_metadata
-from social_upload.config import (
-    SOCIAL_ROUTE_PLATFORMS,
-    canonical_brand,
-    read_social_config,
-    save_social_brand_route,
-    write_social_config,
-)
-from social_upload.r2 import merge_r2_config_values, resolve_r2_config
-from social_upload.scheduler import start_scheduler
-from social_upload.affiliate_poc import (
-    CASES as AFFILIATE_POC_CASE_CODES,
-    STATUSES as AFFILIATE_POC_STATUSES,
-    case_definitions as affiliate_poc_case_definitions,
-    poc_summary as affiliate_poc_summary,
-    record_result as record_affiliate_poc_result,
-    start_run as start_affiliate_poc_run,
-)
 import m3_backend as m3
 from tts.elevenlabs import (
     elevenlabs_api_key,
@@ -100,9 +53,7 @@ from tts.elevenlabs import (
     update_elevenlabs_api_key,
     update_elevenlabs_voice_id,
 )
-from tts.maziao import _submit_and_poll_single, _resolve_api_config, _resolve_voice, DEFAULT_API_KEY, DEFAULT_API_BASE, normalize_tts_mode
-from media_probe import validate_rendered_video
-from tools.render_quality import get_render_profile
+from tts.maziao import _submit_and_poll_single, _resolve_api_config, _resolve_voice, DEFAULT_API_KEY, DEFAULT_API_BASE
 
 
 if sys.platform.startswith("win"):
@@ -136,26 +87,21 @@ SOURCE_ROOT_IS_PROJECT = False
 # Keep the venv launcher path as-is. On macOS Homebrew, `.venv/bin/python` is a
 # symlink into the framework binary; `.resolve()` would drop out of the venv and
 # render with a bare interpreter (no Pillow / Whisper / Playwright).
-_PYTHON_NAME = "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python3.11"
-_PYTHON_CANDIDATES = [
-    Path(os.environ["AUREX_PYTHON"]).expanduser() if os.environ.get("AUREX_PYTHON") else None,
-    REPO_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"),
-    REPO_ROOT.parent / "runtime" / "python_base" / _PYTHON_NAME,
-    REPO_ROOT.parent / "python_base" / _PYTHON_NAME,
-    REPO_ROOT / "python_base" / _PYTHON_NAME,
-]
-VENV_PYTHON = next((candidate for candidate in _PYTHON_CANDIDATES if candidate and candidate.exists()), Path(sys.executable))
-RENDER_PYTHON = VENV_PYTHON
-OCR_TOOL_PATH = REPO_ROOT / "tools" / "ocr_universal_deepseek2.py"
+VENV_PYTHON = Path(
+    os.environ.get("AUREX_PYTHON")
+    or REPO_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
+).expanduser()
+RENDER_PYTHON = VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable)
 VENV_ROOT = (REPO_ROOT / ".venv").resolve()
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4173
 PACKAGED_ENGINE_MARKER_NAME = ".aurexvideo-packaged-engine"
+DEV_ENTITLEMENT_UNLOCK_ENV = "AUREXVIDEO_DEV_ENTITLEMENT_UNLOCK"
+DESKTOP_BUILD_PROFILE_ENV = "AUREXVIDEO_DESKTOP_BUILD_PROFILE"
 EMBEDDED_DESKTOP_ENV = "AUREXVIDEO_EMBEDDED_DESKTOP"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_LOG_CHARS = 240_000
 AUDIO_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm", ".flac"}
-VOICEOVER_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".mav"}
 OUTRO_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 BRAND_LOGO_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
 MAX_LOGO_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -167,16 +113,8 @@ UPLOAD_DEFAULTS_CONFIG_PATH = USER_DATA_ROOT / "config" / "upload-defaults.json"
 VIENEU_RUNTIME_CONFIG_PATH = USER_DATA_ROOT / "config" / "vieneu-runtime.json"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
-RENDER_QUEUE: deque[str] = deque()
-RENDER_QUEUE_WORKER_ACTIVE = False
 ACTIVE_JOB_STATUSES = {"authorizing", "queued", "running", "cancelling"}
-PRIVATE_JOB_FIELDS = {
-    "process",
-    "trial_event_id",
-    "queued_command",
-    "allowance_finalized",
-    "allowance_finalizing",
-}
+PRIVATE_JOB_FIELDS = {"process", "trial_event_id"}
 SLIDE_AUDIO_SETTING_KEYS = {
     "transitionSounds": "slideTransitions",
     "revealSounds": "slideReveals",
@@ -285,7 +223,6 @@ def read_default_upload_copy(language: object = None) -> dict:
     candidate_caption = str(
         candidate.get("caption")
         or candidate.get("facebookCaption")
-        or candidate.get("instagramCaption")
         or candidate.get("youtubeDescription")
         or ""
     ).strip()
@@ -310,7 +247,6 @@ def read_default_upload_copy(language: object = None) -> dict:
         "caption": caption,
         "youtubeDescription": caption,
         "facebookCaption": caption,
-        "instagramCaption": caption,
     }
 
 
@@ -346,7 +282,6 @@ def save_default_upload_tags(payload: dict) -> dict:
         "tags": tags,
         "youtubeDescription": caption,
         "facebookCaption": caption,
-        "instagramCaption": caption,
     }
     UPLOAD_DEFAULTS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temporary = UPLOAD_DEFAULTS_CONFIG_PATH.with_name(
@@ -362,7 +297,6 @@ def save_default_upload_tags(payload: dict) -> dict:
         "caption": caption,
         "youtubeDescription": caption,
         "facebookCaption": caption,
-        "instagramCaption": caption,
     }
 
 
@@ -377,16 +311,27 @@ def current_account() -> dict:
     return {}
 
 
+def development_entitlement_unlock_enabled() -> bool:
+    """Allow local entitlement bypasses only for an injected debug build."""
+    return (
+        os.environ.get(DEV_ENTITLEMENT_UNLOCK_ENV) == "1"
+        and os.environ.get(DESKTOP_BUILD_PROFILE_ENV) == "debug"
+    )
+
+
 def embedded_desktop_mode_enabled() -> bool:
     """Keep embedded desktop launches from opening a separate browser window."""
     return os.environ.get(EMBEDDED_DESKTOP_ENV) == "1" or os.environ.get("AUREXVIDEO_DESKTOP") == "1"
 
 
+def desktop_build_profile() -> str:
+    """Return the launcher profile advertised to the desktop supervisor."""
+    profile = os.environ.get(DESKTOP_BUILD_PROFILE_ENV, "").strip().lower()
+    return profile if profile in {"debug", "release"} else "standalone"
+
 
 def entitlement_is_active_pro(entitlement: dict | None) -> bool:
-    # Desktop app (Swift shell) is always full-featured: no trial, no Pro gating.
-    # AUREXVIDEO_DESKTOP is set by the launcher, so local builds are fully unlocked.
-    if os.environ.get("AUREXVIDEO_DESKTOP"):
+    if development_entitlement_unlock_enabled():
         return True
     entitlement = entitlement if isinstance(entitlement, dict) else {}
     plan = str(entitlement.get("product_id") or entitlement.get("plan") or "").strip().lower()
@@ -407,9 +352,6 @@ def entitlement_is_active_pro(entitlement: dict | None) -> bool:
 
 
 def trial_branding_required(account: dict | None = None) -> bool:
-    # Desktop app is fully unlocked — never show trial branding.
-    if os.environ.get("AUREXVIDEO_DESKTOP"):
-        return False
     account = account if isinstance(account, dict) else current_account()
     entitlement = account.get("entitlement") if isinstance(account.get("entitlement"), dict) else {}
     return not entitlement_is_active_pro(entitlement)
@@ -518,8 +460,7 @@ def local_development_render_enabled() -> bool:
 
 
 def reserve_trial_export(project: str) -> tuple[str | None, dict | None]:
-    # Desktop app is fully unlocked — no licensing/export limits.
-    if os.environ.get("AUREXVIDEO_DESKTOP"):
+    if development_entitlement_unlock_enabled():
         return None, None
     if os.environ.get("AUREX_NATIVE_BRIDGE") != "1":
         if local_development_render_enabled():
@@ -796,7 +737,7 @@ def list_projects() -> list[dict]:
                 "brand": brand,
                 "character": character_id,
                 "social_status": social_status["label"],
-                "social_status_class": "bad" if social_status.get("failed") else ("warn" if (social_status.get("scheduled") or social_status.get("drafted")) else ("ok" if social_status.get("posted") else "bad")),
+                "social_status_class": "warn" if social_status.get("scheduled") else ("ok" if social_status.get("posted") else "bad"),
                 "social_status_title": social_status["title"],
                 "social_status_detail": social_status,
                 "social_status_scheduled_at": social_status.get("scheduled_at", ""),
@@ -806,199 +747,6 @@ def list_projects() -> list[dict]:
             }
         )
     return projects
-
-
-def upload_brand_context(project: str = "") -> dict:
-    """Build the non-secret Brand + social destination context for Upload."""
-    status = social_status()
-    config = read_social_config()
-    routes = status.get("brand_route_records") or {}
-    brand_display: dict[str, str] = {}
-    project_counts: dict[str, int] = {}
-    project_brand = ""
-
-    for project_dir in iter_project_dirs():
-        topic_path = project_dir / "topic.json"
-        if not topic_path.is_file():
-            continue
-        try:
-            topic = json.loads(topic_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(topic, dict):
-            continue
-        raw_brand = str(topic.get("brand") or "").strip()
-        brand = canonical_brand(raw_brand)
-        if not brand:
-            continue
-        display_name = brand if raw_brand.casefold() != brand else raw_brand
-        brand_display.setdefault(brand, display_name)
-        project_counts[brand] = project_counts.get(brand, 0) + 1
-        if project and project_dir.name == project:
-            project_brand = brand
-
-    for brand, platform_routes in routes.items():
-        brand_display.setdefault(brand, brand)
-
-    platforms = status.get("platforms") or {}
-    safe_platforms: dict[str, dict] = {}
-    for platform, value in platforms.items():
-        if not isinstance(value, dict):
-            continue
-        # Keep only fields needed by the picker. In particular, never pass
-        # credential-bearing config values through this endpoint.
-        safe = {
-            key: value.get(key)
-            for key in (
-                "configured", "connected", "available", "ready", "message",
-                "display_name", "name", "ig_user_id", "threads_user_id",
-                "account_id", "active_channel_id", "active_page_id", "channel", "page",
-                "channels", "pages", "masked_api_key", "masked_secret", "app_id", "api_base_url",
-                "accounts",
-            )
-            if key in value
-        }
-        safe_platforms[platform] = safe
-
-    brands = [
-        {
-            "id": brand,
-            "name": brand_display.get(brand) or brand,
-            "project_count": project_counts.get(brand, 0),
-            "routes": routes.get(brand, {}),
-            "affiliate": affiliate_brand_context(config, brand),
-        }
-        for brand in brand_display
-    ]
-    brands.sort(key=lambda item: (item["name"].casefold(), item["id"]))
-    if project_brand:
-        brands.sort(key=lambda item: 0 if item["id"] == project_brand else 1)
-    return {
-        "project": project,
-        "project_brand": project_brand,
-        "brands": brands,
-        "brand_routes": routes,
-        "platforms": safe_platforms,
-        "brand_routes_version": status.get("brand_routes_version", 1),
-        "affiliate": affiliate_brand_context(config, project_brand) if project_brand else {},
-    }
-
-
-def _affiliate_poc_default_page_id(config: dict, brand: str) -> str:
-    routes = config.get("brand_routes") if isinstance(config, dict) else {}
-    brand_route = routes.get(brand) if isinstance(routes, dict) else {}
-    facebook_route = brand_route.get("facebook") if isinstance(brand_route, dict) else {}
-    if not isinstance(facebook_route, dict):
-        return ""
-    return str(
-        facebook_route.get("page_id")
-        or facebook_route.get("connection_id")
-        or ""
-    ).strip()
-
-
-def _affiliate_poc_idempotency_key(content_id: str, page_id: str) -> str:
-    # Keep raw project/Page identifiers out of the POC key while making one
-    # content/Page pair idempotent. UUID5 is deterministic and matches the
-    # scalar key contract enforced by affiliate_poc.
-    seed = f"aurexvideo-affiliate-poc\x00{content_id}\x00{page_id}"
-    return f"poc-{uuid.uuid5(uuid.NAMESPACE_URL, seed).hex}"
-
-
-def _affiliate_poc_cases() -> list[dict]:
-    titles = {
-        "A": "Manual Reel + manual comment",
-        "B": "API Reel + manual comment",
-        "C": "Manual Reel + API comment",
-        "D": "API Reel + API comment",
-    }
-    descriptions = {
-        "A": "Đăng Reel thủ công · comment thủ công",
-        "B": "Đăng Reel qua API · comment thủ công",
-        "C": "Đăng Reel thủ công · comment qua API",
-        "D": "Đăng Reel và comment đều qua API",
-    }
-    return [
-        {
-            "key": definition["caseKey"],
-            "case": definition["caseKey"],
-            "title": titles[definition["caseKey"]],
-            "description": descriptions[definition["caseKey"]],
-            "publish_mode": definition["publishMode"],
-            "comment_mode": definition["commentMode"],
-            **definition,
-        }
-        for definition in affiliate_poc_case_definitions()
-    ]
-
-
-def _affiliate_poc_case_records(summary: dict, content_id: str, page_id: str) -> list[dict]:
-    records = []
-    for case in summary.get("cases") or []:
-        if not isinstance(case, dict):
-            continue
-        banner_observed = case.get("bannerObserved")
-        records.append({
-            **case,
-            "id": summary.get("runId"),
-            "run_id": summary.get("runId"),
-            "brand": summary.get("brand"),
-            "content_id": summary.get("contentId") or content_id,
-            "page_id": str(case.get("pageId") or page_id or ""),
-            "post_id": str(case.get("postId") or ""),
-            "comment_id": str(case.get("commentId") or ""),
-            "banner_observed": "yes" if banner_observed is True else "no" if banner_observed is False else "",
-            "evidence_url": str(case.get("evidenceUrl") or ""),
-            "case_key": str(case.get("caseKey") or "").upper(),
-            "updated_at": case.get("updatedAt") or summary.get("updatedAt") or "",
-        })
-    return records
-
-
-def _affiliate_poc_summary(summary: dict | None = None) -> dict:
-    summary = summary if isinstance(summary, dict) else {}
-    counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
-    normalized = {status: int(counts.get(status) or 0) for status in AFFILIATE_POC_STATUSES}
-    return {
-        "total": sum(normalized.values()),
-        **normalized,
-        "status": str(summary.get("status") or "pending"),
-    }
-
-
-def _affiliate_poc_response(brand: str, content_id: str, page_id: str, summary: dict | None = None) -> dict:
-    return {
-        "ok": True,
-        "brand": brand,
-        "content_id": content_id,
-        "page_id": page_id,
-        "cases": _affiliate_poc_cases(),
-        "runs": _affiliate_poc_case_records(summary or {}, content_id, page_id),
-        "summary": _affiliate_poc_summary(summary),
-        "context": {"page_id": page_id, "brand": brand},
-    }
-
-
-def _affiliate_poc_find_summary(brand: str, content_id: str, page_id: str) -> dict:
-    if not brand or not content_id:
-        return {}
-    summary = affiliate_poc_summary(
-        brand,
-        content_id,
-        idempotency_key=_affiliate_poc_idempotency_key(content_id, page_id),
-    )
-    return summary if summary.get("started") else {}
-
-
-def _affiliate_poc_text(payload: dict, *keys: str, limit: int) -> str:
-    value = ""
-    for key in keys:
-        if payload.get(key) is not None:
-            value = str(payload.get(key) or "").strip()
-            break
-    if len(value) > limit:
-        raise ValueError(f"POC field {keys[0]} tối đa {limit} ký tự.")
-    return value
 
 
 def require_project(project: str) -> Path:
@@ -1048,26 +796,11 @@ def coerce_volume(value: object) -> float:
 
 def coerce_render_size(value: object) -> str:
     raw = str(value or "").strip().lower()
-    if raw in {"720", "720x1280"}:
+    if raw in {"", "720", "720x1280"}:
         return "720x1280"
-    if raw in {"", "1080", "1080x1920"}:
+    if raw in {"1080", "1080x1920"}:
         return "1080x1920"
     raise ValueError("Render size must be 1080x1920 or 720x1280.")
-
-
-def coerce_quality_profile(value: object) -> str:
-    """Validate the render quality preset at the API boundary."""
-    return get_render_profile(str(value or "standard")).name
-
-
-def coerce_render_backend(value: object) -> str:
-    """Validate and normalize the hybrid native/browser render policy."""
-    requested = str(value or os.environ.get("AUREXVIDEO_RENDER_BACKEND") or "auto").strip().lower()
-    aliases = {"native-core": "native", "aurex": "native", "compatibility": "browser"}
-    requested = aliases.get(requested, requested)
-    if requested not in {"browser", "auto", "native"}:
-        raise ValueError("Render backend must be browser, auto or native.")
-    return requested
 
 
 def clean_filename(name: str, fallback: str = "voiceover.mp3") -> str:
@@ -1650,57 +1383,8 @@ def set_job_state(job_id: str, **updates: object) -> None:
         job["updated_at"] = time.time()
 
 
-def refresh_queue_positions_locked() -> None:
-    """Update public FIFO positions. JOBS_LOCK must already be held."""
-    position = 1
-    for queued_job_id in RENDER_QUEUE:
-        job = JOBS.get(queued_job_id)
-        if not job or job.get("status") != "queued" or job.get("cancel_requested"):
-            continue
-        job["queue_position"] = position
-        job["updated_at"] = time.time()
-        position += 1
-
-
-def finalize_job_trial_export(job_id: str, status: str) -> None:
-    """Finish a reserved allowance once, even when cancellation races with rendering."""
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if not job or job.get("allowance_finalized") or job.get("allowance_finalizing"):
-            return
-        event_id = str(job.get("trial_event_id") or "") or None
-        if not event_id:
-            job["allowance_finalized"] = True
-            return
-        job["allowance_finalizing"] = True
-
-    try:
-        finish_trial_export(event_id, status)
-        is_trial, used, limit = entitlement_trial_usage()
-        if is_trial:
-            set_job_state(job_id, trial_exports_used=used, trial_export_limit=limit)
-    except Exception as exc:
-        append_log(job_id, f"\nWarning: could not sync Trial export allowance: {exc}\n")
-    finally:
-        with JOBS_LOCK:
-            job = JOBS.get(job_id)
-            if job:
-                job["allowance_finalizing"] = False
-                job["allowance_finalized"] = True
-                job["updated_at"] = time.time()
-
-
 def public_job(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in PRIVATE_JOB_FIELDS}
-
-
-def list_jobs() -> list[dict]:
-    with JOBS_LOCK:
-        jobs = [public_job(job) for job in JOBS.values()]
-    return sorted(
-        jobs,
-        key=lambda job: (-float(job.get("updated_at") or 0.0), str(job.get("id") or "")),
-    )
 
 
 def job_cancel_requested(job_id: str) -> bool:
@@ -1866,7 +1550,7 @@ def render_simple_player_html(project: str) -> bytes:
   <script>if (window.__TAURI_INTERNALS__ && /Mac/.test(navigator.platform)) document.documentElement.classList.add('tauri-macos');</script>
   <main class="player-stage" aria-label="Trình phát video">
     <a class="player-action player-back" href="{dashboard_url}">← Quay lại</a>
-    <video controls autoplay playsinline preload="auto" src="{video_url}">Trình duyệt không hỗ trợ phát video.</video>
+    <video controls autoplay playsinline preload="metadata" src="{video_url}">Trình duyệt không hỗ trợ phát video.</video>
     <a class="player-action player-edit" href="{editor_url}">✎ Sửa</a>
   </main>
   <script>
@@ -1882,92 +1566,27 @@ def render_simple_player_html(project: str) -> bytes:
 </html>""".encode("utf-8")
 
 
-def render_queue_worker() -> None:
-    """Run queued renders one at a time, preserving their insertion order."""
-    global RENDER_QUEUE_WORKER_ACTIVE
-    try:
-        while True:
-            with JOBS_LOCK:
-                next_job: tuple[str, list[str], str] | None = None
-                invalid_job_ids: list[str] = []
-                while RENDER_QUEUE:
-                    job_id = RENDER_QUEUE.popleft()
-                    job = JOBS.get(job_id)
-                    if not job or job.get("status") != "queued" or job.get("cancel_requested"):
-                        continue
-                    command = job.get("queued_command")
-                    project = str(job.get("project") or "")
-                    if not isinstance(command, list) or not project:
-                        job["status"] = "failed"
-                        job["finished_at"] = time.time()
-                        job["error"] = "Queued render job is missing its command."
-                        job["updated_at"] = time.time()
-                        invalid_job_ids.append(job_id)
-                        continue
-                    job["status"] = "running"
-                    job["queue_position"] = None
-                    job["updated_at"] = time.time()
-                    next_job = (job_id, command, project)
-                    break
-                refresh_queue_positions_locked()
-            for invalid_job_id in invalid_job_ids:
-                finalize_job_trial_export(invalid_job_id, "failed")
-            if not next_job:
-                if invalid_job_ids:
-                    continue
-                return
-            run_job(*next_job)
-    finally:
-        with JOBS_LOCK:
-            RENDER_QUEUE_WORKER_ACTIVE = False
-            restart_needed = any(
-                (job := JOBS.get(job_id))
-                and job.get("status") == "queued"
-                and not job.get("cancel_requested")
-                for job_id in RENDER_QUEUE
-            )
-        if restart_needed:
-            start_render_queue_worker()
-
-
-def start_render_queue_worker() -> None:
-    global RENDER_QUEUE_WORKER_ACTIVE
-    with JOBS_LOCK:
-        if RENDER_QUEUE_WORKER_ACTIVE:
-            return
-        if not any(
-            (job := JOBS.get(job_id))
-            and job.get("status") == "queued"
-            and not job.get("cancel_requested")
-            for job_id in RENDER_QUEUE
-        ):
-            return
-        RENDER_QUEUE_WORKER_ACTIVE = True
-    try:
-        threading.Thread(target=render_queue_worker, daemon=True).start()
-    except Exception:
-        with JOBS_LOCK:
-            RENDER_QUEUE_WORKER_ACTIVE = False
-        raise
-
-
 def run_job(job_id: str, cmd: list[str], project: str) -> None:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     pretty_cmd = " ".join(shlex.quote(part) for part in cmd)
-    def finish_export_allowance(status: str) -> None:
-        finalize_job_trial_export(job_id, status)
-
     with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        cancelled_before_start = bool(job and job.get("cancel_requested"))
-        if job and not cancelled_before_start:
-            job.update(status="running", command=pretty_cmd, started_at=time.time())
-            job["updated_at"] = time.time()
+        trial_event_id = str((JOBS.get(job_id) or {}).get("trial_event_id") or "") or None
+
+    def finish_export_allowance(status: str) -> None:
+        try:
+            finish_trial_export(trial_event_id, status)
+            is_trial, used, limit = entitlement_trial_usage()
+            if is_trial:
+                set_job_state(job_id, trial_exports_used=used, trial_export_limit=limit)
+        except Exception as exc:
+            append_log(job_id, f"\nWarning: could not sync Trial export allowance: {exc}\n")
+
+    set_job_state(job_id, status="running", command=pretty_cmd, started_at=time.time())
     append_log(job_id, f"$ {pretty_cmd}\n\n")
-    if cancelled_before_start or job_cancel_requested(job_id):
+    if job_cancel_requested(job_id):
         append_log(job_id, "Render stopped before process start.\n")
         finish_export_allowance("cancelled")
         set_job_state(job_id, status="cancelled", returncode=None, finished_at=time.time())
@@ -1994,10 +1613,6 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
             **popen_kwargs,
         )
         set_job_state(job_id, process=proc, pid=proc.pid)
-        # Cancellation can arrive after the pre-start check but before Popen
-        # publishes its process handle. Stop that process immediately.
-        if job_cancel_requested(job_id):
-            terminate_process(proc)
     except Exception as exc:
         append_log(job_id, f"Failed to start render: {exc}\n")
         finish_export_allowance("failed")
@@ -2022,48 +1637,15 @@ def run_job(job_id: str, cmd: list[str], project: str) -> None:
     video_path = project_dir / "output" / "final_video.mp4"
 
     if returncode == 0 and video_path.exists():
-        try:
-            postflight = validate_rendered_video(video_path)
-        except Exception as exc:
-            summary = f"Postflight media thất bại: {exc}"
-            append_log(job_id, f"\nRender đã tạo file nhưng bị chặn: {summary}\n")
-            finish_export_allowance("failed")
-            set_job_state(
-                job_id,
-                status="failed",
-                returncode=returncode,
-                finished_at=time.time(),
-                error=summary,
-            )
-        else:
-            report_path = video_path.with_name(f"{video_path.stem}.render-report.json")
-            try:
-                render_report = json.loads(report_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                render_report = {}
-            backend_requested = str(render_report.get("backend_requested") or "auto")
-            backend_used = str(render_report.get("backend_used") or render_report.get("render_backend") or "unknown")
-            fallback_reason = render_report.get("fallback_reason")
-            append_log(job_id, f"\nPostflight OK: {postflight.get('width')}x{postflight.get('height')} @ {postflight.get('fps')}fps, BT.709, AAC stereo 48kHz.\n")
-            append_log(
-                job_id,
-                "Backend report: "
-                f"backend_requested={backend_requested} backend_used={backend_used} "
-                f"fallback_reason={fallback_reason or 'null'}\n",
-            )
-            append_log(job_id, f"Done: {video_path}\n")
-            finish_export_allowance("completed")
-            set_job_state(
-                job_id,
-                status="done",
-                returncode=returncode,
-                finished_at=time.time(),
-                video_url=final_video_url(project),
-                postflight=postflight,
-                backend_requested=backend_requested,
-                backend_used=backend_used,
-                fallback_reason=fallback_reason,
-            )
+        append_log(job_id, f"\nDone: {video_path}\n")
+        finish_export_allowance("completed")
+        set_job_state(
+            job_id,
+            status="done",
+            returncode=returncode,
+            finished_at=time.time(),
+            video_url=final_video_url(project),
+        )
     elif returncode == 0:
         append_log(job_id, "\nRender finished, but final_video.mp4 was not found.\n")
         finish_export_allowance("failed")
@@ -2082,47 +1664,17 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     project_dir = require_project(project)
     speed = coerce_speed(payload.get("speed", 1.0))
     volume = coerce_volume(payload.get("volume", 1.0))
-    render_size = coerce_render_size(payload.get("size", "1080x1920"))
-    quality_profile = coerce_quality_profile(payload.get("qualityProfile") or payload.get("quality_profile"))
-    render_backend = coerce_render_backend(payload.get("renderBackend") or payload.get("render_backend"))
+    render_size = coerce_render_size(payload.get("size", "720x1280"))
     engine = str(payload.get("engine") or "").strip().lower()
     cmd = [
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
-        "--quality-profile", quality_profile,
-        "--render-backend", render_backend,
     ]
     rebuild_audio_cache = bool(
         payload.get("force", False)
         or payload.get("rebuildAudioCache", False)
         or payload.get("rebuild_audio_cache", False)
     )
-
-    if engine in {"upload"}:
-        audio_payload = payload.get("audio")
-        if not isinstance(audio_payload, dict):
-            raise ValueError("Hãy chọn file audio trước khi render.")
-        audio_name = str(audio_payload.get("name") or "")
-        if Path(audio_name).suffix.casefold() not in VOICEOVER_UPLOAD_EXTENSIONS:
-            raise ValueError("Chỉ hỗ trợ file MP3, WAV hoặc MAV.")
-        uploaded = m3.decode_upload(
-            project,
-            {
-                "kind": "voiceover",
-                "name": audio_name,
-                "data": audio_payload.get("data"),
-            },
-        )
-        audio_path = (project_dir / str(uploaded.get("path") or "")).resolve()
-        try:
-            audio_path.relative_to(project_dir.resolve())
-        except ValueError as exc:
-            raise ValueError("Đường dẫn audio upload không hợp lệ.") from exc
-        if not audio_path.is_file():
-            raise FileNotFoundError("Không tìm thấy file audio vừa tải lên.")
-        cmd.extend(["--engine", "upload", "--audio", str(audio_path)])
-        append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
-        return cmd, "upload"
 
     if engine in {"elevenlabs"}:
         mode = str(payload.get("mode") or "tts").strip().lower()
@@ -2139,38 +1691,16 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
             if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
                 raise ValueError(f"Invalid ElevenLabs {label}.")
         cmd.extend(["--engine", "elevenlabs", "--voice", voice, "--model-id", model_id])
-        if rebuild_audio_cache:
+        if bool(payload.get("force", False)):
             cmd.append("--force-tts")
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "elevenlabs"
 
     if engine in {"maziao"}:
         voice = str(payload.get("voice") or "OncoinX").strip()
-        model_id = str(payload.get("modelId") or "").strip()
-        requested_mode = str(
-            payload.get("ttsMode")
-            or payload.get("tts_mode")
-            or payload.get("mode")
-            or "auto"
-        ).strip()
-        if requested_mode.casefold() == "auto" or not requested_mode:
-            tts_mode = "auto"
-        else:
-            tts_mode = normalize_tts_mode(requested_mode)
-        if model_id and not re.fullmatch(r"[A-Za-z0-9._:-]+", model_id):
-            raise ValueError("Invalid Maziao model id.")
-        cmd.extend(["--engine", "maziao", "--voice", voice, "--tts-mode", tts_mode])
-        if model_id:
-            cmd.extend(["--model-id", model_id])
-        tts_config = payload.get("ttsConfig") or payload.get("tts_config")
-        if tts_config is not None:
-            if not isinstance(tts_config, dict):
-                raise ValueError("Maziao ttsConfig phải là một JSON object.")
-            encoded_tts_config = json.dumps(tts_config, ensure_ascii=False, separators=(",", ":"))
-            if len(encoded_tts_config.encode("utf-8")) > 32 * 1024:
-                raise ValueError("Maziao ttsConfig tối đa 32 KB.")
-            cmd.extend(["--tts-config-json", encoded_tts_config])
-        if rebuild_audio_cache:
+        model_id = str(payload.get("modelId") or "vieten_speech").strip()
+        cmd.extend(["--engine", "maziao", "--voice", voice, "--model-id", model_id])
+        if bool(payload.get("force", False)):
             cmd.append("--force-tts")
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "maziao"
@@ -2180,7 +1710,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         if not re.fullmatch(r"[A-Za-z0-9._-]+", voice):
             raise ValueError("Invalid Edge TTS voice name.")
         cmd.extend(["--engine", "edge", "--voice", voice])
-        if rebuild_audio_cache:
+        if bool(payload.get("force", False)):
             cmd.append("--force-tts")
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "edgetts"
@@ -2209,7 +1739,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         append_render_asset_options(cmd, payload, project_dir, authoritative_entitlement)
         return cmd, "project"
 
-    raise ValueError("Engine must be upload, vieneu, maziao, edgetts, elevenlabs or project.")
+    raise ValueError("Engine must be elevenlabs, edgetts or project.")
 
 
 def has_running_job(project: str) -> bool:
@@ -2223,7 +1753,6 @@ def has_running_job(project: str) -> bool:
 def create_job(payload: dict) -> dict:
     project = str(payload.get("project") or "").strip()
     require_project(project)
-    backend_requested = coerce_render_backend(payload.get("renderBackend") or payload.get("render_backend"))
     job_id = uuid.uuid4().hex[:12]
     now = time.time()
     with JOBS_LOCK:
@@ -2240,20 +1769,12 @@ def create_job(payload: dict) -> dict:
             "created_at": now,
             "updated_at": now,
             "video_url": None,
-            "backend_requested": backend_requested,
-            "backend_used": None,
-            "fallback_reason": None,
         }
 
     license_event_id = None
     try:
         license_event_id, authoritative_entitlement = reserve_trial_export(project)
         cmd, engine = build_render_command(payload, authoritative_entitlement)
-        try:
-            m3.write_render_preferences(payload)
-        except Exception:
-            # Preferences are convenience state; never block a valid render job.
-            pass
     except Exception:
         with JOBS_LOCK:
             JOBS.pop(job_id, None)
@@ -2273,32 +1794,20 @@ def create_job(payload: dict) -> dict:
         "created_at": now,
         "updated_at": now,
         "video_url": None,
-        "backend_requested": backend_requested,
-        "backend_used": None,
-        "fallback_reason": None,
         "trial_event_id": license_event_id,
-        "allowance_finalized": False,
-        "allowance_finalizing": False,
         "trial_exports_used": trial_used if is_trial else None,
         "trial_export_limit": trial_limit if is_trial else None,
-        "queue_position": None,
-        "queued_command": cmd,
     }
 
     with JOBS_LOCK:
         JOBS[job_id] = job
-        RENDER_QUEUE.append(job_id)
-        refresh_queue_positions_locked()
+
+    thread = threading.Thread(target=run_job, args=(job_id, cmd, project), daemon=True)
     try:
-        start_render_queue_worker()
+        thread.start()
     except Exception:
         with JOBS_LOCK:
             JOBS.pop(job_id, None)
-            try:
-                RENDER_QUEUE.remove(job_id)
-            except ValueError:
-                pass
-            refresh_queue_positions_locked()
         try:
             finish_trial_export(license_event_id, "failed")
         except Exception:
@@ -2343,7 +1852,6 @@ def terminate_process(proc: subprocess.Popen) -> bool:
 
 
 def cancel_job(job_id: str) -> dict | None:
-    finish_queued_allowance = False
     with JOBS_LOCK:
         job = JOBS.get(job_id)
         if not job:
@@ -2352,31 +1860,16 @@ def cancel_job(job_id: str) -> dict | None:
         if status not in ACTIVE_JOB_STATUSES:
             return public_job(job)
         job["cancel_requested"] = True
-        if status == "queued":
-            job["status"] = "cancelled"
-            job["returncode"] = None
-            job["finished_at"] = time.time()
-            job["queue_position"] = None
-            try:
-                RENDER_QUEUE.remove(job_id)
-            except ValueError:
-                pass
-            refresh_queue_positions_locked()
-            finish_queued_allowance = True
-        else:
-            job["status"] = "cancelling"
+        job["status"] = "cancelling"
         job["updated_at"] = time.time()
         proc = job.get("process")
 
     append_log(job_id, "\nStop requested by user.\n")
-    if finish_queued_allowance:
-        # A reservation happens before enqueueing, so a waiting cancellation must
-        # release it here. Running jobs finalize in run_job to avoid a double finish.
-        finalize_job_trial_export(job_id, "cancelled")
-        return get_job(job_id)
     if isinstance(proc, subprocess.Popen):
         if terminate_process(proc):
             set_job_state(job_id, status="cancelled", returncode=proc.returncode, process=None, pid=None, finished_at=time.time())
+    else:
+        set_job_state(job_id, status="cancelled", returncode=None, finished_at=time.time())
     return get_job(job_id)
 
 
@@ -3126,16 +2619,6 @@ UPLOAD_GUIDE_DOCS = {
             ("Token Debugger", "Token Debugger", "https://developers.facebook.com/tools/debug/accesstoken/"),
         ],
     },
-    "instagram": {
-        "path": REPO_ROOT / "docs" / "upload" / "instagram-api-upload.md",
-        "path_en": REPO_ROOT / "docs" / "upload" / "instagram-api-upload.en.md",
-        "kicker": "Instagram Reels API + R2",
-        "actions": [
-            ("Mở Meta for Developers", "Open Meta for Developers", "https://developers.facebook.com/"),
-            ("Instagram API docs", "Instagram API docs", "https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api"),
-            ("Cloudflare R2 docs", "Cloudflare R2 docs", "https://developers.cloudflare.com/r2/buckets/public-buckets/"),
-        ],
-    },
 }
 
 
@@ -3582,11 +3065,6 @@ def ui_icon(name: str, class_name: str = "btn-icon") -> str:
             '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/>'
             '<path d="M12 18h.01"/>'
         ),
-        "cpu": (
-            '<rect width="16" height="16" x="4" y="4" rx="2"/>'
-            '<rect width="6" height="6" x="9" y="9" rx="1"/>'
-            '<path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
-        ),
         "image": (
             '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>'
             '<circle cx="9" cy="9" r="2"/>'
@@ -3632,16 +3110,6 @@ def ui_icon(name: str, class_name: str = "btn-icon") -> str:
         "arrow-down-right": '<path d="m7 7 10 10"/><path d="M17 7v10H7"/>',
         "list": '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
         "folder": '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
-        "users": (
-            '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>'
-            '<circle cx="9" cy="7" r="4"/>'
-            '<path d="M22 21v-2a4 4 0 0 0-3-3.87"/>'
-            '<path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
-        ),
-        "braces": (
-            '<path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1"/>'
-            '<path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/>'
-        ),
         "message": (
             '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'
         ),
@@ -3669,16 +3137,7 @@ def brand_icon(name: str, class_name: str = "platform-brand-icon") -> str:
             '<path fill="#1877F2" d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.8-4.7 4.54-4.7 1.32 0 2.7.24 2.7.24v2.97h-1.52c-1.5 0-1.97.93-1.97 1.89v2.26h3.34l-.53 3.49h-2.81V24C19.61 23.1 24 18.1 24 12.07z"/>'
         ),
         "binance": (
-            '<path fill="#F3BA2F" d="M12 2.5 9.6 4.9 7.2 2.5 4.8 4.9 2.4 2.5v4.8L0 9.7l2.4 2.4L0 14.5v4.8L2.4 17l2.4 2.4-2.4 2.4 2.4 2.4 2.4-2.4 2.4 2.4 2.4-2.4 2.4 2.4 2.4-2.4 2.4 2.4 2.4-2.4 2.4 2.4 2.4-2.4V14.5l-2.4-2.4 2.4-2.4V4.9L19.2 7.3 16.8 4.9 14.4 7.3 12 4.9 9.6 2.5zm0 6.6L14.4 11.5 12 13.9 9.6 11.5 12 9.1z"/>'
-        ),
-        "instagram": (
-            '<rect x="2" y="2" width="20" height="20" rx="6" fill="#E1306C"/>'
-            '<circle cx="12" cy="12" r="4.3" fill="none" stroke="#fff" stroke-width="1.8"/>'
-            '<circle cx="17.5" cy="6.7" r="1.1" fill="#fff"/>'
-        ),
-        "threads": (
-            '<circle cx="12" cy="12" r="10" fill="#111827"/>'
-            '<path fill="#fff" d="M7 7h10v2h-4v8h-2V9H7z"/>'
+            '<path fill="#F0B90B" d="M12 2.5 9.62 4.88 12 7.25l2.38-2.37L12 2.5zm0 3.54L10.71 7.33 12 8.62l1.29-1.29L12 6.04zM6.33 8.5l-1.29 1.29 1.29 1.29 1.29-1.29-1.29-1.29zm11.34 0-1.29 1.29 1.29 1.29 1.29-1.29-1.29-1.29zM12 9.96l-1.29 1.29h2.58L12 9.96zm-5.96 1.5L4.75 12.75l1.29 1.29 1.29-1.29-1.29-1.29zm11.92 0-1.29 1.29 1.29 1.29 1.29-1.29-1.29-1.29zM12 12.04l-2.38 2.37L12 16.79l2.38-2.38L12 12.04zm0 2.67-1.29 1.29 1.29 1.29 1.29-1.29-1.29-1.29zM8.62 15.46 7.33 16.75l1.29 1.29 1.29-1.29-1.29-1.29zm6.76 0-1.29 1.29 1.29 1.29 1.29-1.29-1.29-1.29zM12 18.21l-1.29 1.29L12 20.79l1.29-1.29L12 18.21z"/>'
         ),
     }
     inner = marks.get(name)
@@ -3878,7 +3337,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         <button class="tab active" data-engine="vieneu" type="button">{ui_icon("mic", "tab-icon")}<span>VieNeu TTS</span></button>
         <button class="tab" data-engine="maziao" type="button">{ui_icon("mic", "tab-icon")}<span>Maziao</span></button>
         <button class="tab" data-engine="edgetts" type="button">{ui_icon("audio-lines", "tab-icon")}<span>Edge TTS</span></button>
-        <button class="tab" data-engine="upload" type="button">{ui_icon("upload", "tab-icon")}<span>Upload File</span></button>
       </div>
 
       <div data-pane="vieneu">
@@ -3905,25 +3363,18 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
 
       <div data-pane="maziao" hidden>
-        <label class="field maziao-mode-field">
-          <span class="field-label">{ui_icon("users", "field-icon")}<span>Chế độ TTS Maziao</span></span>
-          <select id="maziaoTtsMode" aria-label="Chế độ TTS Maziao">
-            <option value="auto" selected>Theo cấu hình project</option>
-            <option value="paragraph">Một voice cho toàn bộ script</option>
-            <option value="multiSpeakers">Multi-speakers</option>
-          </select>
-        </label>
-        <section class="maziao-customization" id="maziaoCustomization" aria-labelledby="maziaoCustomizationTitle">
-          <div class="maziao-customization-heading">
-            <div>
-              <strong id="maziaoCustomizationTitle">Voice customization</strong>
-              <small id="maziaoCustomizationHint">Mỗi speaker có thể dùng một voice riêng.</small>
-            </div>
-            <span class="maziao-customization-mark" aria-hidden="true">Aa</span>
+        <div class="field maziao-voice-field">
+          <span class="field-label">{ui_icon("message", "field-icon")}<span>TTS Voice</span></span>
+          <div class="maziao-voice-control">
+            <select id="maziaoVoice" aria-label="TTS Voice">
+              <option value="">Đang tải giọng...</option>
+            </select>
+            <button class="maziao-preview-button" type="button" id="maziaoPreviewButton" aria-label="Nghe thử giọng" title="Nghe thử giọng" aria-pressed="false">
+              <span class="maziao-preview-play" aria-hidden="true"></span>
+              <span class="maziao-preview-pause" aria-hidden="true"></span>
+            </button>
           </div>
-          <div class="maziao-speaker-cards" id="maziaoSpeakerCards"></div>
-          <p class="maziao-speaker-empty" id="maziaoSpeakerEmpty" hidden>Chưa có speaker trong project.</p>
-        </section>
+        </div>
         <div class="advanced-check-grid maziao-cache-row">
           <label class="check">
             <input id="maziaoForce" type="checkbox" />
@@ -3933,18 +3384,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       </div>
 
       <div data-pane="edgetts" hidden>
-      </div>
-
-      <div data-pane="upload" hidden>
-        <label class="field upload-audio-field">
-          <span class="field-label">{ui_icon("upload", "field-icon")}<span>File audio</span></span>
-          <span class="file-picker">
-            <input id="uploadAudioFile" type="file" accept=".mp3,.wav,.mav,audio/mpeg,audio/wav,audio/x-wav" />
-            <span class="file-picker-button">Chọn file</span>
-            <span class="file-picker-name" id="uploadAudioFileName">Chưa chọn file audio</span>
-          </span>
-        </label>
-        <p class="engine-note">Dùng file MP3, WAV hoặc MAV có sẵn của AurexVideo; không cần tải model TTS.</p>
       </div>
 
       <div class="form-actions render-primary-actions">
@@ -3970,6 +3409,33 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
           <span class="advanced-heading-title">Cài đặt nâng cao</span>
         </div>
         <div class="advanced-body">
+
+          <div data-advanced-engine="vieneu">
+            <label class="field">
+              <span class="field-label">
+                {ui_icon("message", "field-icon advanced-field-icon")}
+                <span>Model Mode</span>
+              </span>
+              <select id="vieneuMode">
+                <option value="v3turbo" selected>VieNeu-TTS-v3-Turbo (Khuyên dùng, 48kHz)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">
+                {ui_icon("gauge", "field-icon advanced-field-icon")}
+                <span>Device</span>
+              </span>
+              <select id="vieneuDevice">
+                <option value="cpu" selected>CPU (Ổn định)</option>
+                <option value="mps">Apple Silicon GPU (MPS)</option>
+                <option value="cuda">NVIDIA GPU (CUDA)</option>
+              </select>
+            </label>
+            <div class="advanced-check-grid">
+              <button class="start" id="checkVieneu" type="button">Kiểm tra VieNeu-TTS</button>
+            </div>
+            <p class="engine-note" id="vieneuConfigState">VieNeu-TTS chạy trực tiếp trong máy.</p>
+          </div>
 
           <div data-advanced-engine="edgetts" hidden>
             <label class="field">
@@ -4010,32 +3476,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
             </div>
           </div>
 
-          <div data-advanced-engine="vieneu">
-            <label class="field">
-              <span class="field-label">
-                {ui_icon("message", "field-icon advanced-field-icon")}
-                <span>Model Mode</span>
-              </span>
-              <select id="vieneuMode">
-                <option value="v3turbo" selected>VieNeu-TTS-v3-Turbo (Khuyên dùng, 48kHz)</option>
-              </select>
-            </label>
-            <label class="field">
-              <span class="field-label">
-                {ui_icon("gauge", "field-icon advanced-field-icon")}
-                <span>Device</span>
-              </span>
-              <select id="vieneuDevice">
-                <option value="cpu" selected>CPU (Ổn định)</option>
-                <option value="mps">Apple Silicon GPU (MPS)</option>
-                <option value="cuda">NVIDIA GPU (CUDA)</option>
-              </select>
-            </label>
-            <div class="advanced-check-grid">
-              <button class="start" id="checkVieneu" type="button">Kiểm tra VieNeu-TTS</button>
-            </div>
-            <p class="engine-note" id="vieneuConfigState">VieNeu-TTS chạy trực tiếp trong máy.</p>
-          </div>
 
           <div class="render-speed-block">
             <label class="field render-speed-field">
@@ -4086,29 +3526,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
               <option value="1080x1920" selected>1080 x 1920 (mặc định, nét hơn)</option>
             </select>
           </label>
-          <label class="field render-quality-field">
-            <span class="field-label">
-              {ui_icon("sparkles", "field-icon advanced-field-icon")}
-              <span>Chất lượng video</span>
-            </span>
-            <select id="renderQuality">
-              <option value="standard" selected>Standard · mặc định, nét và cân bằng</option>
-              <option value="master">Master · chất lượng cao nhất (chậm)</option>
-              <option value="draft">Draft · xem trước nhanh</option>
-            </select>
-          </label>
-          <label class="field render-backend-field">
-            <span class="field-label">
-              {ui_icon("cpu", "field-icon advanced-field-icon")}
-              <span>Bộ máy render</span>
-            </span>
-            <select id="renderBackend">
-              <option value="auto" selected>Auto · Aurex Render Core ưu tiên, Browser fallback</option>
-              <option value="native">Aurex Render Core · bắt buộc Native</option>
-              <option value="browser">Browser · giữ đúng CSS preview</option>
-            </select>
-          </label>
-          <p class="engine-note render-backend-note">Auto ưu tiên Aurex Render Core; scene chưa đạt contract hoặc Core lỗi sẽ fallback Browser để giữ đúng preview. Chọn Native sẽ dừng nếu project chưa đạt parity.</p>
         </div>
       </section>
 
@@ -4801,66 +4218,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       min-height: 40px;
       padding: 10px 14px;
       font-size: 16px;
-    }
-    .maziao-mode-field { margin-bottom: 8px; }
-    .maziao-customization {
-      margin: 12px 0 8px;
-      padding: 16px 14px 8px;
-      border: 1px solid var(--control-line);
-      border-radius: 18px;
-      background: color-mix(in srgb, var(--control-bg) 76%, transparent);
-    }
-    .maziao-customization-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 12px; }
-    .maziao-customization-heading strong { display: block; color: var(--text); font-size: 16px; letter-spacing: -.02em; }
-    .maziao-customization-heading small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 600; }
-    .maziao-customization-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; color: #6d3ee8; background: #f0e8ff; font-size: 13px; font-weight: 900; }
-    .maziao-speaker-cards { display: grid; gap: 12px; }
-    .maziao-speaker-card { --speaker-accent: #caa0ff; --speaker-soft: #f4ebff; padding: 13px 12px 12px; border: 2px dashed var(--speaker-accent); border-radius: 17px; background: color-mix(in srgb, var(--speaker-soft) 18%, transparent); }
-    .maziao-speaker-card[data-accent="blue"] { --speaker-accent: #a8c6ff; --speaker-soft: #e9f0ff; }
-    .maziao-speaker-card[data-accent="mint"] { --speaker-accent: #9edfcf; --speaker-soft: #e7faf4; }
-    .maziao-speaker-card[data-accent="orange"] { --speaker-accent: #ffd09a; --speaker-soft: #fff4e3; }
-    .maziao-speaker-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
-    .maziao-speaker-badge { display: inline-flex; align-items: center; min-height: 33px; padding: 5px 13px; border: 1px solid color-mix(in srgb, var(--speaker-accent) 70%, #fff); border-radius: 999px; color: #7040df; background: var(--speaker-soft); font-size: 13px; font-weight: 900; }
-    .maziao-speaker-count { flex: 1; color: var(--text-soft); font-size: 12px; font-weight: 700; }
-    .maziao-speaker-preview { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 10px; color: var(--text); background: transparent; cursor: pointer; }
-    .maziao-speaker-preview:hover { background: var(--speaker-soft); }
-    .maziao-speaker-preview:disabled { cursor: not-allowed; opacity: .38; }
-    .maziao-speaker-preview svg { width: 21px; height: 21px; }
-    .maziao-voice-picker { position: relative; display: flex; align-items: center; gap: 12px; min-height: 78px; padding: 11px 14px; overflow: hidden; border: 1px solid var(--control-line); border-radius: 17px; background: var(--control-bg); box-shadow: 0 4px 12px rgba(30, 40, 70, .06); }
-    .maziao-voice-picker:focus-within { outline: 3px solid color-mix(in srgb, var(--speaker-accent) 35%, transparent); }
-    .maziao-voice-avatar { display: grid; place-items: center; flex: 0 0 48px; width: 48px; height: 48px; border-radius: 50%; color: #fff; background: #ec3f91; font-size: 18px; font-weight: 900; }
-    .maziao-voice-picker[data-avatar-tone="blue"] .maziao-voice-avatar { background: #4179ea; }
-    .maziao-voice-picker[data-avatar-tone="green"] .maziao-voice-avatar { background: #2ea98e; }
-    .maziao-voice-picker[data-avatar-tone="orange"] .maziao-voice-avatar { background: #ec8c32; }
-    .maziao-voice-info { min-width: 0; flex: 1; }
-    .maziao-voice-name { display: block; overflow: hidden; color: var(--text); font-size: 15px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
-    .maziao-voice-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-    .maziao-voice-tag { display: inline-flex; padding: 3px 8px; border-radius: 999px; color: var(--text-soft); background: color-mix(in srgb, var(--control-line) 65%, transparent); font-size: 10px; font-weight: 800; }
-    .maziao-voice-tag.gender { color: #c41f79; background: #ffeaf5; }
-    .maziao-speaker-voice { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; opacity: 0; cursor: pointer; }
-    .maziao-voice-chevron { color: var(--muted); font-size: 18px; pointer-events: none; }
-    .maziao-speaker-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 11px; }
-    .maziao-speaker-control { display: grid; gap: 5px; }
-    .maziao-speaker-control span { color: var(--text-soft); font-size: 11px; font-weight: 800; }
-    .maziao-speaker-control input { width: 100%; min-height: 42px; padding: 8px 11px; border: 1px solid var(--control-line); border-radius: 12px; color: var(--text); background: var(--control-bg); font-size: 14px; font-weight: 700; }
-    .maziao-speaker-empty { margin: 8px 2px; color: var(--muted); font-size: 12px; }
-    @media (max-width: 560px) { .maziao-speaker-controls { gap: 8px; } .maziao-voice-picker { padding-inline: 10px; } }
-    .maziao-multi-config-field { margin-top: 8px; }
-    .maziao-multi-config-field textarea {
-      width: 100%;
-      min-height: 104px;
-      resize: vertical;
-      padding: 10px 12px;
-      border: 1px solid var(--control-line);
-      border-radius: 12px;
-      color: var(--text);
-      background: var(--control-bg);
-      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
-    .maziao-multi-config-help { color: var(--muted); line-height: 1.45; }
-    .maziao-multi-config-help code {
-      color: var(--text-soft);
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .maziao-preview-button {
       display: grid;
@@ -6394,11 +5751,6 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       background: rgba(34, 197, 94, 0.08);
       box-shadow: none;
     }
-    .status-pill.warn { color: #4d3100; background: rgba(251, 191, 36, 0.20); border: 1px solid rgba(217, 119, 6, 0.38); }
-    .social-status-cell { display: grid; gap: 4px; justify-self: start; min-width: 0; }
-    .social-schedule-time { color: var(--muted); font-size: 11px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
-    .project-sort-control { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
-    .project-sort-control select { min-height: 34px; min-width: 148px; border: 1px solid var(--control-line); border-radius: 9px; padding: 6px 9px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 12px; font-weight: 800; letter-spacing: normal; text-transform: none; }
     body.theme-light .speed-preset:not(.active),
     body.theme-light .mode-toggle label:not(:has(input:checked)),
     body.theme-light .tab:not(.active) {
@@ -6447,6 +5799,11 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
       background: rgba(34, 197, 94, 0.12);
       box-shadow: none;
     }
+    .status-pill.warn { color: #4d3100; background: rgba(251, 191, 36, 0.20); border: 1px solid rgba(217, 119, 6, 0.38); }
+    .social-status-cell { display: grid; gap: 4px; justify-self: start; min-width: 0; }
+    .social-schedule-time { color: var(--muted); font-size: 11px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
+    .project-sort-control { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .project-sort-control select { min-height: 34px; min-width: 148px; border: 1px solid var(--control-line); border-radius: 9px; padding: 6px 9px; color: var(--text); background: var(--field-bg); font: inherit; font-size: 12px; font-weight: 800; letter-spacing: normal; text-transform: none; }
     .status-pill.bad { color: #fff0f0; background: rgba(255, 82, 82, 0.22); border: 1px solid rgba(255, 82, 82, 0.35); }
     .muted, .empty { color: var(--muted); }
     .row-video-slot { display: inline-flex; align-items: center; flex: 0 0 auto; }
@@ -6996,7 +6353,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-      <script src="/web/render_page.js?v=20260830-affiliate-v1"></script>
+  <script src="/web/render_page.js?v=20260823-status-time"></script>
 """,
     )
 
@@ -7026,42 +6383,17 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
             <h1>AurexVideo</h1>
           </div>
         </div>
+        <label class="field project-select-field field-project top-project-field">
+          <select id="projectSelect" {"disabled" if not projects else ""}>
+            {options}
+          </select>
+        </label>
         <div class="top-upload-actions">
+          <span class="ready-pill"><strong>{len(output_projects)}</strong><span>sẵn sàng</span></span>
           <button class="refresh-btn icon-btn header-nav-action" id="openDefaultTags" type="button">{ui_icon("pencil")}<span>Sửa caption</span></button>
           <a class="refresh-btn icon-btn header-nav-action" href="/">{ui_icon("arrow-left")}<span>Bảng điều khiển</span></a>
         </div>
       </header>
-
-      <section class="upload-page-head">
-        <div>
-          <p class="kicker">Upload Center</p>
-          <h2>Upload &amp; Publish</h2>
-          <p>Chọn project và brand, viết caption một lần rồi đăng lên các social đã kết nối.</p>
-        </div>
-        <span class="ready-pill"><strong>{len(output_projects)}</strong><span>sẵn sàng</span></span>
-      </section>
-
-      <section class="upload-context-card" id="uploadContextCard">
-        <div class="upload-context-card-head">
-          <div>
-            <strong>Ngữ cảnh đăng</strong>
-            <span>Project quyết định Brand có thể chọn; Brand quyết định các social được dùng.</span>
-          </div>
-        </div>
-        <div class="upload-context-grid" id="uploadContextCluster">
-          <label class="field project-select-field field-project context-project-field">
-            <span class="upload-context-label">Project đăng</span>
-            <select id="projectSelect" aria-label="Project đăng" {"disabled" if not projects else ""}>
-              {options}
-            </select>
-          </label>
-          <div class="upload-brand-context-slot" id="uploadBrandContextSlot"></div>
-        </div>
-        <div class="upload-social-summary">
-          <strong>Social đã kết nối</strong>
-          <div class="upload-social-chips" id="uploadSocialChips"></div>
-        </div>
-      </section>
 
       <div class="status warn" id="renderStatus" hidden></div>
 
@@ -7101,16 +6433,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
                 <option value="public" selected>Public - đăng công khai</option>
               </select>
             </label>
-            <label class="field upload-field compact schedule-field field-youtube">
-              <span class="field-label schedule-toggle-label">
-                <input type="checkbox" id="youtubeScheduleToggle" />
-                <span>Hẹn giờ đăng</span>
-              </span>
-            </label>
-            <div class="field upload-field compact schedule-row" id="youtubeScheduleRow" hidden>
-              <input type="datetime-local" id="youtubeScheduleTime" />
-              <p class="form-note">YouTube giữ video riêng tư đến đúng giờ hẹn rồi tự động công khai.</p>
-            </div>
             <div class="platform-actions">
               <button class="upload-btn youtube secondary" id="openYoutubeConfig" type="button">{ui_icon("key")}<span>Khoá OAuth</span></button>
               <button class="upload-btn youtube" id="connectYoutube" type="button">{ui_icon("play")}<span>Thêm channel</span></button>
@@ -7144,96 +6466,38 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
                 <option value="PUBLISHED" selected>Publish now</option>
               </select>
             </label>
-            <label class="field upload-field compact schedule-field field-facebook">
-              <span class="field-label schedule-toggle-label">
-                <input type="checkbox" id="facebookScheduleToggle" />
-                <span>Hẹn giờ đăng</span>
-              </span>
-            </label>
-            <div class="field upload-field compact schedule-row" id="facebookScheduleRow" hidden>
-              <input type="datetime-local" id="facebookScheduleTime" />
-              <p class="form-note">Facebook cho hẹn từ 10 phút đến 75 ngày trước. Reels tự đăng đúng giờ.</p>
-            </div>
             <div class="platform-actions">
               <button class="upload-btn facebook secondary" id="openFacebookConfig" type="button">{ui_icon("plus")}<span>Thêm Page</span></button>
               <button class="upload-btn facebook" id="uploadFacebook" type="button">{ui_icon("upload")}<span>Upload Facebook Reels</span></button>
             </div>
           </section>
-          <section class="platform-card platform-tiktok">
-            <div class="platform-card-head"><div class="platform-title"><span>♪</span><span>TikTok · Zernio</span></div><button class="small-link icon-btn" id="openTiktokConfig" type="button">{ui_icon("key")}<span>Cấu hình Zernio</span></button></div>
-            <div class="field upload-field field-description"><span class="field-label field-label-between"><span class="field-label-main">{ui_icon("list", "field-icon")}<span>Caption TikTok</span></span><button class="copy-field-btn" data-copy-target="tiktokCaption" type="button" aria-label="Copy Caption TikTok" title="Copy Caption TikTok">{ui_icon("copy")}</button></span><textarea id="tiktokCaption" rows="7" maxlength="2200" placeholder="Caption TikTok, tối đa 2.200 ký tự"></textarea></div>
-            <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="tiktokScheduleToggle" /><span>Hẹn giờ đăng</span></span></label>
-            <div class="field upload-field compact schedule-row" id="tiktokScheduleRow" hidden><input type="datetime-local" id="tiktokScheduleTime" /><p class="form-note">Zernio giữ lịch đăng; VPS theo dõi trạng thái và retry lỗi tạm thời sau 5 phút. Không cần giữ app mở sau khi tạo lịch.</p></div>
-            <p class="form-note platform-config-note" id="tiktokConfigState">Cần cấu hình Zernio API key và TikTok account ID.</p>
-            <div class="platform-actions"><button class="upload-btn tiktok" id="uploadTiktok" type="button">{ui_icon("upload")}<span>Đăng TikTok</span></button></div>
-          </section>
-          <section class="platform-card platform-instagram">
-            <div class="platform-card-head">
-              <div class="platform-title">{brand_icon("instagram")}<span>Instagram Reels</span></div>
-              <a class="small-link icon-btn platform-guide-link" href="/upload-guide/instagram">{ui_icon("help")}<span>Hướng dẫn Instagram</span></a>
-            </div>
-            <div class="field upload-field field-description">
-              <span class="field-label field-label-between">
-                <span class="field-label-main">{ui_icon("list", "field-icon")}<span>Caption Instagram</span></span>
-                <button class="copy-field-btn" data-copy-target="instagramCaption" data-copy-label="Caption Instagram" type="button" aria-label="Copy Caption Instagram" title="Copy Caption Instagram">{ui_icon("copy")}</button>
-              </span>
-              <textarea id="instagramCaption" rows="7" maxlength="2200" placeholder="Caption Instagram, tối đa 2.200 ký tự"></textarea>
-            </div>
-            <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="instagramScheduleToggle" /><span>Hẹn giờ đăng qua VPS</span></span></label>
-            <div class="field upload-field compact schedule-row" id="instagramScheduleRow" hidden><input type="datetime-local" id="instagramScheduleTime" /><p class="form-note">Video sẽ được copy lên VPS và đăng đúng giờ, không cần giữ app mở.</p></div>
-            <p class="form-note platform-config-note" id="instagramConfigState">Cần cấu hình Instagram API và Cloudflare R2.</p>
-            <div class="platform-actions">
-              <button class="upload-btn instagram secondary" id="openInstagramConfig" type="button">{ui_icon("key")}<span>Cấu hình Instagram + R2</span></button>
-              <button class="upload-btn instagram" id="uploadInstagram" type="button">{ui_icon("upload")}<span>Upload Instagram Reels</span></button>
-            </div>
-          </section>
-          <section class="platform-card platform-threads">
-            <div class="platform-card-head">
-              <div class="platform-title">{brand_icon("threads")}<span>Threads</span></div>
-              <a class="small-link icon-btn platform-guide-link" href="https://developers.facebook.com/docs/threads/" target="_blank" rel="noreferrer">{ui_icon("help")}<span>Hướng dẫn Threads</span></a>
-            </div>
-            <div class="field upload-field field-description">
-              <span class="field-label field-label-between">
-                <span class="field-label-main">{ui_icon("list", "field-icon")}<span>Nội dung Threads</span></span>
-                <button class="copy-field-btn" data-copy-target="threadsText" data-copy-label="Nội dung Threads" type="button" aria-label="Copy Nội dung Threads" title="Copy Nội dung Threads">{ui_icon("copy")}</button>
-              </span>
-              <textarea id="threadsText" rows="7" maxlength="500" placeholder="Nội dung Threads, tối đa 500 ký tự"></textarea>
-            </div>
-            <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="threadsScheduleToggle" /><span>Hẹn giờ đăng qua VPS</span></span></label>
-            <div class="field upload-field compact schedule-row" id="threadsScheduleRow" hidden><input type="datetime-local" id="threadsScheduleTime" /><p class="form-note">Video sẽ được copy lên VPS và đăng đúng giờ, không cần giữ app mở.</p></div>
-            <p class="form-note platform-config-note" id="threadsConfigState">Cần cấu hình Threads API.</p>
-            <div class="platform-actions">
-              <button class="upload-btn threads secondary" id="openThreadsConfig" type="button">{ui_icon("key")}<span>Cấu hình Threads</span></button>
-              <button class="upload-btn threads" id="uploadThreads" type="button">{ui_icon("upload")}<span>Upload Threads</span></button>
-            </div>
-          </section>
           <section class="platform-card platform-binance">
             <div class="platform-card-head">
               <div class="platform-title">{brand_icon("binance")}<span>Binance Square</span></div>
+              <a class="small-link icon-btn platform-guide-link" href="/upload-guide/binance" hidden>{ui_icon("help")}<span>Hướng dẫn Binance</span></a>
             </div>
+            <div class="field upload-field field-binance-config">
+              <button class="upload-btn binance secondary" id="configureBinanceButton" type="button">{ui_icon("key")}<span>Cấu hình OpenAPI key</span></button>
+            </div>
+            <label class="field upload-field compact field-binance">
+              <span class="field-label"><span>Thời lượng (giây)</span></span>
+              <input id="binanceDuration" type="number" min="0.1" step="0.1" value="10" />
+            </label>
             <div class="field upload-field field-description">
               <span class="field-label field-label-between">
                 <span class="field-label-main">{ui_icon("list", "field-icon")}<span>Caption Binance</span></span>
                 <button class="copy-field-btn" data-copy-target="binanceCaption" data-copy-label="Caption Binance" type="button" aria-label="Copy Caption Binance" title="Copy Caption Binance">{ui_icon("copy")}</button>
               </span>
-              <textarea id="binanceCaption" rows="6" maxlength="5000" placeholder="Nội dung tự nhập, giống Facebook Caption"></textarea>
+              <textarea id="binanceCaption" rows="4" maxlength="5000" placeholder="Nội dung tự nhập, giống Facebook Caption"></textarea>
             </div>
-            <label class="field upload-field compact field-binance" hidden>
-              <span class="field-label"><span>Thời lượng video (giây)</span></span>
-              <input id="binanceDuration" type="number" min="0.1" step="0.1" value="10" />
-            </label>
             <div class="platform-actions">
-              <button class="upload-btn binance secondary" id="openBinanceConfig" type="button">{ui_icon("key")}<span>Cấu hình OpenAPI key</span></button>
-              <button class="upload-btn binance" id="uploadBinance" type="button">{ui_icon("upload")}<span>Đăng Binance</span></button>
+              <button class="upload-btn binance" id="uploadBinanceButton" type="button" disabled>{ui_icon("upload")}<span>Đăng Binance Square</span></button>
             </div>
           </section>
         </div>
         <div class="final-upload-actions">
           <button class="upload-btn both" id="uploadBothPublic" type="button" disabled>{ui_icon("check")}<span>Upload Facebook + YouTube + comment nguồn</span></button>
-          <button class="upload-btn meta-all" id="uploadMetaAll" type="button" disabled>{ui_icon("check")}<span>Đăng Instagram + Facebook + Threads</span></button>
         </div>
-        <div class="upload-status" id="uploadStatus" hidden></div>
-        <div class="upload-result" id="uploadResult" hidden></div>
       </div>
       <div class="modal-backdrop" id="youtubeConfigModal" hidden>
         <div class="modal-card facebook-config-modal youtube-config-modal" role="dialog" aria-modal="true" aria-labelledby="youtubeConfigTitle">
@@ -7267,7 +6531,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           <p class="modal-copy">Dòng đầu dùng làm tiêu đề YouTube. Toàn bộ caption dùng cho Facebook và mô tả YouTube; các #tag cũng được gửi vào tag YouTube.</p>
           <label class="field upload-field field-description">
             <span class="field-label">{ui_icon("pencil", "field-icon")}<span>Caption mặc định</span></span>
-            <textarea id="defaultCaptionInput" rows="9" maxlength="5000" spellcheck="false" placeholder="🎬 Tiêu đề video&#10;#bietchichonhieu #sosanh #kienthuc"></textarea>
+            <textarea id="defaultCaptionInput" rows="9" maxlength="5000" spellcheck="false" placeholder="🎬 Tiêu đề video&#10;#Hieuhamhoc #sosanh #kienthuc"></textarea>
           </label>
           <div class="modal-actions">
             <button class="upload-btn secondary" id="cancelDefaultTags" type="button">{ui_icon("x")}<span>Huỷ</span></button>
@@ -7295,152 +6559,29 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           </div>
         </div>
       </div>
-      <div class="modal-backdrop" id="instagramConfigModal" hidden>
-        <div class="modal-card facebook-config-modal instagram-config-modal" role="dialog" aria-modal="true" aria-labelledby="instagramConfigTitle">
-          <button class="modal-close" id="closeInstagramConfig" type="button" aria-label="Đóng">×</button>
-          <p class="kicker">Instagram API + R2 chung</p>
-          <h3 id="instagramConfigTitle">Cấu hình Instagram Reels</h3>
-          <p class="modal-copy" id="instagramConfigScope" hidden></p>
-          <p class="modal-copy" id="instagramConfigDescription">Instagram sẽ kéo video từ public HTTPS URL trên R2 chung. Access token và Secret Key được lưu trong file config local với quyền hạn chế.</p>
-          <div class="instagram-config-grid">
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span class="field-icon">ID</span><span>Instagram IG User ID</span></span>
-              <input id="instagramIgUserId" type="text" inputmode="numeric" autocomplete="off" placeholder="Ví dụ: 1784..." />
-            </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span>Tên account</span></span>
-              <input id="instagramDisplayName" type="text" autocomplete="off" maxlength="160" placeholder="Ví dụ: Popsy Instagram" />
-            </div>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label">{ui_icon("key", "field-icon")}<span>Instagram access token</span></span>
-              <input id="instagramAccessToken" type="password" autocomplete="off" placeholder="Dán token dài hạn" />
-            </div>
-            <label class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span>API login mode</span></span>
-              <select id="instagramApiMode"><option value="instagram_login">Instagram Login</option><option value="facebook_login">Facebook Login / Page token</option></select>
-            </label>
-            <div class="field upload-field compact instagram-config-field">
-              <span class="field-label"><span>Graph API version</span></span>
-              <input id="instagramGraphVersion" type="text" autocomplete="off" value="v25.0" placeholder="v25.0" />
-            </div>
-            <div class="instagram-r2-shared-note instagram-config-wide" id="instagramR2SharedNote" hidden>
-              <span>R2 dùng chung cho toàn bộ Brand.</span>
-              <small id="instagramR2SharedState">Mỗi account Instagram chỉ cần nhập thông tin Instagram; video sẽ dùng kho R2 chung.</small>
-              <button class="small-link" id="openSharedR2Config" type="button">Cấu hình R2 chung</button>
-            </div>
-            <div class="instagram-r2-config-fields instagram-config-wide" id="instagramR2ConfigFields">
-              <div class="field upload-field compact instagram-config-field">
-                <span class="field-label"><span class="field-icon">R2</span><span>R2 Account ID</span></span>
-                <input id="r2AccountId" type="text" autocomplete="off" placeholder="Cloudflare Account ID" />
-              </div>
-              <div class="field upload-field compact instagram-config-field">
-                <span class="field-label"><span>R2 bucket</span></span>
-                <input id="r2Bucket" type="text" autocomplete="off" placeholder="instagram-media" />
-              </div>
-              <div class="field upload-field compact instagram-config-field">
-                <span class="field-label"><span>R2 Access Key ID</span></span>
-                <input id="r2AccessKeyId" type="text" autocomplete="off" placeholder="Access Key ID" />
-              </div>
-              <div class="field upload-field compact instagram-config-field">
-                <span class="field-label">{ui_icon("key", "field-icon")}<span>R2 Secret Access Key</span></span>
-                <input id="r2SecretAccessKey" type="password" autocomplete="off" placeholder="Secret Access Key" />
-              </div>
-              <div class="field upload-field compact instagram-config-field instagram-config-wide">
-                <span class="field-label"><span>R2 public base URL</span></span>
-                <input id="r2PublicBaseUrl" type="url" autocomplete="off" placeholder="https://media.example.com" />
-              </div>
-              <div class="field upload-field compact instagram-config-field">
-                <span class="field-label"><span>Object prefix</span></span>
-                <input id="r2ObjectPrefix" type="text" autocomplete="off" value="instagram" placeholder="instagram" />
-              </div>
-              <label class="field upload-field compact instagram-config-field instagram-retain-field">
-                <span class="field-label"><span>Giữ file trên R2 sau khi đăng</span></span>
-                <input id="r2RetainMedia" type="checkbox" />
-              </label>
-            </div>
-          </div>
-          <div class="modal-actions">
-            <button class="upload-btn secondary" id="cancelInstagramConfig" type="button">{ui_icon("x")}<span>Huỷ</span></button>
-            <button class="upload-btn instagram" id="saveInstagramConfig" type="button">{ui_icon("check")}<span>Lưu Instagram + R2</span></button>
-          </div>
-        </div>
-      </div>
-      <div class="modal-backdrop" id="threadsConfigModal" hidden>
-        <div class="modal-card facebook-config-modal threads-config-modal" role="dialog" aria-modal="true" aria-labelledby="threadsConfigTitle">
-          <button class="modal-close" id="closeThreadsConfig" type="button" aria-label="Đóng">×</button>
-          <p class="kicker">Threads API</p>
-          <h3 id="threadsConfigTitle">Cấu hình Threads</h3>
-          <p class="modal-copy" id="threadsConfigScope" hidden></p>
-          <p class="modal-copy">Threads cần token riêng có quyền <code>threads_basic</code> và <code>threads_content_publish</code>. Token được lưu local và không hiển thị lại.</p>
-          <div class="field upload-field compact threads-config-field">
-            <span class="field-label"><span class="field-icon">ID</span><span>Threads User ID</span></span>
-            <input id="threadsUserId" type="text" inputmode="numeric" autocomplete="off" placeholder="Dán Threads User ID" />
-          </div>
-          <div class="field upload-field compact threads-config-field">
-            <span class="field-label"><span>Tên account</span></span>
-            <input id="threadsDisplayName" type="text" autocomplete="off" maxlength="160" placeholder="Ví dụ: Popsy Threads" />
-          </div>
-          <div class="field upload-field compact threads-config-field">
-            <span class="field-label">{ui_icon("key", "field-icon")}<span>Threads access token</span></span>
-            <input id="threadsAccessToken" type="password" autocomplete="off" placeholder="Dán Threads User Access Token" />
-          </div>
-          <div class="field upload-field compact threads-config-field">
-            <span class="field-label"><span>API version</span></span>
-            <input id="threadsGraphVersion" type="text" autocomplete="off" value="v1.0" placeholder="v1.0" />
-          </div>
-          <div class="modal-actions">
-            <button class="upload-btn secondary" id="cancelThreadsConfig" type="button">{ui_icon("x")}<span>Huỷ</span></button>
-            <button class="upload-btn threads" id="saveThreadsConfig" type="button">{ui_icon("check")}<span>Lưu Threads</span></button>
-          </div>
-        </div>
-      </div>
-      <div class="modal-backdrop" id="tiktokConfigModal" hidden>
-        <div class="modal-card facebook-config-modal tiktok-config-modal" role="dialog" aria-modal="true" aria-labelledby="tiktokConfigTitle">
-          <button class="modal-close" id="closeTiktokConfig" type="button" aria-label="Đóng">×</button>
-          <p class="kicker">TikTok · Zernio</p>
-          <h3 id="tiktokConfigTitle">Cấu hình TikTok</h3>
-          <p class="modal-copy" id="tiktokConfigScope" hidden></p>
-          <p class="modal-copy">Nhập Zernio API key và TikTok account ID. Khi thêm từ Brand Social Center, account này chỉ được lưu và sử dụng cho Brand đang chọn.</p>
-          <div class="field upload-field compact tiktok-config-field">
-            <span class="field-label"><span>Tên account</span></span>
-            <input id="tiktokDisplayName" type="text" autocomplete="off" maxlength="160" placeholder="Ví dụ: Popsy TikTok" />
-          </div>
-          <div class="field upload-field compact tiktok-config-field">
-            <span class="field-label">{ui_icon("key", "field-icon")}<span>Zernio API key</span></span>
-            <input id="tiktokApiKey" type="password" autocomplete="off" placeholder="Dán Zernio API key" />
-          </div>
-          <div class="field upload-field compact tiktok-config-field">
-            <span class="field-label"><span class="field-icon">ID</span><span>TikTok account ID trong Zernio</span></span>
-            <input id="tiktokAccountId" type="text" autocomplete="off" placeholder="Dán TikTok account ID" />
-          </div>
-          <div class="modal-actions">
-            <button class="upload-btn secondary" id="cancelTiktokConfig" type="button">{ui_icon("x")}<span>Huỷ</span></button>
-            <button class="upload-btn tiktok" id="saveTiktokConfig" type="button">{ui_icon("check")}<span>Lưu TikTok</span></button>
-          </div>
-        </div>
-      </div>
       <div class="modal-backdrop" id="binanceConfigModal" hidden>
-            <div class="modal-card binance-config-modal" role="dialog" aria-modal="true" aria-labelledby="binanceConfigTitle">
-              <button class="modal-close" id="closeBinanceConfig" type="button" aria-label="Đóng">×</button>
-              <p class="kicker">Binance Square</p>
-              <h3 id="binanceConfigTitle">Cấu hình OpenAPI key</h3>
-              <p class="modal-copy">Dán OpenAPI key lấy từ Binance Square OpenAPI. Thông tin được lưu trong ứng dụng và không hiển thị lại.</p>
-              <div class="field upload-field compact binance-config-field">
-                <span class="field-label">{ui_icon("key", "field-icon")}<span>OpenAPI key</span></span>
-                <input id="binanceApiKey" type="password" autocomplete="off" placeholder="Dán OpenAPI key Binance Square" />
-              </div>
-              <div class="modal-actions">
-                <button class="upload-btn secondary" id="disconnectBinance" type="button">{ui_icon("x")}<span>Gỡ cấu hình</span></button>
-                <button class="upload-btn binance" id="saveBinanceConfig" type="button">{ui_icon("check")}<span>Lưu cấu hình</span></button>
-              </div>
-            </div>
+        <div class="modal-card binance-config-modal" role="dialog" aria-modal="true" aria-labelledby="binanceConfigTitle">
+          <button class="modal-close" id="binanceConfigClose" type="button" aria-label="Đóng">×</button>
+          <p class="kicker">Binance Square</p>
+          <h3 id="binanceConfigTitle">Cấu hình OpenAPI key</h3>
+          <p class="modal-copy">Dán OpenAPI key lấy từ Binance Square Creator Hub. Thông tin được lưu trong ứng dụng và không hiển thị lại.</p>
+          <p class="form-note" id="binanceConfigState">Đang tải cấu hình...</p>
+          <div class="field upload-field compact binance-config-field">
+            <span class="field-label">{ui_icon("key", "field-icon")}<span>OpenAPI key</span></span>
+            <input id="binanceApiKey" type="password" autocomplete="off" placeholder="Dán OpenAPI key Binance Square vào đây" />
           </div>
-        </section>
-      </main>
+          <div class="modal-actions">
+            <button class="upload-btn secondary" id="binanceDisconnectButton" type="button">{ui_icon("trash")}<span>Gỡ cấu hình</span></button>
+            <button class="upload-btn binance" id="binanceSaveConfigButton" type="button">{ui_icon("check")}<span>Lưu cấu hình</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
 """,
         extra_style="""
     body {
-      --upload-page-max: 1440px;
+      --upload-page-max: 1800px;
       padding: 24px clamp(24px, 3vw, 56px);
     }
     html.tauri-macos body {
@@ -7581,26 +6722,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       border-color: rgba(124, 58, 237, 0.34) !important;
       background: rgba(124, 58, 237, 0.08) !important;
     }
-    .upload-btn.instagram {
-      border-color: rgba(225, 48, 108, 0.46) !important;
-      background: rgba(225, 48, 108, 0.12) !important;
-    }
-    .upload-btn.instagram.secondary {
-      border-color: rgba(225, 48, 108, 0.36) !important;
-      background: rgba(225, 48, 108, 0.08) !important;
-    }
-    .upload-btn.threads {
-      border-color: rgba(17, 24, 39, 0.42) !important;
-      background: rgba(17, 24, 39, 0.10) !important;
-    }
-    .upload-btn.threads.secondary {
-      border-color: rgba(17, 24, 39, 0.30) !important;
-      background: rgba(17, 24, 39, 0.06) !important;
-    }
-    .upload-btn.meta-all {
-      border-color: rgba(17, 24, 39, 0.46) !important;
-      background: linear-gradient(135deg, rgba(225, 48, 108, 0.14), rgba(17, 24, 39, 0.12), rgba(124, 58, 237, 0.14)) !important;
-    }
     .upload-btn.both {
       border-color: rgba(242, 178, 101, 0.50) !important;
       background: rgba(242, 178, 101, 0.16) !important;
@@ -7617,10 +6738,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     .modal-actions .upload-btn.facebook {
       border-color: rgba(124, 58, 237, 0.45) !important;
       background: rgba(124, 58, 237, 0.14) !important;
-    }
-    .modal-actions .upload-btn.instagram {
-      border-color: rgba(225, 48, 108, 0.45) !important;
-      background: rgba(225, 48, 108, 0.14) !important;
     }
     body.theme-light .modal-actions .upload-btn.secondary {
       color: #20170f !important;
@@ -7641,12 +6758,12 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       color: var(--text-soft) !important;
     }
 
-    .upload-machine { display: grid; gap: 18px; }
+    .upload-machine { display: grid; gap: 14px; }
     .top-upload-bar {
-      display: grid;
-      grid-template-columns: minmax(260px, 1fr) auto;
+      display: flex;
       align-items: center;
-      gap: 22px;
+      justify-content: space-between;
+      gap: 18px;
       width: 100%;
       margin: 0 0 8px;
       padding: 0;
@@ -7654,216 +6771,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       border-radius: 0;
       background: transparent;
       box-shadow: none;
-    }
-    .upload-page-head {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 20px;
-      margin: 4px 0 0;
-      padding: 0 2px;
-    }
-    .upload-page-head h2 {
-      margin: 0 0 7px;
-      color: var(--text);
-      font-size: clamp(30px, 3.6vw, 46px);
-      line-height: 0.98;
-      letter-spacing: -0.06em;
-    }
-    .upload-page-head p:not(.kicker) {
-      max-width: 760px;
-      margin: 0;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-      font-weight: 700;
-    }
-    .upload-page-head .kicker {
-      margin: 0 0 7px;
-    }
-    .upload-page-head .ready-pill {
-      flex: 0 0 auto;
-      min-height: 42px;
-    }
-    .upload-context-card {
-      display: grid;
-      gap: 16px;
-      border: 1px solid var(--control-line);
-      border-radius: 20px;
-      padding: 18px 20px;
-      background: var(--surface);
-      box-shadow: var(--shadow);
-    }
-    body.theme-light .upload-context-card {
-      background: rgba(255, 251, 244, 0.64);
-      box-shadow: 0 14px 34px rgba(95, 61, 31, 0.06);
-    }
-    .upload-context-card-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 14px;
-    }
-    .upload-context-card-head strong {
-      display: block;
-      color: var(--text);
-      font-size: 15px;
-      font-weight: 950;
-      letter-spacing: -0.02em;
-    }
-    .upload-context-card-head span {
-      display: block;
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      font-weight: 700;
-    }
-    .upload-context-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 14px;
-      align-items: stretch;
-    }
-    .upload-context-grid > .field,
-    .upload-brand-context-slot {
-      min-width: 0;
-    }
-    .context-project-field,
-    .upload-context-card .upload-brand-context {
-      display: grid;
-      align-content: start;
-      gap: 7px;
-      width: 100%;
-      min-width: 0;
-      margin: 0;
-      padding: 0;
-      border: 0;
-      background: transparent;
-    }
-    .context-project-field select,
-    .upload-context-card .upload-brand-context select {
-      min-height: 46px;
-      width: 100%;
-      border: 1px solid var(--control-line);
-      border-radius: 11px;
-      padding: 11px 13px;
-      color: var(--text);
-      background: var(--field-bg);
-      font: inherit;
-      font-size: 14px;
-      font-weight: 850;
-    }
-    .upload-context-card .upload-brand-context > span,
-    .upload-context-card .upload-brand-context small,
-    .upload-context-card .upload-brand-context button {
-      grid-column: 1;
-    }
-    .upload-context-card .upload-brand-context > span {
-      margin: 0;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 950;
-      letter-spacing: 0.14em;
-      line-height: 1.15;
-      text-transform: uppercase;
-    }
-    .upload-context-card .upload-brand-context small {
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 750;
-      line-height: 1.25;
-    }
-    .upload-context-card .upload-brand-context button {
-      justify-self: start;
-      min-height: 24px;
-      padding: 0;
-      border: 0;
-      color: var(--accent);
-      background: transparent;
-      font: inherit;
-      font-size: 11px;
-      font-weight: 950;
-    }
-    .upload-social-summary {
-      display: flex;
-      align-items: flex-start;
-      gap: 16px;
-      padding-top: 14px;
-      border-top: 1px solid var(--control-line-soft);
-    }
-    .upload-social-summary > strong {
-      min-width: 132px;
-      padding-top: 7px;
-      color: var(--text-soft);
-      font-size: 12px;
-      font-weight: 900;
-    }
-    .upload-social-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 9px;
-      min-width: 0;
-    }
-    .upload-social-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 38px;
-      border: 1px solid var(--control-line-soft);
-      border-radius: 10px;
-      padding: 7px 10px;
-      color: var(--text-soft);
-      background: var(--surface);
-      font-size: 11px;
-      font-weight: 850;
-    }
-    .upload-social-chip.is-off { opacity: 0.52; }
-    .upload-social-chip.is-pending { border-color: rgba(243, 107, 33, 0.30); }
-    .upload-social-chip-icon {
-      display: grid;
-      place-items: center;
-      width: 22px;
-      height: 22px;
-      border-radius: 7px;
-      color: var(--text);
-      background: var(--surface-strong);
-      font-size: 10px;
-      font-weight: 950;
-    }
-    .upload-social-chip-copy {
-      display: grid;
-      min-width: 0;
-      gap: 2px;
-    }
-    .upload-social-chip-copy strong {
-      overflow: hidden;
-      color: var(--text-soft);
-      font-size: 11px;
-      font-weight: 900;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .upload-social-chip-copy small {
-      overflow: hidden;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 700;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .upload-social-chip-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #22a35a;
-    }
-    .upload-social-chip.is-pending .upload-social-chip-dot { background: var(--accent); }
-    .upload-social-chip.is-off .upload-social-chip-dot { background: var(--muted); }
-    .upload-social-chip-status {
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 750;
     }
     body.theme-light .top-upload-bar,
     body:not(.theme-light) .top-upload-bar {
@@ -7894,40 +6801,24 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       letter-spacing: -0.05em;
       white-space: nowrap;
     }
-    .upload-context-cluster {
-      display: grid;
-      grid-template-columns: minmax(220px, 0.95fr) minmax(260px, 1.05fr);
-      align-items: stretch;
-      gap: 12px;
-      min-width: 0;
-    }
-    .upload-context-label {
-      display: block;
-      margin: 0 0 6px;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 950;
-      letter-spacing: 0.14em;
-      line-height: 1.15;
-      text-transform: uppercase;
-    }
     .top-project-field {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      align-content: center;
-      width: 100%;
+      align-items: center;
+      gap: 0;
+      width: auto;
       min-width: 0;
-      max-width: none;
+      flex: 1 1 auto;
+      max-width: 360px;
       margin: 0;
-      border: 1px solid var(--control-line);
-      border-radius: 14px;
-      padding: 9px 12px;
-      background: var(--surface);
+      border: 0;
+      padding: 0;
+      background: transparent;
     }
     body:not(.theme-light) .top-project-field {
-      border: 1px solid var(--control-line);
-      padding: 9px 12px;
-      background: var(--surface);
+      border: 0;
+      padding: 0;
+      background: transparent;
     }
     .top-project-field select {
       width: 100%;
@@ -7945,8 +6836,8 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       justify-content: flex-end;
       gap: 10px;
       min-width: 0;
-      flex-wrap: wrap;
-      margin-left: 0;
+      flex: 0 0 auto;
+      margin-left: auto;
     }
     .top-upload-actions .ready-pill {
       min-height: 40px;
@@ -8170,21 +7061,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         linear-gradient(135deg, rgba(242, 178, 101, 0.14), rgba(255, 255, 255, 0.035)),
         rgba(0, 0, 0, 0.70);
     }
-    .top-project-field select,
-    body:not(.theme-light) .top-project-field select {
-      min-height: 34px;
-      border: 0;
-      border-radius: 0;
-      padding: 0 24px 0 0;
-      background: transparent;
-      box-shadow: none;
-    }
-    .top-project-field select:focus,
-    body:not(.theme-light) .top-project-field select:focus {
-      outline: none;
-      border: 0;
-      box-shadow: none;
-    }
     body:not(.theme-light) .project-select-field:not(.top-project-field) {
       border: 1px solid var(--field-border);
       border-radius: 18px;
@@ -8352,11 +7228,8 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         radial-gradient(circle at 0% 0%, var(--field-tint), transparent 36%),
         var(--surface);
     }
-    .platform-youtube { order: 1; --field-accent: #ef4444; --field-accent-2: #fca5a5; --field-tint: rgba(239, 68, 68, 0.12); --field-border: rgba(239, 68, 68, 0.32); --field-icon-text: #300808; }
-    .platform-facebook { order: 2; --field-accent: #7c3aed; --field-accent-2: #c4b5fd; --field-tint: rgba(124, 58, 237, 0.12); --field-border: rgba(124, 58, 237, 0.32); --field-icon-text: #f5f3ff; }
-    .platform-binance { order: 3; --field-accent: #F3BA2F; --field-accent-2: #f7d774; --field-tint: rgba(243, 186, 47, 0.12); --field-border: rgba(243, 186, 47, 0.32); --field-icon-text: #2a1f02; }
-    .platform-instagram { order: 4; --field-accent: #e1306c; --field-accent-2: #f9a8d4; --field-tint: rgba(225, 48, 108, 0.12); --field-border: rgba(225, 48, 108, 0.32); --field-icon-text: #fff1f7; }
-    .platform-threads { order: 5; --field-accent: #111827; --field-accent-2: #374151; --field-tint: rgba(17, 24, 39, 0.10); --field-border: rgba(17, 24, 39, 0.24); --field-icon-text: #fff; }
+    .platform-youtube { order: 2; --field-accent: #ef4444; --field-accent-2: #fca5a5; --field-tint: rgba(239, 68, 68, 0.12); --field-border: rgba(239, 68, 68, 0.32); --field-icon-text: #300808; }
+    .platform-facebook { order: 1; --field-accent: #7c3aed; --field-accent-2: #c4b5fd; --field-tint: rgba(124, 58, 237, 0.12); --field-border: rgba(124, 58, 237, 0.32); --field-icon-text: #f5f3ff; }
     .platform-card-head {
       display: flex;
       align-items: center;
@@ -8588,82 +7461,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         linear-gradient(145deg, #fffefb 0%, #fff9f0 52%, #fff4e6 100%);
       box-shadow: 0 34px 95px rgba(44, 31, 18, 0.28);
     }
-    .instagram-config-modal {
-      width: min(100%, 980px);
-    }
-    .instagram-config-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 14px;
-      margin-top: 16px;
-    }
-    .instagram-config-field {
-      min-width: 0;
-      margin: 0 !important;
-    }
-    .instagram-config-field input,
-    .instagram-config-field select {
-      min-height: 42px;
-      font-size: 13px;
-    }
-    .instagram-config-wide {
-      grid-column: 1 / -1;
-    }
-    .instagram-r2-config-fields {
-      display: contents;
-    }
-    .instagram-r2-shared-note {
-      display: grid;
-      gap: 4px;
-      border: 1px solid rgba(232, 160, 96, 0.42);
-      border-radius: 14px;
-      padding: 11px 13px;
-      color: #8d4e1e;
-      background: rgba(242, 178, 101, 0.14);
-    }
-    .instagram-r2-shared-note > span {
-      font-size: 13px;
-      font-weight: 950;
-    }
-    .instagram-r2-shared-note small {
-      color: rgba(75, 48, 27, 0.72);
-      font-size: 11px;
-      font-weight: 750;
-      line-height: 1.45;
-    }
-    .instagram-r2-shared-note .small-link {
-      justify-self: start;
-      margin-top: 3px;
-      border: 0;
-      padding: 0;
-      color: #c96c27;
-      background: transparent;
-      font: inherit;
-      font-size: 11px;
-      font-weight: 950;
-      cursor: pointer;
-    }
-    body:not(.theme-light) .instagram-r2-shared-note {
-      color: #ffc08f;
-      background: rgba(242, 178, 101, 0.12);
-    }
-    body:not(.theme-light) .instagram-r2-shared-note small {
-      color: rgba(255, 247, 237, 0.76);
-    }
-    body:not(.theme-light) .instagram-r2-shared-note .small-link {
-      color: #ffb47e;
-    }
-    .instagram-retain-field {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .instagram-retain-field input {
-      width: 18px;
-      min-height: 18px;
-      accent-color: #e1306c;
-    }
     body:not(.theme-light) .modal-card,
     body:not(.theme-light) .facebook-config-modal,
     body:not(.theme-light) .youtube-config-modal {
@@ -8820,24 +7617,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       gap: 8px;
       margin-top: 10px;
     }
-    .schedule-field { max-width: none !important; }
-    .schedule-toggle-label {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      cursor: pointer;
-      color: var(--text-soft);
-      font-weight: 700;
-    }
-    .schedule-toggle-label input[type="checkbox"] {
-      width: 17px;
-      min-height: 17px;
-      accent-color: var(--accent);
-    }
-    .schedule-row { max-width: none !important; }
-    .schedule-row[hidden] { display: none; }
-    .schedule-row input { min-height: 42px; font-size: 13px; }
-    .schedule-row .form-note { margin: 4px 0 0; color: var(--text-faint); font-size: 11px; line-height: 1.45; }
     .final-upload-actions {
       display: flex;
       justify-content: center;
@@ -8912,7 +7691,6 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     }
     .upload-btn.youtube .btn-icon,
     .upload-btn.facebook .btn-icon,
-    .upload-btn.instagram .btn-icon,
     .upload-btn.both .btn-icon {
       color: var(--text-soft) !important;
       background: transparent !important;
@@ -8985,13 +7763,12 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     }
     .upload-machine .upload-btn.youtube .btn-icon { color: #ef4444 !important; }
     .upload-machine .upload-btn.facebook .btn-icon { color: #7c3aed !important; }
-    .upload-machine .upload-btn.instagram .btn-icon { color: #e1306c !important; }
     .upload-machine .upload-btn.both .btn-icon { color: #22c55e !important; }
     .upload-machine .refresh-btn .btn-icon { color: #2563eb !important; }
     [hidden] { display: none !important; }
     @media (min-width: 1500px) {
       body {
-        --upload-page-max: 1440px;
+        --upload-page-max: 2180px;
         padding: 32px clamp(40px, 4vw, 82px);
       }
       html.tauri-macos body { padding-top: 54px; }
@@ -8999,8 +7776,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .top-upload-bar .brand-mark,
       .top-upload-bar .upload-brand-mark { width: 68px; height: 68px; flex-basis: 68px; }
       .top-upload-bar h1 { font-size: clamp(34px, 3.6vw, 44px); }
-      .upload-context-cluster { grid-template-columns: minmax(240px, 0.95fr) minmax(280px, 1.05fr); gap: 14px; }
-      .top-project-field { width: 100%; max-width: none; grid-template-columns: minmax(0, 1fr); }
+      .top-project-field { width: min(100%, 400px); max-width: 400px; grid-template-columns: minmax(0, 1fr); }
       .top-project-field select { min-height: 50px; font-size: 16px; }
       .top-upload-actions .refresh-btn { min-height: 48px; padding: 10px 16px; font-size: 14px; }
       .ready-pill { padding: 10px 14px; font-size: 14px; }
@@ -9029,12 +7805,16 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .upload-header { display: grid; }
       .header-tools { justify-content: stretch; justify-self: stretch; width: 100%; }
       .top-upload-bar {
-        grid-template-columns: minmax(220px, 1fr) auto;
-        gap: 14px 18px;
+        flex-wrap: wrap;
+        gap: 14px;
       }
-      .top-upload-actions {
-        justify-content: flex-end;
+      .top-project-field {
+        order: 3;
+        flex: 1 1 100%;
+        max-width: none;
+        grid-template-columns: minmax(0, 1fr);
       }
+      .top-upload-actions { margin-left: 0; }
     }
     @media (max-width: 720px) {
       body { padding: 20px 14px; }
@@ -9044,14 +7824,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
       .upload-header { grid-template-columns: 1fr; gap: 16px; }
       .upload-title-block { min-height: 0; }
       .header-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .top-upload-bar {
-        grid-template-columns: 1fr;
-        align-items: flex-start;
-      }
-      .upload-page-head { align-items: flex-start; flex-direction: column; }
-      .upload-context-grid { grid-template-columns: 1fr; }
-      .upload-social-summary { flex-direction: column; gap: 8px; }
-      .upload-social-summary > strong { min-width: 0; padding-top: 0; }
+      .top-upload-bar { align-items: flex-start; }
       .top-upload-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
       .platform-card-head { align-items: flex-start; flex-direction: column; }
       .platform-grid { grid-template-columns: 1fr; }
@@ -9067,7 +7840,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-      <script src="/web/render_page.js?v=20260830-affiliate-v1"></script>
+  <script src="/web/render_page.js?v=20260823-status-time"></script>
 """,
     )
 
@@ -9371,6 +8144,8 @@ def project_url_to_path(request_path: str) -> Path:
         raise ValueError("Invalid project asset path.") from exc
     return target
 
+
+
 class WebHandler(SimpleHTTPRequestHandler):
     server_version = "VideoTemplateWeb/1.0"
 
@@ -9501,10 +8276,6 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_html(200, (REPO_ROOT / "webui" / "editor.html").read_bytes())
             return
 
-        if path in {"/custom-editor", "/custom-editor/"}:
-            self.send_html(200, (REPO_ROOT / "webui" / "custom-editor.html").read_bytes())
-            return
-
         watch_match = re.fullmatch(r"/watch/([^/]+)/?", path)
         if watch_match:
             try:
@@ -9586,20 +8357,12 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_html(200, render_upload_html(selected))
             return
 
-        if path in {"/affiliate", "/affiliate/"}:
-            self.send_html(200, (REPO_ROOT / "webui" / "affiliate.html").read_bytes())
-            return
-
         if path in {"/upload-guide/youtube", "/upload-guide/youtube/"}:
             self.send_html(200, render_social_upload_guide_html("youtube"))
             return
 
         if path in {"/upload-guide/facebook", "/upload-guide/facebook/"}:
             self.send_html(200, render_social_upload_guide_html("facebook"))
-            return
-
-        if path in {"/upload-guide/instagram", "/upload-guide/instagram/"}:
-            self.send_html(200, render_social_upload_guide_html("instagram"))
             return
 
         if path in {"/elevenlabs-guide", "/elevenlabs-guide/"}:
@@ -9614,6 +8377,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                     "source_root": str(PROJECT_ROOT),
                     "source_mode": source_root_mode(),
                     "projects": len(list_projects()),
+                    "desktop_build_profile": desktop_build_profile(),
+                    "development_entitlement_unlock": development_entitlement_unlock_enabled(),
                 },
             )
             return
@@ -9652,134 +8417,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                     "locked": trial_branding_required(),
                     "defaultCharacterId": default_character_id,
                 })
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path == "/api/social/brands":
-            project = (parse_qs(parsed.query).get("project") or [""])[0]
-            try:
-                if project:
-                    require_project(project)
-                self.send_json(200, upload_brand_context(project))
-            except FileNotFoundError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path == "/api/affiliate/context":
-            project = (parse_qs(parsed.query).get("project") or [""])[0]
-            brand = (parse_qs(parsed.query).get("brand") or [""])[0]
-            try:
-                if project:
-                    require_project(project)
-                context = upload_brand_context(project)
-                selected_brand = canonical_brand(brand or context.get("project_brand") or "")
-                context["selected_brand"] = selected_brand
-                context["affiliate"] = affiliate_brand_context(read_social_config(), selected_brand) if selected_brand else {}
-                self.send_json(200, context)
-            except FileNotFoundError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path == "/api/affiliate/pool":
-            query_values = parse_qs(parsed.query)
-            try:
-                brand = canonical_brand((query_values.get("brand") or [""])[0])
-                if not brand:
-                    raise ValueError("Cần chọn Brand để đọc Pool Shopee.")
-                query = (query_values.get("q") or query_values.get("query") or [""])[0].strip()
-                category = (query_values.get("category") or [""])[0].strip()
-                raw_enabled_only = (query_values.get("enabledOnly") or query_values.get("enabled_only") or [""])[0]
-                enabled_only = str(raw_enabled_only).strip().casefold() in {"1", "true", "yes", "on"}
-                limit = int((query_values.get("limit") or [100])[0])
-                self.send_json(
-                    200,
-                    list_product_pool(
-                        brand,
-                        query=query,
-                        category=category,
-                        enabled_only=enabled_only,
-                        limit=limit,
-                    ),
-                )
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path == "/api/affiliate/products":
-            query_values = parse_qs(parsed.query)
-            project = (query_values.get("project") or [""])[0]
-            brand = canonical_brand((query_values.get("brand") or [""])[0])
-            query = (query_values.get("query") or [""])[0].strip()
-            saved_query = (query_values.get("q") or [""])[0].strip()
-            try:
-                if project:
-                    require_project(project)
-                    if "query" in query_values and not query:
-                        query = " ".join(social_metadata.read_script_lines(social_metadata.require_project(project))[:4])[:500]
-                if not brand:
-                    raise ValueError("Cần chọn Brand để tìm sản phẩm Shopee.")
-                limit = int((query_values.get("limit") or [10])[0])
-                if query:
-                    self.send_json(200, discover_products(brand, query, limit=limit))
-                else:
-                    cached = list_saved_products(saved_query, limit=limit)
-                    cached.update({
-                        "brand": brand,
-                        "settings": affiliate_brand_context(read_social_config(), brand).get("settings", {}),
-                    })
-                    self.send_json(200, cached)
-            except FileNotFoundError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path == "/api/affiliate/overview":
-            query_values = parse_qs(parsed.query)
-            try:
-                start_date = (query_values.get("startDate") or query_values.get("start_date") or [""])[0]
-                end_date = (query_values.get("endDate") or query_values.get("end_date") or [""])[0]
-                period = str((query_values.get("period") or [""])[0] or "").strip().lower()
-                if period and not (start_date or end_date):
-                    today = datetime.now(timezone.utc).date()
-                    end_date = today.isoformat()
-                    if period == "today":
-                        start_date = end_date
-                    elif period == "7d":
-                        start_date = (today - timedelta(days=6)).isoformat()
-                    elif period == "30d":
-                        start_date = (today - timedelta(days=29)).isoformat()
-                    elif period == "month":
-                        start_date = today.replace(day=1).isoformat()
-                self.send_json(200, affiliate_overview(
-                    canonical_brand((query_values.get("brand") or [""])[0]),
-                    (query_values.get("contentId") or query_values.get("content_id") or [""])[0],
-                    start_date=start_date,
-                    end_date=end_date,
-                ))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if path == "/api/affiliate/poc":
-            query_values = parse_qs(parsed.query)
-            try:
-                brand = canonical_brand((query_values.get("brand") or [""])[0])
-                content_id = str((query_values.get("contentId") or query_values.get("content_id") or [""])[0] or "").strip()
-                if len(content_id) > 128:
-                    raise ValueError("POC Content / project ID tối đa 128 ký tự.")
-                config = read_social_config()
-                page_id = str((query_values.get("pageId") or query_values.get("page_id") or [""])[0] or "").strip()
-                page_id = page_id or _affiliate_poc_default_page_id(config, brand)
-                if len(page_id) > 128:
-                    raise ValueError("POC Page ID tối đa 128 ký tự.")
-                summary = _affiliate_poc_find_summary(brand, content_id, page_id)
-                self.send_json(200, _affiliate_poc_response(brand, content_id, page_id, summary))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -9878,27 +8515,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                 payload["youtubeDescription"] = default_copy["youtubeDescription"]
                 payload["description"] = default_copy["youtubeDescription"]
                 payload["facebookCaption"] = default_copy["facebookCaption"]
-                payload["instagramCaption"] = default_copy["instagramCaption"]
-                publish = payload.get("publish") if isinstance(payload.get("publish"), dict) else {}
-                common_caption = str(publish.get("caption") or "").strip()
-                if common_caption:
-                    payload["commonCaption"] = common_caption
-                    try:
-                        first_line = next((line.strip() for line in common_caption.splitlines() if line.strip()), "")
-                        first_line = re.sub(r"^[^\wÀ-ỹ]+", "", first_line, flags=re.UNICODE).strip()
-                        if not first_line:
-                            raise ValueError("Caption không có dòng đầu hợp lệ.")
-                        payload["title"] = social_metadata.limit_youtube_title(first_line)
-                    except ValueError:
-                        payload["title"] = default_copy["title"]
-                    payload["youtubeDescription"] = common_caption
-                    payload["description"] = common_caption
-                    payload["facebookCaption"] = common_caption
-                    payload["instagramCaption"] = common_caption[:2200]
-                    payload["tiktokCaption"] = common_caption[:2200]
-                    payload["binanceCaption"] = common_caption
-                else:
-                    payload["commonCaption"] = default_copy["facebookCaption"]
                 payload["defaultUploadCopy"] = default_copy
                 self.send_json(200, payload)
             except FileNotFoundError as exc:
@@ -9965,10 +8581,6 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_json(200, result)
             return
 
-        if path == "/api/jobs":
-            self.send_json(200, {"jobs": list_jobs()})
-            return
-
         if path == "/render":
             self.send_redirect("/")
             return
@@ -10003,346 +8615,6 @@ class WebHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/social/default-tags":
             try:
                 self.send_json(200, save_default_upload_tags(self.read_json_body()))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/social/upload-metadata":
-            try:
-                payload = self.read_json_body()
-                project = require_payload_project(payload)
-                project_dir = social_metadata.require_project(project)
-                existing = social_metadata.read_project_upload_metadata(project_dir)
-                if not existing:
-                    existing = social_metadata.generated_upload_metadata(
-                        project_dir,
-                        social_metadata.read_script_lines(project_dir),
-                        {},
-                        language=current_ui_language(),
-                    )
-                publish = existing.get("publish") if isinstance(existing.get("publish"), dict) else {}
-                publish = dict(publish)
-                brand = canonical_brand(
-                    payload.get("brand")
-                    or payload.get("brandId")
-                    or publish.get("brand")
-                    or social_metadata.project_brand_from_topic(project_dir)
-                )
-                if brand and not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
-                    raise ValueError("Brand chỉ được dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.")
-                caption = str(payload.get("caption") if "caption" in payload else payload.get("commonCaption") if "commonCaption" in payload else publish.get("caption") or "").strip()
-                if len(caption) > 5000:
-                    raise ValueError("Caption chung tối đa 5.000 ký tự.")
-                publish.update({"schemaVersion": 1, "brand": brand, "caption": caption})
-                existing["publish"] = publish
-                social_metadata.write_project_upload_metadata(project_dir, existing)
-                self.send_json(200, {"ok": True, "project": project, "publish": publish})
-            except FileNotFoundError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/social/shopee/config":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("Shopee Affiliate config cần Brand.")
-                result = update_shopee_config(
-                    str(payload.get("appId") or payload.get("app_id") or ""),
-                    str(payload.get("secret") or payload.get("appSecret") or payload.get("app_secret") or ""),
-                    api_base_url=str(payload.get("apiBaseUrl") or payload.get("api_base_url") or ""),
-                    brand=brand,
-                    connection_id=str(payload.get("connectionId") or payload.get("connection_id") or ""),
-                    display_name=str(payload.get("displayName") or payload.get("display_name") or ""),
-                )
-                settings_payload = payload.get("settings") if isinstance(payload.get("settings"), dict) else payload
-                settings = save_affiliate_settings(brand, settings_payload)
-                self.send_json(200, {"ok": True, "brand": brand, "shopee": result, "settings": settings})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/social/shopee/disconnect":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("Cần chỉ định Brand cần gỡ Shopee Affiliate.")
-                self.send_json(200, disconnect_shopee(brand))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/settings":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("Affiliate settings cần Brand.")
-                self.send_json(200, {"ok": True, "brand": brand, "settings": save_affiliate_settings(brand, payload)})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/pool":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("Pool Shopee cần Brand.")
-                has_bulk_links = any(
-                    key in payload and payload.get(key) not in (None, "", [])
-                    for key in ("links", "affiliateUrls", "affiliate_urls", "linksText")
-                )
-                if has_bulk_links:
-                    self.send_json(200, save_product_pool_links(brand, payload))
-                else:
-                    product = save_product_pool(brand, payload)
-                    self.send_json(200, {"ok": True, "brand": brand, "product": product})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/backfill":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("Affiliate backfill cần Brand.")
-                raw_dry_run = payload.get("dryRun", payload.get("dry_run", True))
-                dry_run = not (
-                    raw_dry_run is False
-                    or str(raw_dry_run or "").strip().casefold() in {"0", "false", "no"}
-                )
-                if not dry_run and str(payload.get("confirm") or "").strip().upper() != "COMMENT":
-                    raise ValueError("Hãy chạy preview trước và xác nhận COMMENT để ghi comment thật.")
-                preview_token = str(payload.get("previewToken") or payload.get("preview_token") or "").strip()
-                if not dry_run and not preview_token:
-                    raise ValueError("Hãy chạy preview trước để khóa sản phẩm rồi mới comment thật.")
-                result = run_affiliate_backfill(
-                    brand,
-                    limit=payload.get("limit", 20),
-                    lookback_days=payload.get("lookbackDays", payload.get("lookback_days", 30)),
-                    dry_run=dry_run,
-                    page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
-                    preview_token=preview_token,
-                )
-                self.send_json(200, result)
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/link":
-            try:
-                payload = self.read_json_body()
-                project = str(payload.get("project") or payload.get("contentId") or payload.get("content_id") or "").strip()
-                if payload.get("project"):
-                    require_project(project)
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("Affiliate link cần Brand.")
-                result = create_affiliate_link(
-                    brand=brand,
-                    content_id=project or "affiliate-dashboard",
-                    product_id=str(payload.get("productId") or payload.get("product_id") or ""),
-                    origin_url=str(payload.get("originUrl") or payload.get("origin_url") or ""),
-                    affiliate_url=str(payload.get("affiliateUrl") or payload.get("affiliate_url") or ""),
-                    placement=str(payload.get("placement") or "first_comment"),
-                    page_id=str(payload.get("pageId") or payload.get("page_id") or ""),
-                    product_payload=payload.get("product") if isinstance(payload.get("product"), dict) else None,
-                    link_provider=str(payload.get("linkProvider") or payload.get("link_provider") or ""),
-                )
-                self.send_json(200, result)
-            except FileNotFoundError as exc:
-                self.send_json(404, {"error": str(exc)})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/poc":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                if not brand:
-                    raise ValueError("POC cần Brand.")
-                content_id = _affiliate_poc_text(payload, "contentId", "content_id", limit=128)
-                if not content_id:
-                    raise ValueError("POC cần Content / project ID.")
-                config = read_social_config()
-                page_id = _affiliate_poc_text(payload, "pageId", "page_id", limit=128)
-                page_id = page_id or _affiliate_poc_default_page_id(config, brand)
-                case_code = str(payload.get("caseKey") or payload.get("case_key") or payload.get("case") or "").strip().upper()
-                if case_code not in AFFILIATE_POC_CASE_CODES:
-                    raise ValueError("POC case phải là A, B, C hoặc D.")
-                status = str(payload.get("status") or "").strip().lower()
-                if status not in AFFILIATE_POC_STATUSES or status == "pending":
-                    raise ValueError("POC status phải là running, passed, failed hoặc blocked.")
-                post_id = _affiliate_poc_text(payload, "postId", "post_id", limit=96)
-                comment_id = _affiliate_poc_text(payload, "commentId", "comment_id", limit=96)
-                evidence_url = _affiliate_poc_text(payload, "evidenceUrl", "evidence_url", "evidence", limit=500)
-                notes = _affiliate_poc_text(payload, "notes", "note", limit=1000)
-                banner_observed = str(payload.get("bannerObserved") or payload.get("banner_observed") or "").strip().lower()
-                if banner_observed not in {"", "yes", "no"}:
-                    raise ValueError("Banner Affiliate chỉ nhận yes, no hoặc để trống.")
-                run = start_affiliate_poc_run(
-                    brand,
-                    content_id,
-                    idempotency_key=_affiliate_poc_idempotency_key(content_id, page_id),
-                )
-                result = record_affiliate_poc_result(
-                    brand,
-                    case_code,
-                    status,
-                    run_id=run["runId"],
-                    content_id=content_id,
-                    page_id=page_id,
-                    post_id=post_id,
-                    comment_id=comment_id,
-                    banner_observed=None if not banner_observed else banner_observed == "yes",
-                    evidence_url=evidence_url,
-                    notes=notes,
-                )
-                self.send_json(200, _affiliate_poc_response(brand, content_id, page_id, result))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/affiliate/conversions/import":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
-                self.send_json(200, ingest_conversion_rows(rows, brand=brand))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/social/brand-route":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                platform = str(payload.get("platform") or "").strip().casefold()
-                connection_id = str(
-                    payload.get("connectionId")
-                    or payload.get("channelId")
-                    or payload.get("pageId")
-                    or payload.get("accountId")
-                    or ""
-                ).strip()
-                name = str(payload.get("name") or payload.get("displayName") or "").strip()
-                if platform not in SOCIAL_ROUTE_PLATFORMS:
-                    raise ValueError(f"Unsupported social platform: {platform or '<empty>'}.")
-
-                status = social_status()
-                platform_status = status.get("platforms", {}).get(platform, {})
-                if platform in {"youtube", "facebook"}:
-                    account_key = "channels" if platform == "youtube" else "pages"
-                    accounts = platform_status.get(account_key) or []
-                    account = next((item for item in accounts if str(item.get("id") or "") == connection_id), None)
-                    if not account:
-                        raise ValueError(f"Không tìm thấy account {platform} để gán vào Brand.")
-                    name = name or str(account.get("title") or account.get("name") or connection_id)
-                elif platform in {"instagram", "tiktok", "threads"}:
-                    accounts = platform_status.get("accounts") or []
-                    account = next(
-                        (
-                            item for item in accounts
-                            if str(item.get("connection_id") or item.get("id") or "") == connection_id
-                        ),
-                        None,
-                    )
-                    if not account:
-                        raise ValueError(f"Không tìm thấy account {platform} để gán vào Brand.")
-                    account_brand = canonical_brand(account.get("brand"))
-                    if account_brand != brand:
-                        raise ValueError(f"Account {platform} đang thuộc brand {account_brand or 'khác'}.")
-                    if not bool(account.get("connected") or account.get("available")):
-                        raise ValueError(account.get("message") or f"{platform} chưa sẵn sàng.")
-                    name = name or str(account.get("display_name") or account.get("name") or connection_id)
-                else:
-                    if not bool(platform_status.get("connected") or platform_status.get("available")):
-                        raise ValueError(platform_status.get("message") or f"{platform} chưa kết nối.")
-                    current_id = str(
-                        platform_status.get("ig_user_id")
-                        or platform_status.get("threads_user_id")
-                        or platform_status.get("account_id")
-                        or "global"
-                    ).strip()
-                    if connection_id in {"", "global"}:
-                        connection_id = current_id or "global"
-                    elif current_id and connection_id != current_id:
-                        raise ValueError(f"Account {platform} không khớp cấu hình hiện tại.")
-                    name = name or str(
-                        platform_status.get("display_name")
-                        or platform_status.get("name")
-                        or connection_id
-                    )
-
-                routes = save_social_brand_route(brand, platform, connection_id, name=name)
-                self.send_json(200, {"ok": True, "brand": brand, "platform": platform, "route": routes.get(platform, {})})
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/social/brand-connection":
-            try:
-                payload = self.read_json_body()
-                brand = canonical_brand(payload.get("brand") or payload.get("brandId") or "")
-                platform = str(payload.get("platform") or "").strip().casefold()
-                connection_id = str(payload.get("connectionId") or payload.get("connection_id") or "").strip()
-                display_name = str(payload.get("displayName") or payload.get("name") or "").strip()
-                if platform not in {"instagram", "tiktok", "threads"}:
-                    raise ValueError("Brand connection chỉ hỗ trợ Instagram, TikTok và Threads.")
-                if not brand:
-                    raise ValueError("Brand không được để trống.")
-                config = read_social_config()
-                if platform == "instagram":
-                    shared_r2 = resolve_r2_config(r2_config(config))
-                    if not all(shared_r2.get(key) for key in ("account_id", "bucket", "access_key_id", "secret_access_key", "public_base_url")):
-                        raise ValueError("Cloudflare R2 dùng chung chưa được cấu hình. Hãy lưu R2 ở cấu hình Instagram chung trước.")
-                    account = update_instagram_config(
-                        str(payload.get("igUserId") or payload.get("ig_user_id") or ""),
-                        str(payload.get("accessToken") or payload.get("access_token") or ""),
-                        str(payload.get("apiMode") or payload.get("api_mode") or "instagram_login"),
-                        str(payload.get("graphVersion") or payload.get("graph_version") or "v25.0"),
-                        display_name,
-                        config=config,
-                        persist=False,
-                        brand=brand,
-                        connection_id=connection_id,
-                    )
-                elif platform == "tiktok":
-                    account = update_zernio_config(
-                        str(payload.get("apiKey") or payload.get("api_key") or ""),
-                        str(payload.get("accountId") or payload.get("account_id") or ""),
-                        base_url=str(payload.get("baseUrl") or payload.get("base_url") or "https://zernio.com/api/v1"),
-                        brand=brand,
-                        connection_id=connection_id,
-                        display_name=display_name,
-                        config=config,
-                        persist=False,
-                    )
-                else:
-                    account = update_threads_config(
-                        str(payload.get("threadsUserId") or payload.get("userId") or ""),
-                        str(payload.get("accessToken") or payload.get("access_token") or ""),
-                        str(payload.get("graphVersion") or payload.get("graph_version") or "v1.0"),
-                        display_name,
-                        brand=brand,
-                        connection_id=connection_id,
-                        config=config,
-                        persist=False,
-                    )
-                write_social_config(config)
-                self.send_json(200, {
-                    "ok": True,
-                    "brand": brand,
-                    "platform": platform,
-                    "connection_id": account.get("connection_id") if isinstance(account, dict) else "",
-                    "account": account,
-                })
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -10484,23 +8756,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
-        if parsed.path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
-            try:
-                self.send_json(200, m3.update_vieneu_config(self.read_json_body()))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/tts/vieneu/runtime":
-            try:
-                payload = self.read_json_body()
-                if "enabled" not in payload:
-                    raise ValueError("Thiếu trạng thái bật/tắt VieNeu-TTS.")
-                self.send_json(200, save_vieneu_runtime_config(payload["enabled"]))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-
         if parsed.path == "/api/characters":
             if trial_branding_required():
                 self.send_json(403, {"error": "Tài khoản Trial không thể thêm nhân vật mới."})
@@ -10576,41 +8831,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, result)
                 return
 
-            if parsed.path == "/api/ocr":
-                try:
-                    payload = self.read_json_body()
-                    image_path = Path(str(payload.get("imagePath") or payload.get("image_path") or payload.get("path") or "")).expanduser()
-                    if not image_path.is_absolute():
-                        image_path = (REPO_ROOT / image_path).resolve()
-                    prompt = str(payload.get("prompt") or "").strip() or None
-                    device = str(payload.get("device") or "auto").strip().lower()
-                    model = str(payload.get("model") or "").strip() or None
-                    output_dir = str(payload.get("outputDir") or payload.get("output_dir") or "").strip() or None
-                    cmd = [str(RENDER_PYTHON), str(OCR_TOOL_PATH), str(image_path), "--device", device]
-                    if prompt:
-                        cmd.extend(["--prompt", prompt])
-                    if model:
-                        cmd.extend(["--model", model])
-                    if output_dir:
-                        cmd.extend(["--output-dir", output_dir])
-                    proc = subprocess.run(
-                        cmd,
-                        cwd=str(REPO_ROOT),
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=900,
-                    )
-                    if proc.returncode != 0:
-                        raise RuntimeError((proc.stderr or proc.stdout or "OCR failed").strip())
-                    data = json.loads(proc.stdout or "{}")
-                    self.send_json(200, data)
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                return
-
             if parsed.path == "/api/source-root":
                 try:
                     if has_active_jobs():
@@ -10671,6 +8891,25 @@ class WebHandler(SimpleHTTPRequestHandler):
                     self.send_json(400, {"error": str(exc)})
                     return
                 self.send_json(200, result)
+                return
+
+            if parsed.path in {"/api/tts/vieneu/config", "/api/tts/aurextts/config"}:
+                try:
+                    result = m3.update_vieneu_config(self.read_json_body())
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/tts/vieneu/runtime":
+                try:
+                    payload = self.read_json_body()
+                    if "enabled" not in payload:
+                        raise ValueError("Thiếu trạng thái bật/tắt VieNeu-TTS.")
+                    self.send_json(200, save_vieneu_runtime_config(payload["enabled"]))
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
                 return
 
             if parsed.path == "/api/project-script":
@@ -10860,165 +9099,6 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, result)
                 return
 
-            if parsed.path == "/api/social/tiktok/config":
-                try:
-                    payload = self.read_json_body()
-                    result = update_zernio_config(
-                        str(payload.get("apiKey") or ""),
-                        str(payload.get("accountId") or ""),
-                        base_url=str(payload.get("baseUrl") or "https://zernio.com/api/v1"),
-                        display_name=str(payload.get("displayName") or payload.get("display_name") or ""),
-                    )
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/tiktok/disconnect":
-                try:
-                    result = disconnect_zernio()
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/tiktok/upload":
-                try:
-                    payload = self.read_json_body()
-                    require_payload_project(payload)
-                    result = tiktok_upload_video(payload)
-                except FileNotFoundError as exc:
-                    self.send_json(404, {"error": str(exc)})
-                    return
-                except RuntimeError as exc:
-                    self.send_json(409, {"error": str(exc)})
-                    return
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/instagram/config":
-                try:
-                    payload = self.read_json_body()
-                    config = read_social_config()
-                    r2_values = merge_r2_config_values(payload, resolve_r2_config(r2_config(config)))
-                    r2_result = update_r2_config(
-                        r2_values["account_id"],
-                        r2_values["bucket"],
-                        r2_values["access_key_id"],
-                        r2_values["secret_access_key"],
-                        r2_values["public_base_url"],
-                        r2_values["region"],
-                        r2_values["object_prefix"],
-                        r2_values["retain_media"],
-                        config=config,
-                        persist=False,
-                    )
-                    instagram_result = update_instagram_config(
-                        str(payload.get("igUserId") or payload.get("ig_user_id") or ""),
-                        str(payload.get("accessToken") or payload.get("access_token") or ""),
-                        str(payload.get("apiMode") or payload.get("api_mode") or "instagram_login"),
-                        str(payload.get("graphVersion") or payload.get("graph_version") or "v25.0"),
-                        str(payload.get("displayName") or payload.get("display_name") or ""),
-                        config=config,
-                        persist=False,
-                    )
-                    write_social_config(config)
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, {"ok": True, "instagram": instagram_result, "r2": r2_result})
-                return
-
-            if parsed.path == "/api/social/instagram/disconnect":
-                try:
-                    result = disconnect_instagram()
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/threads/config":
-                try:
-                    payload = self.read_json_body()
-                    result = update_threads_config(
-                        str(payload.get("threadsUserId") or payload.get("userId") or ""),
-                        str(payload.get("accessToken") or payload.get("access_token") or ""),
-                        str(payload.get("graphVersion") or payload.get("graph_version") or "v1.0"),
-                        str(payload.get("displayName") or payload.get("display_name") or ""),
-                    )
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, {"ok": True, "threads": result})
-                return
-
-            if parsed.path == "/api/social/threads/disconnect":
-                try:
-                    result = disconnect_threads()
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/instagram/upload":
-                try:
-                    payload = self.read_json_body()
-                    require_payload_project(payload)
-                    result = instagram_upload_video(payload)
-                except FileNotFoundError as exc:
-                    self.send_json(404, {"error": str(exc)})
-                    return
-                except RuntimeError as exc:
-                    self.send_json(409, {"error": str(exc)})
-                    return
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/threads/upload":
-                try:
-                    payload = self.read_json_body()
-                    require_payload_project(payload)
-                    result = threads_upload_video(payload)
-                except FileNotFoundError as exc:
-                    self.send_json(404, {"error": str(exc)})
-                    return
-                except RuntimeError as exc:
-                    self.send_json(409, {"error": str(exc)})
-                    return
-                except Exception as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                self.send_json(200, result)
-                return
-
-            if parsed.path == "/api/social/publish-all":
-                try:
-                    payload = self.read_json_body()
-                    require_payload_project(payload)
-                    result = publish_instagram_facebook_threads(payload)
-                except FileNotFoundError as exc:
-                    self.send_json(404, {"error": str(exc)})
-                    return
-                except ValueError as exc:
-                    self.send_json(400, {"error": str(exc)})
-                    return
-                except Exception as exc:
-                    self.send_json(409, {"error": str(exc)})
-                    return
-                response_status = 200 if result.get("ok") or result.get("partial") else 409
-                self.send_json(response_status, result)
-                return
-
             if parsed.path == "/api/social/facebook/comment-source":
                 try:
                     payload = self.read_json_body()
@@ -11127,29 +9207,7 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_json(400, {"error": str(exc)})
 
     def do_DELETE(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path
-        if path == "/api/affiliate/pool":
-            try:
-                query_values = parse_qs(parsed.query, keep_blank_values=True)
-                brand = canonical_brand((query_values.get("brand") or [""])[0])
-                if not brand:
-                    raise ValueError("Pool Shopee cần Brand.")
-                category = (query_values.get("category") or [""])[0].strip()
-                self.send_json(200, delete_product_pool_bulk(brand, category))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
-        pool_match = re.fullmatch(r"/api/affiliate/pool/([^/]+)", path)
-        if pool_match:
-            try:
-                brand = canonical_brand((parse_qs(parsed.query).get("brand") or [""])[0])
-                if not brand:
-                    raise ValueError("Pool Shopee cần Brand.")
-                self.send_json(200, delete_product_pool(brand, unquote(pool_match.group(1))))
-            except Exception as exc:
-                self.send_json(400, {"error": str(exc)})
-            return
+        path = urlparse(self.path).path
         character_match = re.fullmatch(r"/api/characters/([^/]+)", path)
         if not character_match:
             self.send_json(404, {"error": "Unknown endpoint."})
@@ -11394,7 +9452,6 @@ def main() -> None:
     except Exception as exc:
         parser.error(str(exc))
 
-    start_scheduler()
     server = ThreadingHTTPServer((args.host, args.port), WebHandler)
     actual_port = int(server.server_address[1])
     url = f"http://localhost:{actual_port}"

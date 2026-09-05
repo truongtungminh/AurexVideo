@@ -22,55 +22,14 @@ CHARACTERS_ROOT = USER_ASSETS_ROOT / "characters"
 def bundled_python() -> Path:
     configured = str(os.environ.get("AUREX_PYTHON") or "").strip()
     if configured:
-        # Do not resolve venv launchers: on macOS they are symlinks to the base
-        # framework binary, and resolving drops site-packages such as Playwright.
+        # Preserve the venv launcher path; resolving its symlink loses the
+        # runtime's site-packages in child render processes.
         return Path(configured).expanduser().absolute()
-    python_name = "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python3.11"
-    candidates = [
-        RESOURCE_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"),
-        RESOURCE_ROOT.parent / "runtime" / "python_base" / python_name,
-        RESOURCE_ROOT.parent / "python_base" / python_name,
-        RESOURCE_ROOT / "python_base" / python_name,
-    ]
-    return next((candidate for candidate in candidates if candidate.exists()), Path(sys.executable).absolute())
+    candidate = RESOURCE_ROOT / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
+    return candidate if candidate.exists() else Path(sys.executable).absolute()
 
 
 PYTHON_EXECUTABLE = bundled_python()
-
-
-def resolve_vieneu_python() -> Path:
-    """Resolve the interpreter that has the local VieNeu dependencies."""
-    direct_candidates = [
-        os.environ.get("AUREX_VIENEU_PYTHON"),
-        os.environ.get("VIENEU_PYTHON"),
-    ]
-    root_candidates = [
-        os.environ.get("VIENEU_HOME"),
-        os.environ.get("VIENEU_TTS_ROOT"),
-        "/Users/truongminh/VieNeu-TTS",
-        str(Path.home() / "VieNeu-TTS"),
-    ]
-
-    candidates: list[Path] = [
-        Path(value).expanduser()
-        for value in direct_candidates
-        if str(value or "").strip()
-    ]
-    for root in root_candidates:
-        if not str(root or "").strip():
-            continue
-        root_path = Path(root).expanduser()
-        candidates.extend(
-            [
-                root_path / ".venv" / "bin" / "python",
-                root_path / ".venv" / "bin" / "python3",
-            ]
-        )
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return PYTHON_EXECUTABLE if PYTHON_EXECUTABLE.is_file() else Path(sys.executable)
 
 
 def ffmpeg_executable() -> Path:
