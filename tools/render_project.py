@@ -917,6 +917,17 @@ def create_quiz_segment_voiceover(
             temporary.unlink(missing_ok=True)
 
 
+def create_quiz_silent_voiceover(project: Path, duration: float, token: str) -> Path:
+    """Create the deterministic no-narration bed used by Quiz V2 exports."""
+    output = project / "audio" / "cache" / f"quiz-silent-{token}.wav"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        str(ffmpeg_executable()), "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+        "-t", f"{max(0.1, duration):.3f}", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(output),
+    ])
+    return output
+
+
 def prepare_render_audio(
     source: Path,
     project: Path,
@@ -1569,9 +1580,15 @@ def main() -> None:
     token = uuid.uuid4().hex[:8]
     write_script(project, original)
     quiz_segment_result = None
-    if str(original.get("projectType") or "").strip().lower() == "quiz":
+    quiz_v2 = str(original.get("projectType") or "").strip().lower() == "quiz" and bool(original.get("quizItems"))
+    tts_provider = str(original.get("tts_provider") or original.get("ttsProvider") or "").strip().lower()
+    if quiz_v2 and tts_provider == "none":
+        source_audio = create_quiz_silent_voiceover(project, 3 * (5.0 + 1.4 + 1.0), token)
+    elif str(original.get("projectType") or "").strip().lower() == "quiz":
         quiz_segment_result = create_quiz_segment_voiceover(args, project, topic_path, token)
-    if quiz_segment_result is not None:
+    if quiz_v2 and tts_provider == "none":
+        audio_topic = original
+    elif quiz_segment_result is not None:
         source_audio, segment_timing = quiz_segment_result
         audio_topic = dict(original)
         audio_topic["_quiz_segment_timeline"] = True
@@ -1580,13 +1597,17 @@ def main() -> None:
     else:
         source_audio = create_voiceover(args, project, topic_path, token)
         audio_topic = original
-    render_audio = prepare_render_audio(source_audio, project, args.speed, args.volume, audio_topic)
+    render_audio = source_audio if (quiz_v2 and tts_provider == "none") else prepare_render_audio(
+        source_audio, project, args.speed, args.volume, audio_topic
+    )
     duration = media_duration(render_audio)
 
     prepared = dict(original)
     prepared["voiceover"] = Path(os.path.relpath(render_audio, project)).as_posix()
     prepared["duration"] = round(duration, 3)
-    if quiz_segment_result is not None:
+    if quiz_v2 and tts_provider == "none":
+        prepared["segments"] = []
+    elif quiz_segment_result is not None:
         prepared["segments"] = segment_timing
         prepared["poseTimeline"] = quiz_pose_timeline_after_segment_audio(original, segment_timing)
     elif str(original.get("projectType") or "").strip().lower() == "quiz":
@@ -1598,7 +1619,9 @@ def main() -> None:
     # Quiz segment markers are derived from the actual audio after inserting
     # countdown pauses. Do not let an older alignment cache restore pre-pause
     # markers and overwrite the synchronized Quiz timeline.
-    if quiz_segment_result is not None:
+    if quiz_v2 and tts_provider == "none":
+        aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    elif quiz_segment_result is not None:
         aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     elif str(original.get("projectType") or "").strip().lower() == "quiz":
         aligned_topic.unlink(missing_ok=True)
@@ -1621,7 +1644,7 @@ def main() -> None:
     backend_outcome = RenderBackendOutcome(backend_used="browser")
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
-        if quiz_segment_result is None:
+        if quiz_segment_result is None and not (quiz_v2 and tts_provider == "none"):
             run([
                 str(PYTHON), "-u", str(ROOT / "tools" / "align_voiceover.py"),
                 str(prepared_topic), str(render_audio), "--output", str(aligned_topic),

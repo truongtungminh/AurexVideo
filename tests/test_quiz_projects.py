@@ -152,6 +152,17 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertIn('quizz: ["pose-1", "pose-2", "pose-1", "pose-2", "pose-1", "pose-2", "pose-3"]', editor)
         self.assertIn('if (String(state.topic?.projectType || "").toLowerCase() === "quiz")', editor)
 
+    def test_quiz_v2_requires_three_items_with_three_options(self) -> None:
+        valid = [
+            {"question": f"Question {index}", "options": ["A", "B", "C"], "correct_index": index % 3}
+            for index in range(3)
+        ]
+        self.assertEqual(m3.normalize_quiz_items(valid)[1]["correct_index"], 1)
+        with self.assertRaisesRegex(ValueError, "đúng 3 lựa chọn"):
+            m3.normalize_quiz_items([{"question": "Only", "options": ["A", "B"], "correct_index": 0}] * 3)
+        with self.assertRaisesRegex(ValueError, "0, 1 hoặc 2"):
+            m3.normalize_quiz_items([{"question": "Q", "options": ["A", "B", "C"], "correct_index": 3}] * 3)
+
     def test_quiz_save_keeps_one_single_image_scene_and_clears_right_asset(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-quiz-save-") as tmp:
             root = Path(tmp)
