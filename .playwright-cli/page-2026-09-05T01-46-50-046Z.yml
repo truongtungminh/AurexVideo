@@ -1,7 +1,0 @@
-- main [ref=f1e2]:
-  - region "Video so sánh một cảnh" [ref=f1e3]:
-    - generic: Quiz
-    - img "Hình minh họa đối tượng bên trái" [ref=f1e6]
-    - img "Hình minh họa đối tượng bên phải" [ref=f1e8]
-    - img "Nhân vật đang trình bày" [ref=f1e11]
-    - generic [ref=f1e12]: Đang chuẩn bị bài giảng...
