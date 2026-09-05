@@ -114,7 +114,7 @@ body {
   text-align: center;
 }
 
-/* FIX QUIZ FLOW 1: container chính - cho Question/Countdown/Answer chạy dọc */
+/* Legacy quiz flow: retained for backward-compatible two-line projects. */
 .quiz-text {
   position: absolute;
 
@@ -140,7 +140,7 @@ body {
   visibility: hidden;
 }
 
-/* FIX QUIZ FLOW 2: bỏ absolute để các block tự đẩy nhau */
+/* Legacy quiz flow layout. */
 .quiz-question-card,
 .quiz-countdown-wrap,
 .quiz-answer-card {
@@ -150,7 +150,7 @@ body {
   transform: none;
 }
 
-/* FIX QUIZ FLOW 3: question tự cao theo nội dung */
+/* Legacy quiz flow question sizing. */
 .quiz-question-card {
   /* XÓA: top: 21%; */
 
@@ -217,7 +217,7 @@ body {
 
 /* FIX QUIZ QUESTION SIZE: bản chữ lớn */
 .quiz-question {
-  font-size: 8.5cqw !important;
+  font-size: 7cqw !important;
   line-height: 1.2;
 }
 
@@ -225,7 +225,7 @@ body {
   font-size: 5cqw;
 }
 
-/* FIX QUIZ FLOW 4: countdown nằm sau question */
+/* Legacy quiz flow countdown. */
 .quiz-countdown-wrap {
   /* XÓA: top: 48%; */
 
@@ -236,7 +236,7 @@ body {
   animation: quiz-countdown-pop 0.25s ease-out both;
 }
 
-/* FIX QUIZ FLOW 9:
+/* Legacy empty-countdown handling:
    Countdown rỗng thì bỏ hẳn khỏi layout,
    để Answer nằm sát sau Question */
 .quiz-countdown-wrap:has(.quiz-countdown:empty) {
@@ -272,7 +272,7 @@ body {
   -webkit-text-stroke: 0.18cqw #0b0b0b;
 }
 
-/* FIX QUIZ FLOW 5: answer tự nằm sau countdown */
+/* Legacy answer card. */
 .quiz-answer-card {
   /* XÓA: top: 46%; */
 
@@ -308,7 +308,7 @@ body {
     both;
 }
 
-/* FIX QUIZ FLOW 10 */
+/* Legacy empty answer handling. */
 .quiz-answer-card:has(.quiz-answer:empty) {
   display: none;
 }
@@ -462,7 +462,7 @@ body {
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* FIX QUIZ FLOW 6: bỏ translateX vì card giờ chạy bằng flex */
+/* Legacy card animation. */
 @keyframes quiz-card-pop {
   from {
     opacity: 0;
@@ -475,7 +475,7 @@ body {
   }
 }
 
-/* FIX QUIZ FLOW 7: bỏ translateX vì answer giờ chạy bằng flex */
+/* Legacy answer animation. */
 @keyframes quiz-answer-pop {
   from {
     opacity: 0;
@@ -488,7 +488,7 @@ body {
   }
 }
 
-/* FIX QUIZ FLOW 8: bỏ translateX */
+/* Legacy countdown animation. */
 @keyframes quiz-countdown-pop {
   from {
     opacity: 0;
