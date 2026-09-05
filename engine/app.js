@@ -1429,8 +1429,13 @@ const QUIZ_V2_REVEAL_HOLD_SECONDS = 1.4;
 const QUIZ_V2_TRANSITION_SECONDS = 1.0;
 
 function quizItems() {
-  if (!Array.isArray(topic?.quizItems)) return [];
-  return topic.quizItems.filter((item) => item && Array.isArray(item.options) && item.options.length === 3);
+  if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== 3) return [];
+  const valid = topic.quizItems.every((item) => item && String(item.question || '').trim()
+    && Array.isArray(item.options) && item.options.length === 3
+    && Number.isInteger(Number(item.correct_index ?? item.correctIndex))
+    && Number(item.correct_index ?? item.correctIndex) >= 0
+    && Number(item.correct_index ?? item.correctIndex) <= 2);
+  return valid ? topic.quizItems : [];
 }
 
 function quizV2Duration() {
