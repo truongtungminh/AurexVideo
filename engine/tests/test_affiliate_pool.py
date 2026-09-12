@@ -135,7 +135,11 @@ class AffiliatePoolTests(unittest.TestCase):
         self.assertEqual(title, "May hut bui cam tay")
         self.assertEqual(
             affiliate_comment_text("https://s.shopee.vn/1qbiRtcdTE", product_name=title),
-            "🛒 Sản phẩm liên quan: May hut bui cam tay\nhttps://s.shopee.vn/1qbiRtcdTE",
+            "🛍️ Nếu thấy sản phẩm phù hợp, ủng hộ mình bằng cách mua qua link này nhé!\nMay hut bui cam tay\nhttps://s.shopee.vn/1qbiRtcdTE",
+        )
+        self.assertEqual(
+            affiliate_comment_text("https://shp.today/9Owj"),
+            "🛍️ Nếu thấy sản phẩm phù hợp, ủng hộ mình bằng cách mua qua link này nhé!\nhttps://shp.today/9Owj",
         )
         fetch.assert_called_once()
 
@@ -228,6 +232,37 @@ class AffiliatePoolTests(unittest.TestCase):
         self.assertEqual(result["link"]["affiliate_url"], SHORT)
         self.assertEqual(result["link"]["origin_url"], ORIGIN)
         generate.assert_not_called()
+
+    def test_auto_uses_caption_fallback_unless_manual_query_overrides_it(self):
+        caption_match = save_product_pool(
+            "knowzy",
+            {"name": "Máy hút bụi cầm tay", "originUrl": ORIGIN, "affiliateUrl": "https://shp.today/vacuum", "commissionRate": 10},
+        )
+        manual_match = save_product_pool(
+            "knowzy",
+            {"name": "Bình giữ nhiệt", "originUrl": "https://shopee.vn/product/775125376/18824975415", "affiliateUrl": "https://shp.today/bottle", "commissionRate": 10},
+        )
+        affiliate_store.upsert_settings("knowzy", {"enabled": True, "mode": "auto", "min_relevance": 0.5})
+        config = {"brand_routes": {"knowzy": {"facebook": {"page_id": "page-1"}}}}
+        with patch("social_upload.affiliate.read_social_config", return_value=config):
+            caption_result = prepare_affiliate_for_publish(
+                {"affiliate": {"enabled": True, "mode": "auto"}},
+                "video-1",
+                "knowzy",
+                "page-1",
+                caption_query="Review máy hút bụi cầm tay nhỏ gọn",
+            )
+            manual_result = prepare_affiliate_for_publish(
+                {"affiliate": {"enabled": True, "mode": "auto", "query": "bình giữ nhiệt"}},
+                "video-2",
+                "knowzy",
+                "page-1",
+                caption_query="Review máy hút bụi cầm tay nhỏ gọn",
+            )
+
+        self.assertEqual(caption_result["query"], "Review máy hút bụi cầm tay nhỏ gọn")
+        self.assertEqual(caption_result["product"]["id"], caption_match["id"])
+        self.assertEqual(manual_result["product"]["id"], manual_match["id"])
 
     def test_same_affiliate_url_is_isolated_between_brands(self):
         affiliate_store.record_link({

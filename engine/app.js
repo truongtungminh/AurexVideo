@@ -8,6 +8,9 @@ const elements = {
   stageIntroVideo: document.querySelector("#stageIntroVideo"),
   stageIntroLogo: document.querySelector("#stageIntroLogo"),
   stageIntroTitle: document.querySelector("#stageIntroTitle"),
+  quizHook: document.querySelector("#quizHook"),
+  quizHookImage: document.querySelector("#quizHookImage"),
+  quizHookText: document.querySelector("#quizHookText"),
   slideCanvas: document.querySelector("#slideCanvas"),
   leftLabel: document.querySelector("#leftLabel"),
   rightLabel: document.querySelector("#rightLabel"),
@@ -17,10 +20,14 @@ const elements = {
   rightImage: document.querySelector("#rightImage"),
   karaoke: document.querySelector("#karaoke"),
   quizText: document.querySelector("#quizText"),
+  quizProgress: document.querySelector("#quizProgress"),
+  quizProgressValue: document.querySelector("#quizProgressValue"),
   quizQuestion: document.querySelector("#quizQuestion"),
   quizOptions: document.querySelector("#quizOptions"),
   quizCountdownWrap: document.querySelector("#quizCountdownWrap"),
   quizCountdown: document.querySelector("#quizCountdown"),
+  quizResultArt: document.querySelector("#quizResultArt"),
+  quizCtaArt: document.querySelector("#quizCtaArt"),
   quizAnswer: document.querySelector("#quizAnswer"),
   quizLegacyAnswerCard: document.querySelector("#quizLegacyAnswerCard"),
   teacher: document.querySelector("#teacher"),
@@ -596,6 +603,81 @@ function fitTextToWidth(element, maxCqw, minCqw) {
     else high = middle;
   }
   element.style.fontSize = `${Math.max(stageWidth * minCqw / 100, low)}px`;
+}
+
+function fitSuvietkyQuestion() {
+  const question = elements.quizQuestion;
+  const card = question?.parentElement;
+  const isSuvietkyV2 = elements.stage.classList.contains("brand-suvietky")
+    && elements.quizText.classList.contains("quiz-v2");
+  if (!question || !card || !isSuvietkyV2 || !question.textContent.trim()) {
+    question?.style.removeProperty("--quiz-question-fit-size");
+    return;
+  }
+
+  const stageWidth = elements.stage.clientWidth || 1080;
+  const cardStyle = getComputedStyle(card);
+  // The question frame contains a baked flower ornament along its bottom
+  // edge. Keep the dynamic text above that artwork instead of fitting to the
+  // full inner height of the frame.
+  const bakedFlowerReserve = stageWidth * 4.5 / 100;
+  const availableHeight = Math.max(
+    1,
+    card.clientHeight
+      - parseFloat(cardStyle.paddingTop)
+      - parseFloat(cardStyle.paddingBottom)
+      - bakedFlowerReserve,
+  );
+  const minSize = stageWidth * 3.35 / 100;
+  const maxSize = stageWidth * 5.65 / 100;
+  const setSize = (size) => question.style.setProperty("--quiz-question-fit-size", `${size}px`);
+  const fits = () => {
+    const rect = question.getBoundingClientRect();
+    return question.scrollWidth <= question.clientWidth + 1
+      && rect.height <= availableHeight + 1;
+  };
+
+  setSize(maxSize);
+  if (fits()) return;
+
+  let low = minSize;
+  let high = maxSize;
+  setSize(minSize);
+  if (!fits()) return;
+  for (let index = 0; index < 14; index += 1) {
+    const middle = (low + high) / 2;
+    setSize(middle);
+    if (fits()) low = middle;
+    else high = middle;
+  }
+  setSize(low);
+}
+
+function fitSuvietkyOptions() {
+  const isSuvietkyV2 = elements.stage.classList.contains("brand-suvietky")
+    && elements.quizText.classList.contains("quiz-v2");
+  if (!elements.quizOptions || !isSuvietkyV2) return;
+
+  const stageWidth = elements.stage.clientWidth || 1080;
+  const minSize = stageWidth * 2.7 / 100;
+  const maxSize = stageWidth * 4.75 / 100;
+  elements.quizOptions.querySelectorAll(".quiz-option-text").forEach((text) => {
+    const fits = () => text.scrollWidth <= text.clientWidth + 1
+      && text.scrollHeight <= text.clientHeight + 1;
+    text.style.fontSize = `${maxSize}px`;
+    if (fits()) return;
+    let low = minSize;
+    let high = maxSize;
+    text.style.fontSize = `${minSize}px`;
+    if (!fits()) return;
+    for (let index = 0; index < 14; index += 1) {
+      const middle = (low + high) / 2;
+      text.style.fontSize = `${middle}px`;
+      if (fits()) low = middle;
+      else high = middle;
+    }
+    text.style.fontSize = `${low}px`;
+  });
 }
 
 function formatTopicLabel(text) {
@@ -1424,9 +1506,24 @@ function isQuizProject(nextTopic = topic) {
 }
 
 const QUIZ_ANSWER_HOLD_SECONDS = 1;
-const QUIZ_V2_THINKING_SECONDS = 5;
+const QUIZ_HOOK_QUESTION_DELAY_SECONDS = 1;
+const QUIZ_V2_DEFAULT_THINKING_SECONDS = 3;
 const QUIZ_V2_REVEAL_HOLD_SECONDS = 1.4;
 const QUIZ_V2_TRANSITION_SECONDS = 1.0;
+
+function quizThinkingSeconds(nextTopic = topic) {
+  const configured = Number(nextTopic?.quizAnswerDelay);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
+  return QUIZ_V2_DEFAULT_THINKING_SECONDS;
+}
+
+function quizHookQuestionDelay(nextTopic = topic) {
+  const count = quizHookSegmentCount(nextTopic);
+  if (!count) return 0;
+  const configured = Number(nextTopic?.quizHookQuestionDelay);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
+  return QUIZ_HOOK_QUESTION_DELAY_SECONDS;
+}
 
 function quizItems() {
   if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== 3) return [];
@@ -1438,27 +1535,155 @@ function quizItems() {
   return valid ? topic.quizItems : [];
 }
 
-function quizV2Duration() {
-  const segments = Array.isArray(topic?.segments) ? topic.segments : [];
-  if (segments.length === 15) {
-    const last = segments[14];
-    const end = Number(last?.end) || 0;
-    if (end > 0) return end + QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS;
+function quizHookSegmentCount(nextTopic = topic) {
+  const requested = Number(nextTopic?.quizHookSegmentCount);
+  if (!Number.isInteger(requested) || requested < 0) return 0;
+  const segments = Array.isArray(nextTopic?.segments) ? nextTopic.segments : [];
+  return Math.min(requested, segments.length);
+}
+
+function quizHookWindow(nextTopic = topic) {
+  const count = quizHookSegmentCount(nextTopic);
+  if (!count) return null;
+  const first = nextTopic?.segments?.[0];
+  if (!first) return null;
+  const start = Number(first.start) || 0;
+  const rawEnd = Math.max(start, Number(first.end) || start);
+  const nextSegment = nextTopic?.segments?.[count];
+  const nextStart = Number(nextSegment?.start);
+  const delayedEnd = rawEnd + quizHookQuestionDelay(nextTopic);
+  const end = Number.isFinite(nextStart) && nextStart > rawEnd ? nextStart : delayedEnd;
+  return { start, end };
+}
+
+function quizHookIsActive(time, nextTopic = topic) {
+  const window = quizHookWindow(nextTopic);
+  const current = Number(time) || 0;
+  return Boolean(window && current >= window.start && current <= window.end + 0.05);
+}
+
+let lastQuizHookFitKey = "";
+
+function fitQuizHookText() {
+  const element = elements.quizHookText;
+  if (!element || element.hidden || !element.textContent.trim()) return;
+  const key = [
+    element.textContent,
+    Math.round(element.clientWidth),
+    Math.round(element.clientHeight),
+    document.fonts?.status || "",
+  ].join("\u001f");
+  if (key === lastQuizHookFitKey) return;
+  lastQuizHookFitKey = key;
+  const stageWidth = elements.stage?.clientWidth || 1080;
+  const min = stageWidth * 2.2 / 100;
+  let low = min;
+  let high = stageWidth * 7 / 100;
+  for (let index = 0; index < 12; index += 1) {
+    const middle = (low + high) / 2;
+    element.style.fontSize = `${middle}px`;
+    const fits = element.scrollWidth <= element.clientWidth + 1
+      && element.scrollHeight <= element.clientHeight + 1;
+    if (fits) low = middle;
+    else high = middle;
   }
-  return quizItems().length * (QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS);
+  element.style.fontSize = `${low}px`;
+  element.dataset.autoFitFontSize = low.toFixed(2);
+}
+
+function hideQuizHook() {
+  if (!elements.quizHook) return;
+  elements.quizHook.hidden = true;
+  elements.quizHook.setAttribute("aria-hidden", "true");
+  elements.stage?.classList.remove("quiz-hook-active");
+}
+
+function renderQuizHook() {
+  if (!elements.quizHook) return;
+  const art = String(topic?.quizHookArt || topic?.quizHook?.art || "").trim();
+  if (!art) {
+    hideQuizHook();
+    return;
+  }
+  if (elements.quizHookImage.getAttribute("src") !== resolveTopicAsset(art)) {
+    elements.quizHookImage.src = resolveTopicAsset(art);
+  }
+  elements.quizHookImage.hidden = false;
+  elements.quizHook.hidden = false;
+  if (elements.quizHookText) {
+    const title = String(topic?.quizHookText || "").trim();
+    if (elements.quizHookText.textContent !== title) {
+      elements.quizHookText.textContent = title;
+      lastQuizHookFitKey = "";
+    }
+    elements.quizHookText.hidden = !title;
+    fitQuizHookText();
+  }
+  elements.quizHook.setAttribute("aria-hidden", "false");
+  elements.stage?.classList.add("quiz-hook-active");
+}
+
+function quizV2Duration() {
+  const items = quizItems();
+  const segments = Array.isArray(topic?.segments) ? topic.segments : [];
+  const quizNarrationCount = items.length * 5;
+  const quizStart = quizHookSegmentCount();
+  if (quizNarrationCount > 0 && segments.length >= quizStart + quizNarrationCount) {
+    // The measured segment timeline already contains the three configured
+    // countdown gaps. Keep any trailing CTA in the preview duration too.
+    const last = segments[segments.length - 1];
+    const end = Number(last?.end) || 0;
+    if (end > 0) return end;
+  }
+  return items.length * (quizThinkingSeconds() + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS);
+}
+
+function quizV2CtaAt(time) {
+  const items = quizItems();
+  if (!items.length) return null;
+  const segments = Array.isArray(topic?.segments) ? topic.segments : [];
+  const quizNarrationCount = items.length * 5;
+  const quizStart = quizHookSegmentCount();
+  if (segments.length < quizStart + quizNarrationCount) return null;
+
+  // Any narration after the 3 x (question, A, B, C, answer) Quiz blocks is
+  // the closing CTA. From its first frame onward the Quiz cards must disappear
+  // completely and the dedicated CTA artwork owns the center of the stage.
+  const firstCta = segments[quizStart + quizNarrationCount];
+  const lastCta = segments[segments.length - 1];
+  const start = Number(firstCta?.start);
+  const fallbackEnd = Number(topic?.duration) || start;
+  const end = Math.max(start, Number(lastCta?.end) || fallbackEnd);
+  const current = Math.max(0, Number(time) || 0);
+  if (!Number.isFinite(start) || current < start) return null;
+  if (Number.isFinite(end) && end > start && current > end + 0.05) return null;
+  return { start, end };
 }
 
 function quizV2ItemAt(time) {
   const items = quizItems();
   if (!items.length) return null;
   const segments = Array.isArray(topic?.segments) ? topic.segments : [];
-  if (segments.length === items.length * 5) {
+  const quizNarrationCount = items.length * 5;
+  const quizStart = quizHookSegmentCount();
+  const thinkingSeconds = quizThinkingSeconds();
+  if (segments.length >= quizStart + quizNarrationCount) {
     const groups = items.map((item, index) => {
-      const rows = segments.slice(index * 5, index * 5 + 5);
+      const rows = segments.slice(quizStart + index * 5, quizStart + index * 5 + 5);
       const start = Number(rows[0]?.start) || 0;
       const optionsEnd = Number(rows[3]?.end) || start;
       const answerEnd = Number(rows[4]?.end) || optionsEnd;
-      return { item, index, start, revealAt: Math.max(0, optionsEnd - start) + QUIZ_V2_THINKING_SECONDS, end: answerEnd - start + QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS };
+      // Question + A + B + C are narrated first. The visible configured
+      // countdown must not start until option C has finished speaking.
+      const countdownStartAt = Math.max(0, optionsEnd - start);
+      return {
+        item,
+        index,
+        start,
+        countdownStartAt,
+        revealAt: countdownStartAt + thinkingSeconds,
+        end: answerEnd - start + thinkingSeconds + QUIZ_V2_REVEAL_HOLD_SECONDS,
+      };
     });
     let selected = groups[groups.length - 1];
     for (let index = 0; index < groups.length; index += 1) {
@@ -1469,15 +1694,23 @@ function quizV2ItemAt(time) {
     }
     return { ...selected, elapsed: Math.max(0, (Number(time) || 0) - selected.start), sceneDuration: selected.end };
   }
-  const sceneDuration = QUIZ_V2_THINKING_SECONDS + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS;
+  const sceneDuration = quizThinkingSeconds() + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS;
   const index = Math.min(items.length - 1, Math.max(0, Math.floor(Math.max(0, Number(time) || 0) / sceneDuration)));
   const start = index * sceneDuration;
-  return { item: items[index], index, start, elapsed: Math.max(0, (Number(time) || 0) - start), sceneDuration };
+  return {
+    item: items[index],
+    index,
+    start,
+    countdownStartAt: 0,
+    revealAt: quizThinkingSeconds(),
+    elapsed: Math.max(0, (Number(time) || 0) - start),
+    sceneDuration,
+  };
 }
 
 function quizAnswerStartTime() {
   const configured = Number(topic?.quizAnswerDelay);
-  return Math.max(0, Number.isFinite(configured) ? configured : 5);
+  return Math.max(0, Number.isFinite(configured) ? configured : QUIZ_V2_DEFAULT_THINKING_SECONDS);
 }
 
 function quizCountdownSoundPath() {
@@ -1487,7 +1720,23 @@ function quizCountdownSoundPath() {
 function quizAnswerText() {
   const raw = String(topic?.quizAnswer || "").trim();
   if (!raw) return "";
-  return /^(?:đáp án là|answer is)\s*/iu.test(raw) ? raw : `Đáp án là ${raw}`;
+  return /^(?:đáp án(?: chính xác)? là|answer is)\s*/iu.test(raw) ? raw : `Đáp án là ${raw}`;
+}
+
+function applyQuizCtaArt(nextTopic = topic) {
+  if (!elements.quizCtaArt) return;
+  const quizCtaSource = String(nextTopic?.quizCtaArt || "").trim();
+  if (quizCtaSource) {
+    const resolved = resolveTopicAsset(quizCtaSource);
+    if (elements.quizCtaArt.getAttribute("src") !== resolved) {
+      elements.quizCtaArt.src = resolveTopicAsset(quizCtaSource);
+    }
+    return;
+  }
+  const fallback = "/assets/quiz-cta-like.webp";
+  if (elements.quizCtaArt.getAttribute("src") !== new URL(fallback, window.location.href).href) {
+    elements.quizCtaArt.src = fallback;
+  }
 }
 
 function quizPairs() {
@@ -1501,11 +1750,24 @@ function quizPairs() {
 
 function renderQuizText(time) {
   if (!elements.quizText) return;
+  if (quizHookIsActive(time)) {
+    renderQuizHook();
+    return;
+  }
+  hideQuizHook();
+  const cta = quizV2CtaAt(time);
+  if (cta) {
+    renderQuizCta();
+    return;
+  }
+  if (elements.quizCtaArt) elements.quizCtaArt.hidden = true;
   const v2 = quizV2ItemAt(time);
   if (v2) {
     renderQuizV2(v2);
     return;
   }
+  elements.quizText.classList.toggle("quiz-v2", false);
+  if (elements.quizProgress) elements.quizProgress.hidden = true;
   const pairs = quizPairs();
   const delay = quizAnswerStartTime();
   let pair = pairs[0];
@@ -1554,23 +1816,54 @@ function renderQuizText(time) {
     ? `${Math.max(1, Math.ceil(delay - elapsed))}`
     : "";
   elements.quizAnswer.textContent = answerVisible
-    ? (/^(?:đáp án là|answer is)\s*/iu.test(answer) ? answer : `Đáp án là ${answer}`)
+    ? (/^(?:đáp án(?: chính xác)? là|answer is)\s*/iu.test(answer) ? answer : `Đáp án là ${answer}`)
     : "";
+}
+
+function renderQuizCta() {
+  // Explicitly clear every dynamic Quiz layer so seeking directly from an
+  // answer/reveal frame cannot leave stale UI or the chinhxac artwork visible.
+  elements.quizText.hidden = true;
+  elements.quizText.classList.remove("quiz-v2-enter");
+  if (elements.quizProgress) elements.quizProgress.hidden = true;
+  if (elements.quizOptions) elements.quizOptions.hidden = true;
+  if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = true;
+  if (elements.quizCountdown) elements.quizCountdown.textContent = "";
+  if (elements.quizResultArt) elements.quizResultArt.hidden = true;
+  if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
+  if (elements.quizCtaArt) elements.quizCtaArt.hidden = false;
 }
 
 function renderQuizV2(scene) {
   const { item, index, elapsed } = scene;
-  const reveal = elapsed >= Number(scene.revealAt || QUIZ_V2_THINKING_SECONDS);
+  const thinkingSeconds = quizThinkingSeconds();
+  const countdownStartAt = Math.max(0, Number(scene.countdownStartAt) || 0);
+  const countdownElapsed = elapsed - countdownStartAt;
+  const countdownActive = countdownElapsed >= 0 && countdownElapsed < thinkingSeconds;
+  const configuredRevealAt = Number(scene.revealAt);
+  const revealAt = Number.isFinite(configuredRevealAt)
+    ? configuredRevealAt
+    : countdownStartAt + thinkingSeconds;
+  const reveal = elapsed >= revealAt;
+  // suvietky bakes the clock into the artwork: show the configured countdown
+  // value from scene start; the real countdown tick begins once option C
+  // finishes (countdownStartAt).
+  const alwaysShowCountdown = String(topic?.brand || "") === "suvietky";
+  const countdownVisible = countdownActive || alwaysShowCountdown;
   const correctIndex = Math.max(0, Math.min(2, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);
+  if (elements.quizCtaArt) elements.quizCtaArt.hidden = true;
   elements.quizText.hidden = false;
   elements.quizText.classList.toggle("quiz-v2", true);
+  if (elements.quizProgress) elements.quizProgress.hidden = false;
+  if (elements.quizProgressValue) elements.quizProgressValue.textContent = `${index + 1}/${quizItems().length || 3}`;
   elements.quizText.style.setProperty("--quiz-question-font", style("quizQuestionFontFamily", '"Arial Black", Arial, sans-serif'));
   elements.quizText.style.setProperty("--quiz-question-color", style("quizQuestionColor", "#ffd21c"));
   elements.quizQuestion.textContent = String(item.question || "").trim();
   elements.quizQuestion.style.fontFamily = "var(--quiz-question-font)";
   elements.quizQuestion.style.color = "var(--quiz-question-color)";
   elements.quizQuestion.style.fontSize = `${Number(topic?.quizQuestionSize) || 7.2}cqw`;
+  fitSuvietkyQuestion();
   if (elements.quizOptions) {
     elements.quizOptions.hidden = false;
     Array.from(elements.quizOptions.querySelectorAll(".quiz-option")).forEach((option, optionIndex) => {
@@ -1578,9 +1871,14 @@ function renderQuizV2(scene) {
       option.classList.toggle("is-wrong", reveal && optionIndex !== correctIndex);
       option.querySelector(".quiz-option-text").textContent = String(item.options[optionIndex] || "").trim();
     });
+    fitSuvietkyOptions();
+    document.fonts?.ready.then(fitSuvietkyOptions);
   }
-  elements.quizCountdown.textContent = reveal ? "" : String(Math.max(1, Math.ceil(QUIZ_V2_THINKING_SECONDS - elapsed)));
-  if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = reveal;
+  elements.quizCountdown.textContent = countdownActive
+    ? String(Math.max(1, Math.ceil(thinkingSeconds - countdownElapsed)))
+    : (alwaysShowCountdown ? (reveal ? "0" : String(thinkingSeconds)) : "");
+  if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = !countdownVisible;
+  if (elements.quizResultArt) elements.quizResultArt.hidden = !reveal;
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (index !== lastQuizItemIndex) {
     elements.quizText.classList.remove("quiz-v2-enter");
@@ -1612,6 +1910,12 @@ function renderAt(time, allowPoseSfx = false) {
 
 function offlineImagePaths() {
   const paths = [topic.leftImage, topic.rightImage];
+  if (isQuizProject(topic) && String(topic.backgroundType || "default").toLowerCase() === "default") {
+    paths.push("assets/background-default.png");
+  }
+  if (isQuizProject(topic)) paths.push("/assets/chinhxac.webp");
+  if (isQuizProject(topic)) paths.push(topic.quizCtaArt || "/assets/quiz-cta-like.webp");
+  if (isQuizProject(topic) && topic.quizHookArt) paths.push(topic.quizHookArt);
   if (String(topic.backgroundType || "").toLowerCase() === "image" && topic.backgroundImage) {
     paths.push(topic.backgroundImage);
   }
@@ -2069,6 +2373,15 @@ function applyStageBackground(nextTopic = topic) {
     return;
   }
 
+  if (type === "default" && isQuizProject(nextTopic) && bgImage) {
+    elements.stage.style.background = "#fbd617";
+    const src = resolveTopicAsset("assets/background-default.png");
+    if (bgImage.getAttribute("src") !== src) bgImage.src = src;
+    bgImage.hidden = false;
+    applyImageFrame(bgImage, 1, 0, 0);
+    return;
+  }
+
   elements.stage.style.background = "";
   if (bgImage) {
     bgImage.hidden = true;
@@ -2082,6 +2395,7 @@ async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false
   const previousCompactCjk = usesCompactCjkText(topic);
   const previousVietnamese = usesVietnameseText(topic);
   topic = nextTopic;
+  applyQuizCtaArt(topic);
   currentTopicPresentationKey = nextPresentationKey;
   timedWords = buildTimedWords(topic.segments || []);
   wordGroups = buildGroups(timedWords);
@@ -2121,10 +2435,15 @@ async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false
   const stageClasses = elements.stage.classList;
   teacherClasses.remove(...Array.from(teacherClasses).filter((cls) => cls.startsWith("character-")));
   stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("character-")));
+  stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("brand-")));
   if (isCustomCharacter && topic.characterId) {
     teacherClasses.add(`character-${topic.characterId}`);
     stageClasses.add(`character-${topic.characterId}`);
   }
+  // Brand and character are independent scopes: several Quiz brands share
+  // character `quizz`, while only one may use artwork-specific overlay CSS.
+  const topicBrand = String(topic.brand || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  if (topicBrand) stageClasses.add(`brand-${topicBrand}`);
   // Tải manifest nhân vật để lấy màu nhãn mặc định (fallback theo character - Phương án A).
   await loadCharacterMeta(isCustomCharacter ? topic.characterId : null);
   if (!isCustomCharacter) clearImportedPresenterLayout();
@@ -2224,7 +2543,13 @@ async function init() {
   window.__AUREX_MEDIA_SYNC_STATS__ = offlineMediaSyncStats;
   window.__layoutImportedPresenterForTest = () => layoutImportedPresenter(presenterLayoutGeneration);
   fitHeadings();
-  document.fonts?.ready.then(fitHeadings);
+  fitSuvietkyQuestion();
+  document.fonts?.ready.then(() => {
+    fitHeadings();
+    fitSuvietkyQuestion();
+    lastQuizHookFitKey = "";
+    fitQuizHookText();
+  });
   if (autoplay) await startPlayback(true);
 }
 
@@ -2338,6 +2663,7 @@ window.addEventListener("message", (event) => {
 
 new ResizeObserver(() => {
   fitHeadings();
+  fitSuvietkyQuestion();
   scheduleImportedPresenterLayout();
 }).observe(elements.stage);
 

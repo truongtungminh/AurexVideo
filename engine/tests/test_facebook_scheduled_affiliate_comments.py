@@ -77,15 +77,27 @@ class FacebookScheduledAffiliateCommentTests(unittest.TestCase):
     def test_published_posts_once_and_second_poll_is_idempotent(self):
         job = self._scheduled_job()
 
-        result, _metadata, comment = self._poll({"id": "post-1", "is_published": True})
+        result, metadata, comment = self._poll({"id": "post-1", "is_published": True})
 
         self.assertEqual(result["commented"], 1)
         comment.assert_called_once()
+        self.assertEqual(metadata.call_args.args[1], "123_post-1")
         self.assertEqual(comment.call_args.args[1], "123_post-1")
         self.assertIn("Bình giữ nhiệt", comment.call_args.args[2])
         saved = affiliate_store.get_publish_job(job["id"])
         self.assertEqual(saved["status"], "published")
         self.assertEqual(saved["comment_id"], "comment-1")
+
+        with (
+            patch.object(facebook, "read_social_config", return_value=CONFIG),
+            patch.object(facebook, "facebook_object_metadata", return_value={"id": "post-2", "is_published": True}) as read_metadata,
+            patch.object(facebook, "post_facebook_source_comment", return_value=("comment-2", "")),
+        ):
+            second_job = self._scheduled_job(content_id="video-2", post_id="post-2")
+            scheduler.poll_facebook_scheduled_affiliate_comments()
+
+        self.assertEqual(read_metadata.call_args.kwargs["fields"], "id,is_published")
+        self.assertEqual(affiliate_store.get_publish_job(second_job["id"])["comment_id"], "comment-2")
 
         result, metadata, comment = self._poll({"id": "post-1", "is_published": True})
         self.assertEqual(result["checked"], 0)
@@ -169,6 +181,20 @@ class FacebookScheduledAffiliateCommentTests(unittest.TestCase):
         self.assertEqual(saved["status"], "comment_retry")
         self.assertEqual(saved["comment_attempts"], 1)
         self.assertTrue(saved["next_comment_attempt_at"])
+
+    def test_retries_legacy_deprecated_status_failure(self):
+        job = self._scheduled_job(
+            status="comment_failed",
+            error="HTTP 400: singular statuses API is deprecated for versions v2.4 and higher",
+        )
+
+        result, _metadata, comment = self._poll({"id": "post-1", "is_published": True})
+
+        self.assertEqual(result["commented"], 1)
+        comment.assert_called_once()
+        saved = affiliate_store.get_publish_job(job["id"])
+        self.assertEqual(saved["status"], "published")
+        self.assertEqual(saved["comment_id"], "comment-1")
 
     def test_migrates_legacy_publish_jobs_with_auto_comment_disabled(self):
         path = Path(affiliate_store.AFFILIATE_DB_PATH)

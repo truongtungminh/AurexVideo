@@ -1157,7 +1157,13 @@ def list_pending_facebook_comment_jobs(*, limit: int = 50, now: str = "") -> lis
               AND j.comment_id = ''
               AND j.auto_comment = 1
               AND j.placement IN ('first_comment', 'caption_and_comment')
-              AND j.status IN ('scheduled', 'comment_retry')
+              AND (
+                    j.status IN ('scheduled', 'comment_retry')
+                    OR (
+                        j.status = 'comment_failed'
+                        AND j.error LIKE '%singular statuses API is deprecated%'
+                    )
+                  )
               AND j.scheduled_at != ''
               AND j.scheduled_at <= ?
               AND (j.next_comment_attempt_at = '' OR j.next_comment_attempt_at <= ?)

@@ -8,6 +8,14 @@
   src: url("assets/fonts/InterVariable.woff2") format("woff2-variations");
 }
 
+@font-face {
+  font-family: "Bevan";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("assets/Bevan-Regular.ttf") format("truetype");
+}
+
 :root {
   --safe-zone-x: 5%;
   color-scheme: light;
@@ -69,6 +77,12 @@ body {
 .stage-intro-copy>img{position:absolute;left:30%;top:35%;width:38%;max-width:78%;height:auto;max-height:26%;object-fit:contain;transform:translate(-50%,-50%);filter:drop-shadow(0 .45cqw 1cqw rgba(0,0,0,.26))}
 .stage-intro-copy>p{position:absolute;left:11%;top:45%;width:90%;margin:0;color:#fff;font-size:calc(5.2cqw * var(--intro-title-size,1));font-weight:900;line-height:1.08;letter-spacing:-.035em;text-align:none;text-wrap:balance;text-shadow:0 .28cqw .65cqw rgba(0,0,0,.45)}
 .stage.preview-blank .stage-intro{visibility:hidden}
+.quiz-hook{position:absolute;inset:0;z-index:20;overflow:hidden;background:#1d130d;isolation:isolate;pointer-events:none}
+.quiz-hook[hidden]{display:none!important}
+.quiz-hook>img{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;display:block}
+.quiz-hook-text{position:absolute;z-index:1;left:22.9%;top:70%;width:55.1%;height:7.5%;display:flex;align-items:center;justify-content:center;padding:1.5% 2%;box-sizing:border-box;color:#5B0A08;font-family:"Bevan",serif;font-size:7cqw;font-weight:400;line-height:0.9;text-align:center;text-wrap:balance;overflow:hidden}
+.quiz-hook-text[hidden]{display:none!important}
+.stage.quiz-hook-active .quiz-text,.stage.quiz-hook-active .karaoke,.stage.quiz-hook-active .quiz-cta-art{visibility:hidden}
 .slide-canvas .slide-text{width:100%;margin:0;white-space:pre-wrap;line-height:1.12;font-weight:850;text-align:center}
 .slide-effect-fade .slide-layer-image{animation:custom-slide-fade .42s ease both}
 .slide-effect-zoom .slide-layer-image{animation:custom-slide-zoom .42s ease both}
@@ -136,9 +150,27 @@ body {
 }
 
 .quiz-text[hidden],
-.stage.preview-blank .quiz-text {
+.stage.preview-blank .quiz-text,
+.stage.preview-blank .quiz-cta-art {
   visibility: hidden;
 }
+
+.quiz-cta-art {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 9;
+  width: 80cqw;
+  max-width: 88%;
+  max-height: 58%;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 1.2cqw .8cqw rgba(11, 11, 11, .2));
+}
+
+.quiz-cta-art[hidden] { display: none; }
 
 /* Legacy quiz flow layout. */
 .quiz-question-card,
@@ -373,72 +405,106 @@ body {
 /* Quiz Scroll V2 follows the static brand artwork and has no presenter layer. */
 .stage.quiz-text-only .teacher-wrap { display: none !important; }
 
-/* Quiz Scroll V2: the question, choices, and countdown share one normal flow. */
+/* Quiz Scroll V2: overlay dynamic quiz content onto the static 941x1672 brand artwork. */
 .quiz-text.quiz-v2 {
-  top: 20.5%;
-  width: 89%;
-  gap: 2.2cqw;
+  top: 21.6%;
+  width: 100%;
+  gap: 0;
   pointer-events: none;
 }
+
+.quiz-v2 .quiz-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1cqw;
+  width: 30.6cqw;
+  min-height: 8.2cqw;
+  margin: 0 0 2cqw;
+  padding: .8cqw 2.5cqw 1cqw;
+  color: #0b0b0b;
+  font: 950 5.15cqw/.98 "Arial Rounded MT Bold", "Arial Black", "Be Vietnam Pro", Arial, sans-serif;
+  letter-spacing: -.055em;
+  background: linear-gradient(180deg, #fffef9 0%, #fffaf0 100%);
+  border: .58cqw solid #0b0b0b;
+  border-radius: 999px;
+  box-shadow: 0 .72cqw 0 rgba(11,11,11,.82), inset 0 0 0 .22cqw rgba(255,255,255,.95);
+}
+.quiz-v2 .quiz-progress[hidden] { display: none; }
+.quiz-v2 .quiz-progress strong {
+  color: #f52d4c;
+  font: inherit;
+}
+
 .quiz-v2 .quiz-question-card {
-  width: 100%;
-  padding: 3.2cqw 3.8cqw;
-  border-radius: 4.8cqw;
-  border-width: .72cqw;
-  box-shadow: 0 .9cqw 0 #0b0b0b, .7cqw 1.3cqw 0 #ffd21c;
+  width: 83.4cqw;
+  min-height: 30.2cqw;
+  margin: 0 0 3.6cqw;
+  padding: 3.4cqw 4.6cqw;
+  border: .72cqw solid #0b0b0b;
+  border-radius: 4.9cqw;
+  background: linear-gradient(150deg, #ffffff 0%, #fffefa 62%, #f6f5f1 100%);
+  box-shadow: 0 1.05cqw 0 rgba(11,11,11,.82), .55cqw 1.55cqw 0 rgba(11,11,11,.2), inset 0 0 0 .32cqw rgba(255,255,255,.94);
 }
 .quiz-v2 .quiz-question {
   color: var(--quiz-question-color, #ffd21c) !important;
-  font-family: var(--quiz-question-font, "Arial Black", Arial, sans-serif) !important;
-  font-size: 7.1cqw !important;
-  line-height: 1.04;
-  letter-spacing: 0;
-  -webkit-text-stroke: .42cqw #0b0b0b;
-  text-shadow: .22cqw .3cqw 0 #0b0b0b;
+  font-family: "Arial Rounded MT Bold", "Arial Black", "Be Vietnam Pro", Arial, sans-serif !important;
+  font-size: 7cqw !important;
+  font-weight: 950;
+  line-height: 1.2;
+  letter-spacing: -.05em;
+  -webkit-text-stroke: .4cqw #0b0b0b;
+  paint-order: stroke fill;
+  text-shadow: .16cqw .24cqw 0 #0b0b0b;
 }
-.quiz-options {
+.quiz-v2 .quiz-options {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  gap: 1.7cqw;
+  width: 78cqw;
+  gap: 2cqw;
+  margin: 0 0 2cqw;
 }
-.quiz-option {
+.quiz-v2 .quiz-option {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 2.4cqw;
-  min-height: 12.5cqw;
-  padding: 2cqw 4.2cqw 2cqw 2cqw;
+  gap: 4.35cqw;
+  min-height: 14.35cqw;
+  padding: 1.8cqw 4cqw 1.8cqw 2.2cqw;
   background: #fffdf4;
   border: .62cqw solid #0b0b0b;
   border-radius: 999px;
-  box-shadow: 0 .7cqw 0 rgba(11,11,11,.8);
+  box-shadow: 0 .82cqw 0 rgba(11,11,11,.82), inset 0 0 0 .2cqw rgba(255,255,255,.9);
   box-sizing: border-box;
   transition: opacity .25s ease, transform .25s ease, background .25s ease;
 }
-.quiz-option-label {
+.quiz-v2 .quiz-option-label {
   display: grid;
-  flex: 0 0 8.8cqw;
-  width: 8.8cqw;
-  height: 8.8cqw;
+  flex: 0 0 14cqw;
+  width: 14cqw;
+  height: 9.2cqw;
   place-items: center;
-  border: .45cqw solid #0b0b0b;
-  border-radius: 50%;
+  border: .48cqw solid #0b0b0b;
+  border-radius: 999px;
   color: #fff;
-  font: 900 5cqw/1 Arial, sans-serif;
-  text-shadow: .18cqw .18cqw 0 #0b0b0b;
+  font: 950 5.55cqw/.95 "Arial Rounded MT Bold", "Arial Black", Arial, sans-serif;
+  letter-spacing: -.045em;
+  -webkit-text-stroke: .16cqw #0b0b0b;
+  paint-order: stroke fill;
+  text-shadow: .12cqw .16cqw 0 #0b0b0b;
 }
-.quiz-option:nth-child(1) .quiz-option-label { background: #f0445d; }
-.quiz-option:nth-child(2) .quiz-option-label { background: #3478de; }
-.quiz-option:nth-child(3) .quiz-option-label { background: #43b965; }
-.quiz-option-text {
+.quiz-v2 .quiz-option:nth-child(1) .quiz-option-label { background: linear-gradient(180deg, #ff5a72, #f12f50); }
+.quiz-v2 .quiz-option:nth-child(2) .quiz-option-label { background: linear-gradient(180deg, #2fa8ff, #1988ea); }
+.quiz-v2 .quiz-option:nth-child(3) .quiz-option-label { background: linear-gradient(180deg, #31d65d, #16b946); }
+.quiz-v2 .quiz-option-text {
   min-width: 0;
   color: #0b0b0b;
-  font: 900 5.15cqw/1.08 "Be Vietnam Pro", Arial, sans-serif;
+  font: 950 5.34cqw/1.01 "Arial Rounded MT Bold", "Arial Black", "Be Vietnam Pro", Arial, sans-serif;
+  letter-spacing: -.052em;
   text-align: left;
   overflow-wrap: anywhere;
 }
-.quiz-option-check {
+.quiz-v2 .quiz-option-check {
   display: none;
   margin-left: auto;
   color: #fff;
@@ -453,9 +519,331 @@ body {
 .quiz-option.is-correct .quiz-option-text { color: #fff; text-shadow: .16cqw .16cqw 0 #0b0b0b; }
 .quiz-option.is-correct .quiz-option-check { display: block; }
 .quiz-option.is-wrong { opacity: .45; }
-.quiz-v2 .quiz-countdown-wrap { margin-top: .8cqw; }
+.quiz-v2 .quiz-countdown-wrap {
+  position: relative;
+  width: 31cqw;
+  height: 31cqw;
+  margin-top: 0;
+  overflow: visible;
+  isolation: isolate;
+  background: url("assets/quiz-clock.png") center / contain no-repeat;
+  animation: quiz-clock-bounce .28s cubic-bezier(.2,.9,.2,1.25) both;
+}
+
+/* Clock artwork now comes from the transparent PNG/WebP asset. */
+.quiz-v2 .quiz-countdown-wrap::before,
+.quiz-v2 .quiz-countdown-wrap::after {
+  content: none;
+}
+
+.quiz-v2 .quiz-clock-bell {
+  display: none !important;
+}
+
+.quiz-v2 .quiz-countdown {
+  position: absolute;
+  left: 48%;
+  top: 53%;
+  z-index: 2;
+  width: auto;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  box-sizing: border-box;
+  display: block;
+  color: #ff2943 !important;
+  font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
+  font-size: 10.8cqw;
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: -.055em;
+  background: none !important;
+  border: 0 !important;
+  outline: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 .18cqw 0 rgba(160,0,24,.14);
+  transform: translate(-50%, -50%);
+}
+
+@keyframes quiz-clock-bounce {
+  0% { opacity: 0; transform: scale(.78) rotate(-2deg); }
+  72% { opacity: 1; transform: scale(1.07) rotate(1deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
 .quiz-v2 .quiz-countdown-wrap[hidden] { display: none; }
+.quiz-v2 .quiz-result-art {
+  display: block;
+  width: 45cqw;
+  height: auto;
+  margin: .4cqw auto 0;
+  object-fit: contain;
+  filter: drop-shadow(0 .8cqw .45cqw rgba(11, 11, 11, .22));
+  transform-origin: 50% 18%;
+  animation: quiz-result-art-pop .4s cubic-bezier(.18, .9, .25, 1.22) both;
+}
+.quiz-v2 .quiz-result-art[hidden] { display: none; }
+@keyframes quiz-result-art-pop {
+  0% { opacity: 0; transform: translateY(2.2cqw) scale(.78) rotate(-2deg); }
+  72% { opacity: 1; transform: translateY(-.4cqw) scale(1.05) rotate(1deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
 .quiz-v2 .quiz-answer-card { display: none !important; }
+
+/* Su Viet Ky: the progress badge, clock, question frame, answer pills, and A/B/C badges are already baked into
+   background-suvietky.png. Keep this block to dynamic text/state only. */
+.stage.brand-suvietky .quiz-text.quiz-v2 {
+  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  transform: none;
+  animation: none;
+}
+
+/* The Su Viet Ky CTA artwork is a complete 9:16 end card. It must replace,
+   not sit inside, the baked quiz background during segment 16. */
+.stage.brand-suvietky .quiz-cta-art {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  object-fit: cover;
+  transform: none;
+  filter: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-progress {
+  position: absolute;
+  left: 76.7%;
+  top: 1.9%;
+  width: 16.5%;
+  height: 8%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-progress span { display: none; }
+.stage.brand-suvietky .quiz-v2 .quiz-progress strong {
+  color: #fff;
+  font: 900 5.25cqw/1 "Be Vietnam Pro", Inter, sans-serif;
+  letter-spacing: -.06em;
+  text-shadow: 0 .18cqw .25cqw rgba(77, 0, 0, .36);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-question-card {
+  position: absolute;
+  left: 12.1%;
+  top: 30%;
+  width: 72.2%;
+  height: 16.6%;
+  min-height: 0;
+  margin: 0;
+  padding: 2.4cqw 4.4cqw;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-question-card::after { content: none; }
+.stage.brand-suvietky .quiz-v2 .quiz-question {
+  color: #15100c !important;
+  font-family: "Be Vietnam Pro", Inter, sans-serif !important;
+  font-size: var(--quiz-question-fit-size, 5.65cqw) !important;
+  font-weight: 900 !important;
+  line-height: 1.16;
+  letter-spacing: -.045em;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 .12cqw .08cqw rgba(255, 255, 255, .32);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-options {
+  position: absolute;
+    left: 15.5%;
+    top: 45.8%;
+    width: 66.5%;
+    height: 23.5%;
+    display: flex;
+    flex-direction: column;
+    gap: 0%;
+    margin: 0;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option {
+  position: relative;
+  flex: 1 1 0;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+  transform: none !important;
+  opacity: 1;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option::before {
+  content: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option-label {
+  display: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option-text {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: calc(100% - 28cqw);
+  max-width: none;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  color: #17120f;
+  font: 900 4.75cqw/1.08 "Be Vietnam Pro", Inter, sans-serif;
+  letter-spacing: -.045em;
+  text-align: center;
+  overflow-wrap: anywhere;
+  transform: translateX(-50%);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-correct::before,
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-wrong::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  z-index: 1;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-correct::before {
+  background: linear-gradient(180deg, #149b45 0%, #087c34 100%);
+  border: .38cqw solid #075d2a;
+  box-shadow:
+    0 0 0 .3cqw rgba(255, 246, 129, .9),
+    0 0 1.6cqw .38cqw rgba(255, 220, 54, .72),
+    inset 0 0 1.1cqw rgba(255, 255, 255, .22);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-correct .quiz-option-label {
+  position: absolute;
+  left: 1.05cqw;
+  top: 50%;
+  z-index: 3;
+  width: 11.4cqw;
+  height: 11.4cqw;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font: 900 5.25cqw/1 "Be Vietnam Pro", Inter, sans-serif;
+  letter-spacing: -.04em;
+  background: #ae1019;
+  border: .34cqw solid #6d0208;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 .18cqw rgba(255, 255, 255, .28);
+  -webkit-text-stroke: 0;
+  text-shadow: 0 .12cqw .12cqw rgba(65, 0, 0, .38);
+  transform: translateY(-50%);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-correct .quiz-option-text {
+  color: #fff;
+  text-shadow: 0 .2cqw .22cqw rgba(0, 46, 19, .48);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-wrong {
+  opacity: 1;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-wrong::before {
+  background: rgba(235, 218, 179, .38);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-wrong .quiz-option-text {
+  color: #5f5548;
+  text-shadow: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option-check,
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-correct .quiz-option-check {
+  position: absolute;
+  right: 1.3cqw;
+  top: 50%;
+  z-index: 3;
+  width: 9.4cqw;
+  height: 9.4cqw;
+  margin: 0;
+  display: none;
+  place-items: center;
+  color: #fff;
+  font: 900 6.2cqw/1 Arial, sans-serif;
+  background: #1aad42;
+  border: .45cqw solid #fff9bc;
+  border-radius: 50%;
+  box-shadow: 0 0 1.15cqw rgba(255, 239, 72, .95), inset 0 0 .65cqw rgba(255, 255, 255, .3);
+  -webkit-text-stroke: 0;
+  text-shadow: 0 .18cqw .16cqw rgba(0, 76, 29, .45);
+  transform: translateY(-50%);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-option.is-correct .quiz-option-check { display: grid; }
+
+.stage.brand-suvietky .quiz-v2 .quiz-countdown-wrap {
+  position: absolute;
+  left: 38.5%;
+  top: 19.8%;
+  width: 21.2cqw;
+  height: 21.2cqw;
+  margin: 0;
+  overflow: visible;
+  background: none;
+  animation: none;
+  transform: none;
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-countdown {
+  left: 49%;
+  top: 49%;
+  color: #15100c !important;
+  font-family: "Be Vietnam Pro", Inter, sans-serif;
+  font-size: 8.8cqw;
+  font-weight: 900;
+  letter-spacing: -.07em;
+  text-shadow: 0 .16cqw .1cqw rgba(255, 255, 255, .38);
+}
+
+.stage.brand-suvietky .quiz-v2 .quiz-result-art { display: none !important; }
+.stage.brand-suvietky .quiz-v2-enter { animation: none; }
+
 .quiz-v2-enter { animation: quiz-v2-scroll-in .5s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes quiz-v2-scroll-in {
   from { opacity: 0; transform: translateX(-50%) translateY(8cqw); }

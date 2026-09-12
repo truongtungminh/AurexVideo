@@ -1,4 +1,27 @@
 .affiliate-page { min-height: 100vh; overflow: auto; }
+html[data-theme="light"] body.affiliate-page {
+  --ink: #20170f;
+  --muted: rgba(32, 23, 15, .62);
+  --line: rgba(74, 51, 25, .13);
+  --paper: rgba(255, 251, 244, .78);
+  --soft: rgba(81, 58, 33, .06);
+  --accent: #f36b21;
+  --accent-dark: #c95717;
+  --green: #2f9959;
+  --shadow: 0 18px 50px rgba(104, 72, 36, .08);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% -8%, rgba(255, 165, 92, .24), transparent 31rem),
+    radial-gradient(circle at 92% 108%, rgba(138, 108, 69, .12), transparent 28rem),
+    linear-gradient(135deg, #f8f5ef, #e9e4da);
+}
+html[data-theme="light"] body.affiliate-page .panel { border-color: var(--line); background: var(--paper); }
+html[data-theme="light"] body.affiliate-page .button.secondary { color: var(--ink); border-color: var(--line); background: rgba(255, 251, 244, .72); }
+html[data-theme="light"] body.affiliate-page .button.danger { color: #9f2e2e; border-color: rgba(159, 46, 46, .25); background: rgba(159, 46, 46, .06); }
+html[data-theme="light"] body.affiliate-page input,
+html[data-theme="light"] body.affiliate-page textarea,
+html[data-theme="light"] body.affiliate-page select { color: var(--ink); border-color: var(--line); background: rgba(255, 251, 244, .72); }
+html[data-theme="light"] body.affiliate-page label { color: var(--muted); }
 .affiliate-shell { width: min(1380px, calc(100% - 36px)); margin: 32px auto 76px; }
 .affiliate-hero { display: flex; align-items: end; justify-content: space-between; gap: 28px; padding: clamp(28px, 5vw, 58px); overflow: hidden; background: radial-gradient(circle at 86% 18%, rgba(243,107,33,.22), transparent 26%), radial-gradient(circle at 72% 100%, rgba(30,139,92,.12), transparent 28%), var(--paper); }
 .affiliate-hero h1 { margin: 0; font-size: clamp(32px, 4vw, 54px); letter-spacing: -.055em; line-height: .98; }

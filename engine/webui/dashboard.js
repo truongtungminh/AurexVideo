@@ -509,7 +509,10 @@ async function startRender() {
         payload.audioPath = uploaded.path;
       } else source = "project";
     }
+    // Send both names for compatibility with the packaged backend. Older
+    // builds read `engine`; newer builds also accept the historical `source`.
     payload.source = source;
+    payload.engine = source;
     const result = await api(`/api/projects/${encodeURIComponent(state.selected)}/render`, { method: "POST", body: JSON.stringify(payload) });
     await loadProjectsOnly();
     state.jobs.set(result.job.id, result.job);

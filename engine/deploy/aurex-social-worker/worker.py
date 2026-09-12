@@ -9,6 +9,7 @@ import socket
 import sqlite3
 import threading
 import time
+import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +32,7 @@ TIKTOK_MAX_ATTEMPTS = max(1, int(os.environ.get("TIKTOK_MAX_ATTEMPTS", "3")))
 TIKTOK_SCHEDULE_GRACE_SECONDS = max(0, int(os.environ.get("TIKTOK_SCHEDULE_GRACE_SECONDS", "5")))
 SOCIAL_MEDIA_RETRY_SECONDS = max(60, int(os.environ.get("SOCIAL_MEDIA_RETRY_SECONDS", "300")))
 SOCIAL_MAX_ATTEMPTS = max(1, int(os.environ.get("SOCIAL_MAX_ATTEMPTS", "3")))
+SOCIAL_CONTAINER_MAX_WAIT_SECONDS = max(30, int(os.environ.get("SOCIAL_CONTAINER_MAX_WAIT_SECONDS", "180")))
 SOCIAL_CONNECTIONS_FILE = Path(
     os.environ.get("SOCIAL_CONNECTIONS_FILE", "/etc/aurex-social-worker-social.json")
 )
@@ -1009,7 +1011,10 @@ def graph_create_publish(
         container = created.get("id")
         if not container:
             raise RuntimeError("Instagram container creation failed: {}".format(created))
+        deadline = time.monotonic() + SOCIAL_CONTAINER_MAX_WAIT_SECONDS
         for _ in range(60):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Instagram container timed out after {} seconds.".format(SOCIAL_CONTAINER_MAX_WAIT_SECONDS))
             status = graph_get(
                 "https://graph.instagram.com/{}/{}".format(INSTAGRAM_GRAPH_VERSION, container),
                 {"fields": "status_code,status"},
@@ -1019,7 +1024,9 @@ def graph_create_publish(
                 break
             if status.get("status_code") in {"ERROR", "EXPIRED"}:
                 raise RuntimeError("Instagram container failed: {}".format(status))
-            time.sleep(5)
+            time.sleep(min(5, max(0, deadline - time.monotonic())))
+        else:
+            raise RuntimeError("Instagram container timed out after {} seconds.".format(SOCIAL_CONTAINER_MAX_WAIT_SECONDS))
         published = json_request(base + "/media_publish", {"creation_id": container}, token)
         media_id = str(published.get("id") or "").strip()
         if not media_id:
@@ -1035,13 +1042,18 @@ def graph_create_publish(
         container = created.get("id")
         if not container:
             raise RuntimeError("Threads container creation failed: {}".format(created))
+        deadline = time.monotonic() + SOCIAL_CONTAINER_MAX_WAIT_SECONDS
         for _ in range(60):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Threads container timed out after {} seconds.".format(SOCIAL_CONTAINER_MAX_WAIT_SECONDS))
             status = graph_get(base + "/" + container, {"fields": "status,error_message"}, token)
             if status.get("status") in {"FINISHED", "PUBLISHED"}:
                 break
             if status.get("status") in {"ERROR", "EXPIRED"}:
                 raise RuntimeError("Threads container failed: {}".format(status))
-            time.sleep(5)
+            time.sleep(min(5, max(0, deadline - time.monotonic())))
+        else:
+            raise RuntimeError("Threads container timed out after {} seconds.".format(SOCIAL_CONTAINER_MAX_WAIT_SECONDS))
         published = json_request(base + "/me/threads_publish", {"creation_id": container}, token)
         media_id = str(published.get("id") or "").strip()
         if not media_id:
@@ -1668,9 +1680,23 @@ def worker_loop() -> None:
                 except Exception as exc:
                     _job_failed(job, exc)
             _poll_tiktok_watches()
-        except Exception as exc:
-            print("worker loop error: {}".format(exc), flush=True)
+        except BaseException:
+            # Keep the scheduler alive on unexpected failures and leave a
+            # traceback in journald so a dead loop is diagnosable.
+            print("worker loop error:\n{}".format(traceback.format_exc()), flush=True)
         time.sleep(5)
+
+
+def scheduler_supervisor() -> None:
+    """Restart the scheduler loop if it exits; HTTP must not mask that loss."""
+    while True:
+        thread = threading.Thread(target=worker_loop, name="social-scheduler", daemon=True)
+        thread.start()
+        print("scheduler supervisor: started {}".format(thread.name), flush=True)
+        while thread.is_alive():
+            time.sleep(5)
+        print("scheduler supervisor: scheduler thread exited; restarting", flush=True)
+        time.sleep(1)
 
 
 def body(handler: BaseHTTPRequestHandler) -> Dict[str, Any]:
@@ -1945,5 +1971,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     init_db()
-    threading.Thread(target=worker_loop, name="social-worker", daemon=True).start()
+    threading.Thread(target=scheduler_supervisor, name="scheduler-supervisor", daemon=True).start()
     ThreadingHTTPServer((os.environ.get("WORKER_BIND", "127.0.0.1"), PORT), Handler).serve_forever()

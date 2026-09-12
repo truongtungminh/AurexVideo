@@ -4,18 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Affiliate Dashboard · AurexVideo</title>
+    <script>document.documentElement.dataset.theme=localStorage.getItem('aurexvideo-theme')==='dark'?'dark':'light';</script>
     <link rel="stylesheet" href="/webui/styles.css" />
     <link rel="stylesheet" href="/webui/affiliate.css" />
+    <link rel="stylesheet" href="/webui/app-shell.css?v=20260910-shared-header-v4" />
+    <script defer src="/webui/app-shell.js?v=20260910-shared-header-v3"></script>
   </head>
   <body class="affiliate-page">
-    <header class="topbar affiliate-topbar">
-      <a class="brand" href="/">
-        <img src="/assets/generated/channel-avatar.png" alt="" />
-        <span><strong>Aurex</strong><small>Affiliate Dashboard</small></span>
+    <header class="aurex-app-header">
+      <a class="aurex-app-brand" href="/" aria-label="Về bảng điều khiển AurexVideo">
+        <img src="/web/aurexvideo-logo.png" alt="Aurex" />
+        <span class="aurex-app-brand-copy"><strong>AurexVideo</strong><small>Creator workspace</small></span>
       </a>
-      <div class="top-actions">
-        <a class="button secondary" href="/" target="_self">← Xưởng video</a>
-        <button class="button secondary" id="refreshButton" type="button">Làm mới</button>
+      <nav class="aurex-app-nav" aria-label="Điều hướng chính">
+        <a href="/">Bảng điều khiển</a>
+        <a href="/upload">Đăng tải</a>
+        <a class="is-active" href="/affiliate" aria-current="page">Affiliate</a>
+        <a href="/social">Social</a>
+      </nav>
+      <div class="aurex-app-header-actions">
+        <button class="aurex-app-button" type="button" data-app-theme-toggle aria-label="Đổi giao diện"><span class="aurex-app-theme-symbol" aria-hidden="true">☼</span><span class="aurex-app-theme-label">Light</span></button>
+        <button class="aurex-app-button aurex-app-icon-button" id="refreshButton" type="button" aria-label="Làm mới" title="Làm mới"><span aria-hidden="true">↻</span><span class="aurex-app-button-label">Làm mới</span></button>
+        <a class="aurex-app-button is-primary" href="/upload"><span class="btn-icon" aria-hidden="true">＋</span><span class="aurex-app-button-label">Đăng tải video</span></a>
       </div>
     </header>
 
@@ -76,7 +86,7 @@
           <div class="settings-column">
             <h3>Policy khi upload</h3>
             <label class="settings-check"><input id="affiliateEnabled" type="checkbox" /> Bật Affiliate cho Brand này</label>
-            <label>Chế độ<select id="affiliateMode"><option value="off">OFF · không đính link</option><option value="manual">MANUAL · chọn sản phẩm</option><option value="auto">AUTO · tự chọn theo script</option></select></label>
+            <label>Chế độ<select id="affiliateMode"><option value="off">OFF · không đính link</option><option value="manual">MANUAL · chọn sản phẩm</option><option value="auto">AUTO · chọn Pool theo caption Facebook</option></select></label>
             <label>Vị trí link<select id="affiliatePlacement"><option value="first_comment">Comment đầu tiên</option><option value="caption">Caption</option><option value="caption_and_comment">Caption + comment</option><option value="shopee_native_tag">Shopee native tag (POC)</option></select></label>
             <div class="settings-inline"><label>Số sản phẩm/post<input id="affiliateProductsPerPost" type="number" min="1" max="5" step="1" /></label><label>Min relevance<input id="affiliateMinRelevance" type="number" min="0" max="1" step="0.01" /></label><label>Min commission (%)<input id="affiliateMinCommission" type="number" min="0" max="100" step="0.1" /></label></div>
             <div class="settings-actions"><button class="button secondary" id="saveAffiliateSettingsButton" type="button">Lưu policy</button></div>

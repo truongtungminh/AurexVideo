@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Người dẫn chuyện - One Scene Video</title>
-    <link rel="stylesheet" href="style.css?v=20260905-quiz-v2-2" />
+    <link rel="stylesheet" href="style.css?v=20260910-quiz-hook-text-fit-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -20,6 +20,10 @@
             <img id="stageIntroLogo" alt="" hidden />
             <p id="stageIntroTitle"></p>
           </div>
+        </div>
+        <div class="quiz-hook" id="quizHook" aria-label="Hook mở đầu" aria-hidden="true" hidden>
+          <img id="quizHookImage" alt="" hidden />
+          <div class="quiz-hook-text" id="quizHookText"></div>
         </div>
         <div class="slide-canvas" id="slideCanvas" aria-label="Custom slide" hidden></div>
         <div class="topic-label-stack topic-label-left">
@@ -40,21 +44,36 @@
 
         <div class="karaoke" id="karaoke" aria-live="polite"></div>
         <div class="quiz-text" id="quizText" aria-live="polite" hidden>
+          <div class="quiz-progress" id="quizProgress" hidden>
+            <span>CÂU</span>
+            <strong id="quizProgressValue">1/3</strong>
+          </div>
           <div class="quiz-question-card">
             <div class="quiz-question" id="quizQuestion"></div>
           </div>
           <div class="quiz-options" id="quizOptions" hidden>
-            <div class="quiz-option" data-option="A"><div class="quiz-option-label">A</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
-            <div class="quiz-option" data-option="B"><div class="quiz-option-label">B</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
-            <div class="quiz-option" data-option="C"><div class="quiz-option-label">C</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+            <div class="quiz-option" data-option="A"><div class="quiz-option-label">A.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+            <div class="quiz-option" data-option="B"><div class="quiz-option-label">B.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+            <div class="quiz-option" data-option="C"><div class="quiz-option-label">C.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
           </div>
           <div class="quiz-countdown-wrap" id="quizCountdownWrap">
-            <div class="quiz-countdown" id="quizCountdown"></div>
+            <span class="quiz-clock-bell quiz-clock-bell-left" aria-hidden="true"></span>
+            <span class="quiz-clock-bell quiz-clock-bell-right" aria-hidden="true"></span>
+            <div class="quiz-countdown" id="quizCountdown">3</div>
           </div>
+          <img class="quiz-result-art" id="quizResultArt" src="/assets/chinhxac.webp" alt="Chính xác" hidden />
           <div class="quiz-answer-card" id="quizLegacyAnswerCard">
             <div class="quiz-answer" id="quizAnswer"></div>
           </div>
         </div>
+
+        <img
+          class="quiz-cta-art"
+          id="quizCtaArt"
+          src="/assets/quiz-cta-like.webp"
+          alt="Like, Comment, Follow - Bạn trả lời được mấy câu?"
+          hidden
+        />
 
         <div class="teacher-wrap" id="teacherWrap">
           <img class="teacher" id="teacher" alt="Nhân vật đang trình bày" />
@@ -74,6 +93,6 @@
 
     <audio id="voiceover" preload="auto"></audio>
     <audio id="backgroundMusic" preload="auto" loop></audio>
-    <script src="app.js?v=20260904-quiz-presenter-default"></script>
+    <script src="app.js?v=20260910-quiz-hook-text-fit-1"></script>
   </body>
 </html>

@@ -48,7 +48,11 @@ POST_PREVIEW_LENGTH = 500
 _BACKFILL_LOCK = threading.RLock()
 _BACKFILL_PREVIEWS: dict[str, dict] = {}
 _SHOPEE_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+\.)?shopee\.(?:vn|co\.id|co\.th|ph|sg|com\.my|ee)[^\s<>'\"]*", re.I)
-_COMMENT_MARKERS = ("sản phẩm liên quan", "sản phẩm gợi ý")
+_COMMENT_MARKERS = (
+    "sản phẩm liên quan",
+    "sản phẩm gợi ý",
+    "ủng hộ mình bằng cách mua qua link",
+)
 _PREVIEW_TTL_SECONDS = 15 * 60
 _MAX_PREVIEWS = 32
 _SECRET_RE = re.compile(r"(?i)(access[_-]?token|authorization|secret|affiliate[_-]?id)\s*['\"]?\s*(?:=|:|%3d)\s*(?:bearer\s+)?['\"]?[^\s&,'\"]+")
@@ -298,17 +302,21 @@ def _pool_product_key(product: dict) -> tuple[str, str]:
 
 
 def _pool_candidates(products: Iterable[object], settings: dict) -> list[dict]:
-    """Keep only enabled pool rows with a usable Shopee and affiliate URL."""
+    """Keep enabled rows with a usable affiliate URL and optional origin URL."""
     min_commission = _fraction(settings.get("min_commission", settings.get("minCommission", 0.05)))
     candidates: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for product in products:
         if not isinstance(product, dict) or not bool(product.get("enabled", True)):
             continue
-        try:
-            origin_url = validate_shopee_url(str(product.get("origin_url") or "").strip())
-        except (TypeError, ValueError):
-            continue
+        # Bulk-pasted Pool rows intentionally contain only the affiliate URL;
+        # an origin URL is optional when the Brand-owned short link is present.
+        origin_url = str(product.get("origin_url") or "").strip()
+        if origin_url:
+            try:
+                origin_url = validate_shopee_url(origin_url)
+            except (TypeError, ValueError):
+                continue
         affiliate_url = str(product.get("affiliate_url") or "").strip()
         if not is_valid_affiliate_url(affiliate_url):
             continue

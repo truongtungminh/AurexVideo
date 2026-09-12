@@ -53,6 +53,34 @@ ROOT = RESOURCE_ROOT
 PYTHON = PYTHON_EXECUTABLE
 VIENEU_PYTHON = resolve_vieneu_python()
 QUIZ_ANSWER_HOLD_SECONDS = 1.0
+QUIZ_HOOK_QUESTION_DELAY_SECONDS = 1.0
+
+
+def quiz_default_answer_delay(topic: dict) -> float:
+    return 3.0 if str(topic.get("brand") or "").strip().lower() == "suvietky" else 5.0
+
+
+def quiz_answer_delay(topic: dict) -> float:
+    default = quiz_default_answer_delay(topic)
+    try:
+        return max(0.0, float(topic.get("quizAnswerDelay", default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def quiz_hook_question_delay(topic: dict) -> float:
+    """Delay between the spoken hook segment and the first Quiz question."""
+    try:
+        hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
+    except (TypeError, ValueError):
+        hook_count = 0
+    if hook_count <= 0:
+        return 0.0
+    try:
+        configured = float(topic.get("quizHookQuestionDelay", QUIZ_HOOK_QUESTION_DELAY_SECONDS))
+    except (TypeError, ValueError):
+        configured = QUIZ_HOOK_QUESTION_DELAY_SECONDS
+    return max(0.0, min(10.0, configured))
 
 # These fingerprints are the browser stylesheet rules represented by a native
 # style profile.  A profile is an explicit compatibility contract, not a
@@ -729,20 +757,28 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
     """Build exact Quiz segment markers from independently rendered clips.
 
     A Quiz timeline is intentionally serial.  Audio duration is measured per
-    sentence, then the renderer inserts only the two semantic pauses: the
-    countdown before each answer and the one-second hold after each answer.
-    This avoids deriving every later sentence from one global TTS alignment.
+    sentence, then the renderer inserts only semantic pauses: the optional
+    hook-to-question beat, the countdown before each answer, and the one-second
+    hold after each answer.
     """
     segments = topic.get("segments")
     if not isinstance(segments, list):
         return [], 0.0
-    try:
-        answer_delay = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
-    except (TypeError, ValueError):
-        answer_delay = 5.0
+    answer_delay = quiz_answer_delay(topic)
+    hook_question_delay = quiz_hook_question_delay(topic)
     result: list[dict] = []
     cursor = 0.0
-    quiz_v2 = isinstance(topic.get("quizItems"), list) and len(topic.get("quizItems", [])) == 3 and len(segment_durations) == 15
+    quiz_items = topic.get("quizItems")
+    quiz_narration_count = len(quiz_items) * 5 if isinstance(quiz_items, list) else 0
+    try:
+        hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
+    except (TypeError, ValueError):
+        hook_count = 0
+    quiz_v2 = (
+        quiz_narration_count == 15
+        and len(segments) >= hook_count + quiz_narration_count
+        and len(segment_durations) >= hook_count + quiz_narration_count
+    )
     for index, segment in enumerate(segments):
         if not isinstance(segment, dict):
             continue
@@ -755,14 +791,17 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
         cursor += duration
         item["end"] = round(cursor, 3)
         result.append(item)
-        if quiz_v2:
-            if index % 5 == 3:
+        quiz_index = index - hook_count
+        if quiz_v2 and hook_count > 0 and index == hook_count - 1 and index + 1 < len(segments):
+            cursor += hook_question_delay
+        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count:
+            if quiz_index % 5 == 3:
                 cursor += answer_delay
-            elif index % 5 == 4 and index + 1 < len(segments):
+            elif quiz_index % 5 == 4 and index + 1 < len(segments):
                 cursor += QUIZ_ANSWER_HOLD_SECONDS
-        elif index % 2 == 0 and index + 1 < len(segments):
+        elif not quiz_v2 and index % 2 == 0 and index + 1 < len(segments):
             cursor += answer_delay
-        elif index % 2 == 1 and index + 1 < len(segments):
+        elif not quiz_v2 and index % 2 == 1 and index + 1 < len(segments):
             cursor += QUIZ_ANSWER_HOLD_SECONDS
     return result, round(cursor, 3)
 
@@ -787,10 +826,8 @@ def build_quiz_segment_audio(
         gain = max(0.0, float(volume))
     except (TypeError, ValueError):
         gain = 1.0
-    try:
-        answer_delay = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
-    except (TypeError, ValueError):
-        answer_delay = 5.0
+    answer_delay = quiz_answer_delay(topic)
+    hook_question_delay = quiz_hook_question_delay(topic)
 
     durations = [media_duration(path) / rate for path in segment_audio]
     timeline, _ = quiz_segment_timeline(topic, durations)
@@ -800,6 +837,17 @@ def build_quiz_segment_audio(
     graph: list[str] = []
     sequence: list[str] = []
     input_index = 0
+    quiz_items = topic.get("quizItems")
+    quiz_narration_count = len(quiz_items) * 5 if isinstance(quiz_items, list) else 0
+    try:
+        hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
+    except (TypeError, ValueError):
+        hook_count = 0
+    quiz_v2 = (
+        quiz_narration_count == 15
+        and len(segments) >= hook_count + quiz_narration_count
+        and len(segment_audio) >= hook_count + quiz_narration_count
+    )
     for index, path in enumerate(segment_audio):
         command.extend(["-i", str(path)])
         label = f"quizclip{index}"
@@ -809,20 +857,24 @@ def build_quiz_segment_audio(
         )
         sequence.append(f"[{label}]")
         input_index += 1
-        quiz_v2 = isinstance(topic.get("quizItems"), list) and len(topic.get("quizItems", [])) == 3 and len(segment_audio) == 15
-        if quiz_v2 and index % 5 == 3:
+        quiz_index = index - hook_count
+        if quiz_v2 and hook_count > 0 and index == hook_count - 1 and index + 1 < len(segment_audio) and hook_question_delay > 0.001:
+            pause_label = f"quizhookgap{index}"
+            graph.append(f"anullsrc=r=48000:cl=mono:d={hook_question_delay:.3f}[{pause_label}]")
+            sequence.append(f"[{pause_label}]")
+        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % 5 == 3:
             pause_label = f"quizpause{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={answer_delay:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
-        elif quiz_v2 and index % 5 == 4 and index + 1 < len(segment_audio):
+        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % 5 == 4 and index + 1 < len(segment_audio):
             pause_label = f"quizhold{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={QUIZ_ANSWER_HOLD_SECONDS:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
-        elif index % 2 == 0 and index + 1 < len(segment_audio):
+        elif not quiz_v2 and index % 2 == 0 and index + 1 < len(segment_audio):
             pause_label = f"quizpause{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={answer_delay:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
-        elif index % 2 == 1 and index + 1 < len(segment_audio):
+        elif not quiz_v2 and index % 2 == 1 and index + 1 < len(segment_audio):
             pause_label = f"quizhold{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={QUIZ_ANSWER_HOLD_SECONDS:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
@@ -943,6 +995,25 @@ def create_quiz_silent_voiceover(project: Path, duration: float, token: str) -> 
     return output
 
 
+def quiz_v2_no_narration_requested(topic: dict, engine: str) -> bool:
+    """Return True only when a Quiz V2 export explicitly has no TTS source.
+
+    `ttsProvider` is persisted project metadata and can be stale after the user
+    chooses a render engine in the UI. The command-line `engine` is the
+    authoritative choice for this render. Therefore an explicit TTS engine must
+    never be overridden by an old `ttsProvider: none` value.
+    """
+    is_quiz_v2 = (
+        str(topic.get("projectType") or "").strip().lower() == "quiz"
+        and bool(topic.get("quizItems"))
+    )
+    if not is_quiz_v2:
+        return False
+    provider = str(topic.get("tts_provider") or topic.get("ttsProvider") or "").strip().lower()
+    selected_engine = str(engine or "").strip().lower()
+    return provider == "none" and selected_engine == "project"
+
+
 def prepare_render_audio(
     source: Path,
     project: Path,
@@ -960,7 +1031,7 @@ def prepare_render_audio(
     insertions = [] if segment_timeline else quiz_audio_insertions(topic or {}, speed, media_duration(source))
     if insertions:
         # Split the speed/volume-normalized track at each answer boundary,
-        # concatenate a real 5-second-timeline pause, then write one voice
+        # concatenate the configured timeline pause, then write one voice
         # track.  This keeps the later alignment and both render backends in
         # sync with the Quiz preview.
         base = "[0:a]" + ",".join(filters) + "[base]"
@@ -1205,6 +1276,32 @@ def character_specific_css_selectors(
     return tuple(dict.fromkeys(selectors))
 
 
+def brand_specific_css_selectors(
+    topic: dict[str, object],
+    *,
+    stylesheet: Path | None = None,
+) -> tuple[str, ...]:
+    """Return active selectors scoped to this topic's brand class."""
+    brand = str(topic.get("brand") or "").strip().lower()
+    if not brand:
+        return ()
+    path = stylesheet or ROOT / "style.css"
+    try:
+        css = path.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+
+    active_css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    class_pattern = re.compile(rf"\.brand-{re.escape(brand)}(?![\w-])")
+    selectors: list[str] = []
+    for prelude in re.findall(r"([^{}]+)\{", active_css):
+        for selector in prelude.split(","):
+            normalized = " ".join(selector.split())
+            if normalized and class_pattern.search(normalized):
+                selectors.append(normalized)
+    return tuple(dict.fromkeys(selectors))
+
+
 def character_css_contract_matches(
     topic: dict[str, object],
     *,
@@ -1248,16 +1345,18 @@ def requires_character_css_compatibility(
     *,
     stylesheet: Path | None = None,
 ) -> bool:
-    """Guard native rendering for character CSS outside an explicit contract."""
-    selectors = character_specific_css_selectors(topic, stylesheet=stylesheet)
+    """Guard native rendering for character/brand CSS outside a contract."""
+    character_selectors = character_specific_css_selectors(topic, stylesheet=stylesheet)
+    brand_selectors = brand_specific_css_selectors(topic, stylesheet=stylesheet)
+    selectors = (*character_selectors, *brand_selectors)
     if not selectors:
         return False
-    if character_css_contract_matches(topic, stylesheet=stylesheet):
+    if not brand_selectors and character_css_contract_matches(topic, stylesheet=stylesheet):
         return False
     if backend == "native":
         examples = "; ".join(selectors[:3])
         raise NativeRenderUnavailable(
-            "Aurex Render Core native scene không thể bảo toàn CSS riêng theo nhân vật "
+            "Aurex Render Core native scene không thể bảo toàn CSS riêng theo nhân vật/brand "
             f"trong style.css ({examples}). Dùng --render-backend auto để dùng Browser raster "
             "giữ đúng preview, với Aurex Render Core vẫn mã hoá video.",
             reason="character_css_parity_required",
@@ -1597,11 +1696,12 @@ def main() -> None:
     quiz_segment_result = None
     quiz_v2 = str(original.get("projectType") or "").strip().lower() == "quiz" and bool(original.get("quizItems"))
     tts_provider = str(original.get("tts_provider") or original.get("ttsProvider") or "").strip().lower()
-    if quiz_v2 and tts_provider == "none":
+    quiz_no_narration = quiz_v2_no_narration_requested(original, args.engine)
+    if quiz_no_narration:
         source_audio = create_quiz_silent_voiceover(project, 3 * (5.0 + 1.4 + 1.0), token)
     elif str(original.get("projectType") or "").strip().lower() == "quiz":
         quiz_segment_result = create_quiz_segment_voiceover(args, project, topic_path, token)
-    if quiz_v2 and tts_provider == "none":
+    if quiz_no_narration:
         audio_topic = original
     elif quiz_segment_result is not None:
         source_audio, segment_timing = quiz_segment_result
@@ -1612,7 +1712,7 @@ def main() -> None:
     else:
         source_audio = create_voiceover(args, project, topic_path, token)
         audio_topic = original
-    render_audio = source_audio if (quiz_v2 and tts_provider == "none") else prepare_render_audio(
+    render_audio = source_audio if quiz_no_narration else prepare_render_audio(
         source_audio, project, args.speed, args.volume, audio_topic
     )
     duration = media_duration(render_audio)
@@ -1620,7 +1720,7 @@ def main() -> None:
     prepared = dict(original)
     prepared["voiceover"] = Path(os.path.relpath(render_audio, project)).as_posix()
     prepared["duration"] = round(duration, 3)
-    if quiz_v2 and tts_provider == "none":
+    if quiz_no_narration:
         prepared["segments"] = []
     elif quiz_segment_result is not None:
         prepared["segments"] = segment_timing
@@ -1634,7 +1734,7 @@ def main() -> None:
     # Quiz segment markers are derived from the actual audio after inserting
     # countdown pauses. Do not let an older alignment cache restore pre-pause
     # markers and overwrite the synchronized Quiz timeline.
-    if quiz_v2 and tts_provider == "none":
+    if quiz_no_narration:
         aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     elif quiz_segment_result is not None:
         aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -1659,7 +1759,7 @@ def main() -> None:
     backend_outcome = RenderBackendOutcome(backend_used="browser")
     try:
         print("Whisper transcription: căn subtitle và pose theo audio...", flush=True)
-        if quiz_segment_result is None and not (quiz_v2 and tts_provider == "none"):
+        if quiz_segment_result is None and not quiz_no_narration:
             run([
                 str(PYTHON), "-u", str(ROOT / "tools" / "align_voiceover.py"),
                 str(prepared_topic), str(render_audio), "--output", str(aligned_topic),

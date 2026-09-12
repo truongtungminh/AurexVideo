@@ -164,7 +164,7 @@ async function loadAffiliateContext() {
   elements.affiliateQuery.value = "";
   elements.affiliateAutoComment.checked = ["first_comment", "caption_and_comment"].includes(elements.affiliatePlacement.value);
   elements.affiliateStatus.textContent = settings.mode === "auto"
-    ? `${poolStatus} · AUTO chỉ dùng sản phẩm đã duyệt · Brand ${brand}`
+    ? `${poolStatus} · AUTO chọn theo caption Facebook (từ khoá nhập tay sẽ ghi đè) · Brand ${brand}`
     : connection.connected
       ? `Đã kết nối ${connection.display_name || "Shopee Affiliate"} · Brand ${brand}`
       : (connection.message || `${poolStatus} · Brand ${brand}`);
@@ -236,13 +236,14 @@ async function generateAffiliateLink() {
   }
 }
 
-function readAffiliatePayload() {
+function readAffiliatePayload({ captionQuery = "" } = {}) {
   const mode = elements.affiliateMode?.value || "off";
   return {
     enabled: mode !== "off",
     mode,
     placement: elements.affiliatePlacement?.value || "first_comment",
     query: elements.affiliateQuery?.value.trim() || "",
+    captionQuery: String(captionQuery || "").trim(),
     productId: state.affiliateProduct?.id || "",
     originUrl: state.affiliateProduct?.origin_url || "",
     affiliateUrl: state.affiliateLink || state.affiliateProduct?.affiliate_url || "",
@@ -303,7 +304,7 @@ async function upload(platform) {
       platform === "youtube"
         ? { project: state.selected, title: elements.uploadTitle.value, description: elements.youtubeDescription.value, privacyStatus: elements.youtubePrivacy.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
         : platform === "facebook"
-          ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", affiliate: readAffiliatePayload(), ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+          ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", affiliate: readAffiliatePayload({ captionQuery: elements.facebookCaption.value }), ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
           : platform === "tiktok"
             ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }
             : platform === "instagram"

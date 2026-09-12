@@ -77,7 +77,9 @@ import social_upload.metadata as social_metadata
 from social_upload.config import (
     SOCIAL_ROUTE_PLATFORMS,
     canonical_brand,
+    delete_social_brand_route,
     read_social_config,
+    social_brand_route,
     save_social_brand_route,
     write_social_config,
 )
@@ -808,6 +810,41 @@ def list_projects() -> list[dict]:
     return projects
 
 
+def _strip_social_secrets(value: object) -> object:
+    """Remove credential material from nested Social context payloads."""
+    secret_keys = {
+        "access_token",
+        "accesstoken",
+        "api_key",
+        "apikey",
+        "client_secret",
+        "clientsecret",
+        "masked_api_key",
+        "maskedapikey",
+        "masked_secret",
+        "maskedsecret",
+        "password",
+        "refresh_token",
+        "refreshtoken",
+        "secret",
+        "secret_access_key",
+        "secretaccesskey",
+        "token",
+    }
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            key_text = str(key)
+            normalized_key = re.sub(r"[^a-z0-9]", "", key_text.casefold())
+            if key_text.casefold().startswith("masked_") or normalized_key in secret_keys:
+                continue
+            cleaned[key] = _strip_social_secrets(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_strip_social_secrets(item) for item in value]
+    return value
+
+
 def upload_brand_context(project: str = "") -> dict:
     """Build the non-secret Brand + social destination context for Upload."""
     status = social_status()
@@ -816,6 +853,12 @@ def upload_brand_context(project: str = "") -> dict:
     brand_display: dict[str, str] = {}
     project_counts: dict[str, int] = {}
     project_brand = ""
+
+    # The persistent library deliberately includes Brands without a project or
+    # social route yet, so the upload picker and legacy social endpoint stay in
+    # sync with the new-project screen.
+    for record in m3.list_brands():
+        brand_display.setdefault(record["id"], record["displayName"])
 
     for project_dir in iter_project_dirs():
         topic_path = project_dir / "topic.json"
@@ -828,7 +871,12 @@ def upload_brand_context(project: str = "") -> dict:
         if not isinstance(topic, dict):
             continue
         raw_brand = str(topic.get("brand") or "").strip()
-        brand = canonical_brand(raw_brand)
+        try:
+            brand = m3.normalize_brand_id(raw_brand)
+        except ValueError:
+            # Keep a malformed legacy topic visible to the old Upload screen;
+            # the persistent library itself only accepts safe ids.
+            brand = canonical_brand(raw_brand)
         if not brand:
             continue
         display_name = brand if raw_brand.casefold() != brand else raw_brand
@@ -853,12 +901,12 @@ def upload_brand_context(project: str = "") -> dict:
                 "configured", "connected", "available", "ready", "message",
                 "display_name", "name", "ig_user_id", "threads_user_id",
                 "account_id", "active_channel_id", "active_page_id", "channel", "page",
-                "channels", "pages", "masked_api_key", "masked_secret", "app_id", "api_base_url",
+                "channels", "pages", "app_id", "api_base_url",
                 "accounts",
             )
             if key in value
         }
-        safe_platforms[platform] = safe
+        safe_platforms[platform] = _strip_social_secrets(safe)
 
     brands = [
         {
@@ -866,7 +914,7 @@ def upload_brand_context(project: str = "") -> dict:
             "name": brand_display.get(brand) or brand,
             "project_count": project_counts.get(brand, 0),
             "routes": routes.get(brand, {}),
-            "affiliate": affiliate_brand_context(config, brand),
+            "affiliate": _strip_social_secrets(affiliate_brand_context(config, brand)),
         }
         for brand in brand_display
     ]
@@ -880,7 +928,7 @@ def upload_brand_context(project: str = "") -> dict:
         "brand_routes": routes,
         "platforms": safe_platforms,
         "brand_routes_version": status.get("brand_routes_version", 1),
-        "affiliate": affiliate_brand_context(config, project_brand) if project_brand else {},
+        "affiliate": _strip_social_secrets(affiliate_brand_context(config, project_brand)) if project_brand else {},
     }
 
 
@@ -1871,10 +1919,13 @@ def render_simple_player_html(project: str) -> bytes:
   </main>
   <script>
     const video = document.querySelector('video');
-    const autoplay = () => video.play().catch(() => {{
-      video.muted = true;
+    // Never turn a rendered video's audio off just to satisfy autoplay policy.
+    // If autoplay with sound is blocked, leave the player paused and unmuted;
+    // the user can press Play and hear the original audio immediately.
+    const autoplay = () => {{
+      video.muted = false;
       return video.play().catch(() => undefined);
-    }});
+    }};
     if (video.readyState >= 2) autoplay();
     else video.addEventListener('loadeddata', autoplay, {{ once: true }});
   </script>
@@ -2085,7 +2136,10 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
     render_size = coerce_render_size(payload.get("size", "1080x1920"))
     quality_profile = coerce_quality_profile(payload.get("qualityProfile") or payload.get("quality_profile"))
     render_backend = coerce_render_backend(payload.get("renderBackend") or payload.get("render_backend"))
-    engine = str(payload.get("engine") or "").strip().lower()
+    # Dashboard/editor payloads historically used `source`, while the backend
+    # command builder read only `engine`. Accept both so the user's explicit
+    # render choice (e.g. VieNeu/AurexTTS) is not silently lost.
+    engine = str(payload.get("engine") or payload.get("source") or "").strip().lower()
     cmd = [
         str(RENDER_PYTHON), "-u", str(REPO_ROOT / "tools" / "render_project.py"),
         str(project_dir), "--speed", f"{speed:g}", "--volume", f"{volume:g}", "--size", render_size,
@@ -2440,6 +2494,110 @@ def delete_project(payload: dict) -> dict:
     return {"ok": True, "project": project, "deleted": True}
 
 
+def delete_brand_cascade(brand_id: object) -> dict:
+    """Delete a Brand and the exact local data currently owned by it.
+
+    The normal Brand delete remains guarded by ``m3.delete_brand``.  This
+    explicit path is only used after the UI's destructive confirmation and
+    preflights every project before changing social configuration or removing
+    any project directory.
+    """
+    target = m3.normalize_brand_id(brand_id)
+    if not any(item.get("id") == target for item in m3.list_brands()):
+        raise FileNotFoundError(f"Không tìm thấy Brand: {target}")
+
+    usage = m3.brand_usage(target)
+    projects = sorted({str(project).strip() for project in usage.get("projects", []) if str(project).strip()})
+    if projects and SOURCE_ROOT_IS_PROJECT:
+        raise RuntimeError(
+            "Không thể cascade xoá Brand khi source root đang trỏ thẳng vào một project."
+        )
+
+    # Resolve and validate all project paths before touching any data.  This
+    # mirrors the existing project-delete safeguards and prevents a partial
+    # cascade when a project is rendering or has moved since usage was read.
+    root = project_lookup_root().resolve()
+    for project in projects:
+        if has_running_job(project):
+            raise RuntimeError(f"Project '{project}' đang render, chưa thể cascade xoá Brand.")
+        candidate = require_project(project).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Invalid project path for Brand cascade: {project}") from exc
+        if candidate.parent != root:
+            raise ValueError(f"Refusing to cascade delete a path outside the project collection: {project}")
+
+    social_config = read_social_config()
+    original_social_config = json.loads(json.dumps(social_config, ensure_ascii=False))
+    removed_routes: list[str] = []
+    detached_connections: list[str] = []
+    social_changed = False
+
+    routes = social_config.get("brand_routes") if isinstance(social_config, dict) else None
+    if isinstance(routes, dict):
+        for raw_brand in list(routes):
+            try:
+                is_target = m3.normalize_brand_id(raw_brand) == target
+            except ValueError:
+                is_target = False
+            if not is_target:
+                continue
+            platform_routes = routes.pop(raw_brand)
+            if isinstance(platform_routes, dict):
+                removed_routes.extend(f"route:{platform}" for platform in platform_routes)
+            else:
+                removed_routes.append("route")
+            social_changed = True
+
+    # Keep credentials and connection records available for other Brands, but
+    # remove ownership by the deleted Brand so the Brand no longer remains in
+    # use.  The route entries above are the objects being deleted.
+    if isinstance(social_config, dict):
+        for section_name, section in social_config.items():
+            if not isinstance(section, dict):
+                continue
+            connections = section.get("connections")
+            if not isinstance(connections, dict):
+                continue
+            for connection_id, connection in connections.items():
+                if not isinstance(connection, dict):
+                    continue
+                try:
+                    is_target = m3.normalize_brand_id(connection.get("brand")) == target
+                except ValueError:
+                    is_target = False
+                if not is_target:
+                    continue
+                connection.pop("brand", None)
+                detached_connections.append(f"connection:{section_name}/{connection_id}")
+                social_changed = True
+
+    if social_changed:
+        write_social_config(social_config)
+
+    deleted_projects: list[str] = []
+    try:
+        for project in projects:
+            delete_project({"project": project, "confirm": True})
+            deleted_projects.append(project)
+        result = m3.delete_brand(target)
+    except Exception:
+        # If no project was removed yet, restore the social document so a
+        # failed preflight/write cannot leave an invisible partial mutation.
+        if not deleted_projects and social_changed:
+            write_social_config(original_social_config)
+        raise
+
+    return {
+        "deleted": result["id"],
+        "cascade": True,
+        "projects": deleted_projects,
+        "social": sorted(removed_routes),
+        "connectionsDetached": sorted(detached_connections),
+    }
+
+
 def rename_project(payload: dict) -> dict:
     project = validate_project_name(payload.get("project"))
     next_project = validate_project_name(payload.get("name") or payload.get("newProject") or payload.get("new_project"))
@@ -2619,16 +2777,26 @@ def social_callback_html(title: str, message: str, ok: bool = True) -> bytes:
   <main style="max-width:680px;margin:0 auto;border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:24px;background:rgba(255,255,255,.06);">
     <h1 style="margin-top:0;color:{color};">{html.escape(title)}</h1>
     <p style="line-height:1.6;">{html.escape(message)}</p>
-    <p style="opacity:.72;">Bạn có thể đóng tab này và quay lại AurexVideo Upload Center.</p>
+    <p style="opacity:.72;">Bạn có thể đóng tab này hoặc mở lại khu vực quản lý Social để kiểm tra trạng thái mới.</p>
+    <p><a href="/social" style="color:{color};font-weight:700;margin-right:16px;">Mở trang Social</a><a href="/upload" style="color:{color};font-weight:700;">Mở Upload Center</a></p>
   </main>
 </body>
 </html>""".encode("utf-8")
 
 
 def render_elevenlabs_guide_html() -> bytes:
+    workspace_header = render_workspace_header(
+        "upload",
+        actions_html=(
+            f'<button class="aurex-app-button" type="button" data-app-theme-toggle aria-label="Đổi giao diện">'
+            f'{ui_icon("moon")}<span>Light</span></button>'
+            f'<a class="aurex-app-button is-primary" href="/upload">{ui_icon("upload")}<span>Đăng tải video</span></a>'
+        ),
+    )
     return render_page_shell(
         title="Hướng dẫn ElevenLabs",
-        body="""
+        body=f"""
+  {workspace_header}
   <main class="guide-page">
     <header class="guide-hero">
       <a class="app-back" href="/"><img src="/web/aurexvideo-logo.png" alt="" /><span><strong>Aurex</strong><small>← Quay lại Dashboard</small></span></a>
@@ -3301,10 +3469,18 @@ def render_social_upload_guide_html(platform: str) -> bytes:
         missing_title = "Upload guide not found" if is_en else "Không tìm thấy hướng dẫn"
         missing_back = "← Back to Upload Center" if is_en else "← Quay lại Upload Center"
         missing_body = "Upload guide not found." if is_en else "Không tìm thấy hướng dẫn upload."
+        workspace_header = render_workspace_header(
+            "upload",
+            actions_html=(
+                f'<button class="aurex-app-button" type="button" data-app-theme-toggle aria-label="Đổi giao diện">'
+                f'{ui_icon("moon")}<span>Light</span></button>'
+                f'<a class="aurex-app-button is-primary" href="/upload">{ui_icon("upload")}<span>Đăng tải video</span></a>'
+            ),
+        )
         return render_page_shell(
             title=missing_title,
             body=(
-                f'<main class="social-guide-page"><a class="app-back" href="/upload"><img src="/web/aurexvideo-logo.png" alt="" />'
+                f'{workspace_header}<main class="social-guide-page"><a class="app-back" href="/upload"><img src="/web/aurexvideo-logo.png" alt="" />'
                 f'<span><strong>Aurex</strong><small>{html.escape(missing_back)}</small></span></a>'
                 f'<h1>{html.escape(missing_body)}</h1></main>'
             ),
@@ -3337,7 +3513,16 @@ def render_social_upload_guide_html(platform: str) -> bytes:
     )
 
     back_label = "← Back to Upload Center" if is_en else "← Quay lại Upload Center"
+    workspace_header = render_workspace_header(
+        "upload",
+        actions_html=(
+            f'<button class="aurex-app-button" type="button" data-app-theme-toggle aria-label="Đổi giao diện">'
+            f'{ui_icon("moon")}<span>Light</span></button>'
+            f'<a class="aurex-app-button is-primary" href="/upload">{ui_icon("upload")}<span>Đăng tải video</span></a>'
+        ),
+    )
     body = f"""
+  {workspace_header}
   <main class="social-guide-page md-guide-page">
     <header class="guide-hero">
       <a class="app-back" href="/upload"><img src="/web/aurexvideo-logo.png" alt="" /><span><strong>Aurex</strong><small>{html.escape(back_label)}</small></span></a>
@@ -3645,6 +3830,10 @@ def ui_icon(name: str, class_name: str = "btn-icon") -> str:
         "message": (
             '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'
         ),
+        "share": (
+            '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/>'
+            '<circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/>'
+        ),
     }
     inner = glyphs.get(name)
     if not inner:
@@ -3690,6 +3879,38 @@ def brand_icon(name: str, class_name: str = "platform-brand-icon") -> str:
         f'<svg viewBox="0 0 24 24" role="img">{inner}</svg>'
         f"</span>"
     )
+
+
+def render_workspace_header(active: str, actions_html: str = "") -> str:
+    """Render the shared Social-style application header."""
+    items = (
+        ("dashboard", "/", "Bảng điều khiển"),
+        ("upload", "/upload", "Đăng tải"),
+        ("affiliate", "/affiliate", "Affiliate"),
+        ("social", "/social", "Social"),
+    )
+    nav_links = []
+    for key, href, label in items:
+        current = ' class="is-active" aria-current="page"' if key == active else ""
+        nav_links.append(f'<a{current} href="{href}">{label}</a>')
+    social_header_classes = " social-header" if active == "social" else ""
+    social_brand_classes = " social-brand-lockup" if active == "social" else ""
+    social_nav_classes = " social-nav" if active == "social" else ""
+    social_actions_classes = " social-header-actions" if active == "social" else ""
+    return f"""
+    <header class="aurex-app-header{social_header_classes}">
+      <a class="aurex-app-brand{social_brand_classes}" href="/" aria-label="Về bảng điều khiển AurexVideo">
+        <img src="/web/aurexvideo-logo.png" alt="Aurex" />
+        <span class="aurex-app-brand-copy"><strong>AurexVideo</strong><small>Creator workspace</small></span>
+      </a>
+      <nav class="aurex-app-nav{social_nav_classes}" aria-label="Điều hướng chính">
+        {''.join(nav_links)}
+      </nav>
+      <div class="aurex-app-header-actions{social_actions_classes}">
+        {actions_html}
+      </div>
+    </header>
+    """
 
 
 def render_home_html(selected_project: str | None = None, preview_update: bool = False) -> bytes:
@@ -3810,29 +4031,29 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
         )
 
     body = "\n".join(rows) or '<li class="empty">Chưa có dự án nào.</li>'
+    workspace_header = render_workspace_header(
+        "dashboard",
+        actions_html=(
+            f'<button class="aurex-app-button" type="button" data-theme-toggle aria-label="Đổi giao diện">'
+            f'{ui_icon("moon")}<span>Giao diện</span></button>'
+            f'<a class="aurex-app-button is-primary" href="/new-project">'
+            f'{ui_icon("plus")}<span>Dự án mới</span></a>'
+        ),
+    )
     return render_page_shell(
         title="AurexVideo",
         body=f"""
-  <header class="dashboard-header">
-    <div class="brand-lockup">
-      <img src="/web/aurexvideo-logo.png" alt="Aurex" class="brand-mark" />
-      <div>
-        <h1>AurexVideo</h1>
-      </div>
-    </div>
-    <div class="header-tools">
-      <a class="refresh-btn icon-btn header-nav-action" href="/new-project">{ui_icon("plus")}<span>Dự án mới</span></a>
-      <a class="refresh-btn icon-btn header-nav-action" href="/upload">{ui_icon("upload")}<span>Đăng tải</span></a>
-      <button class="refresh-btn icon-btn header-nav-action" id="refreshProjects" type="button">{ui_icon("refresh")}<span>Làm mới</span></button>
-      <button class="refresh-btn icon-btn header-nav-action theme-toggle" type="button" data-theme-toggle>{ui_icon("moon")}<span>Giao diện</span></button>
-      <button class="refresh-btn icon-btn header-nav-action update-available-button" id="updateAvailableButton" type="button"{' title="Xem thử vị trí thông báo cập nhật"' if preview_update else ' hidden'}>{ui_icon("arrow-up")}<span>Cập nhật bản mới</span></button>
-      <button class="refresh-btn icon-btn header-nav-action settings-button" id="openSettingsButton" type="button">{ui_icon("settings")}<span>Cài đặt</span></button>
+  {workspace_header}
+
+  <div class="aurex-page-utility" aria-label="Công cụ bảng điều khiển">
+    <div class="aurex-page-utility-summary"><strong>{len(projects)}</strong><span>dự án trong workspace</span></div>
+    <div class="aurex-page-utility-actions">
+      <button class="aurex-utility-action" id="refreshProjects" type="button">{ui_icon("refresh")}<span>Làm mới</span></button>
+      <button class="aurex-utility-action update-available-button" id="updateAvailableButton" type="button"{' title="Xem thử vị trí thông báo cập nhật"' if preview_update else ' hidden'}>{ui_icon("arrow-up")}<span>Cập nhật bản mới</span></button>
+      <button class="aurex-utility-action settings-button" id="openSettingsButton" type="button">{ui_icon("settings")}<span>Cài đặt</span></button>
       <span class="update-slot-placeholder" id="updateSlotPlaceholder" aria-hidden="true"{' hidden' if preview_update else ''}></span>
     </div>
-    <div class="header-account">
-      <div class="header-stat"><strong>{len(projects)}</strong><span>dự án</span></div>
-    </div>
-  </header>
+  </div>
 
   <dialog class="plan-picker-dialog" id="upgradePlanDialog">
     <div class="plan-picker-content">
@@ -6996,7 +7217,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-      <script src="/web/render_page.js?v=20260830-affiliate-v1"></script>
+      <script src="/web/render_page.js?v=20260907-affiliate-caption-pool-v1"></script>
 """,
     )
 
@@ -7014,23 +7235,21 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
         "</option>"
         for project in projects
     )
+    workspace_header = render_workspace_header(
+        "upload",
+        actions_html=(
+            f'<button class="aurex-app-button" type="button" data-theme-toggle aria-label="Đổi giao diện">'
+            f'{ui_icon("moon")}<span>Giao diện</span></button>'
+            f'<button class="aurex-app-button is-primary" id="openDefaultTags" type="button">'
+            f'{ui_icon("pencil")}<span>Sửa caption</span></button>'
+        ),
+    )
     return render_page_shell(
         title="AurexVideo Upload Center",
         body=f"""
   <main class="upload-shell">
     <section class="upload-machine">
-      <header class="top-upload-bar">
-        <div class="brand-lockup upload-brand-lockup">
-          <img src="/web/aurexvideo-logo.png" alt="Aurex" class="brand-mark upload-brand-mark" />
-          <div>
-            <h1>AurexVideo</h1>
-          </div>
-        </div>
-        <div class="top-upload-actions">
-          <button class="refresh-btn icon-btn header-nav-action" id="openDefaultTags" type="button">{ui_icon("pencil")}<span>Sửa caption</span></button>
-          <a class="refresh-btn icon-btn header-nav-action" href="/">{ui_icon("arrow-left")}<span>Bảng điều khiển</span></a>
-        </div>
-      </header>
+      {workspace_header}
 
       <section class="upload-page-head">
         <div>
@@ -7280,10 +7499,14 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
           <button class="modal-close" id="closeFacebookConfig" type="button" aria-label="Đóng">×</button>
           <p class="kicker">Facebook Page</p>
           <h3 id="facebookConfigTitle">Thêm Page</h3>
-          <p class="modal-copy">Dán Page ID và Page access token đã extend. Thông tin được lưu trong ứng dụng và không hiển thị lại.</p>
+          <p class="modal-copy">Dán Page ID, Name và Page access token đã extend. Thông tin được lưu trong ứng dụng; token không hiển thị lại.</p>
           <div class="field upload-field compact facebook-config-field">
             <span class="field-label"><span class="field-icon">ID</span><span>Facebook Page ID</span></span>
             <input id="facebookPageId" type="text" inputmode="numeric" autocomplete="off" placeholder="Dán Page ID" />
+          </div>
+          <div class="field upload-field compact facebook-config-field">
+            <span class="field-label"><span class="field-icon">N</span><span>Name</span></span>
+            <input id="facebookPageName" type="text" maxlength="160" autocomplete="organization" placeholder="Ví dụ: Biết Chi Cho Mệt" />
           </div>
           <div class="field upload-field compact facebook-config-field">
             <span class="field-label">{ui_icon("key", "field-icon")}<span>Page access token</span></span>
@@ -9067,8 +9290,218 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-      <script src="/web/render_page.js?v=20260830-affiliate-v1"></script>
+      <script src="/web/render_page.js?v=20260907-affiliate-caption-pool-v1"></script>
 """,
+    )
+
+
+def render_social_html() -> bytes:
+    """Render the Brand-aware Social management workspace."""
+    workspace_header = render_workspace_header(
+        "social",
+        actions_html=(
+            '<button class="social-quiet-button aurex-app-button" id="socialThemeToggle" type="button" aria-label="Đổi giao diện">'
+            '<span class="theme-symbol" aria-hidden="true">☼</span><span>Light</span></button>'
+            '<button class="social-quiet-button aurex-app-button social-refresh-button" id="socialRefreshButton" type="button" aria-label="Cập nhật trạng thái Social">'
+            '<span class="refresh-symbol" aria-hidden="true">↻</span><span>Cập nhật</span></button>'
+            '<a class="social-primary-button compact aurex-app-button is-primary" href="/upload">Đăng tải video</a>'
+        ),
+    )
+    body = f"""
+  <main class="social-page" aria-labelledby="socialTitle">
+    {workspace_header}
+
+    <section class="social-hero">
+      <div class="social-hero-copy">
+        <div class="social-eyebrow"><span class="eyebrow-dot"></span> SOCIAL WORKSPACE</div>
+        <h1 id="socialTitle">Quản lý Social <em>theo Brand.</em></h1>
+        <p>Gom các kênh xuất bản vào đúng Brand, kiểm tra trạng thái kết nối và giữ workspace luôn sẵn sàng cho mỗi lần đăng video.</p>
+        <div class="social-hero-actions">
+          <button class="social-primary-button" id="addSocialButton" type="button"><span aria-hidden="true">+</span> Thêm social</button>
+          <button class="social-secondary-button" id="addBrandButton" type="button"><span aria-hidden="true">+</span> Tạo Brand mới</button>
+        </div>
+      </div>
+      <div class="social-hero-visual" aria-hidden="true">
+        <div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div>
+        <div class="hero-node node-center"><span>A</span></div>
+        <div class="hero-node node-youtube"><b>▶</b></div><div class="hero-node node-facebook"><b>f</b></div>
+        <div class="hero-node node-instagram"><b>◎</b></div><div class="hero-node node-tiktok"><b>♪</b></div>
+        <span class="hero-line line-one"></span><span class="hero-line line-two"></span><span class="hero-line line-three"></span><span class="hero-line line-four"></span>
+      </div>
+    </section>
+
+    <section class="social-summary-grid" aria-label="Tổng quan Social">
+      <article class="social-summary-card summary-brands"><div class="summary-icon">⌘</div><div><span>Brand đang quản lý</span><strong id="brandCount">—</strong><small id="brandCountNote">Đang tải dữ liệu</small></div></article>
+      <article class="social-summary-card summary-linked"><div class="summary-icon">↗</div><div><span>Social đã gán</span><strong id="linkedCount">—</strong><small id="linkedCountNote">Theo tất cả Brand</small></div></article>
+      <article class="social-summary-card summary-ready"><div class="summary-icon">✓</div><div><span>Sẵn sàng xuất bản</span><strong id="readyCount">—</strong><small id="readyCountNote">Kênh đã kiểm tra</small></div></article>
+      <article class="social-summary-card summary-attention"><div class="summary-icon">!</div><div><span>Cần kiểm tra</span><strong id="attentionCount">—</strong><small id="attentionCountNote">Không có cảnh báo</small></div></article>
+    </section>
+
+    <section class="social-workspace-grid">
+      <aside class="social-panel social-brand-panel" aria-label="Danh sách Brand">
+        <div class="social-panel-heading"><div><div class="social-kicker">WORKSPACE</div><h2>Danh sách Brand</h2></div><button class="panel-add-button" id="sidebarAddBrand" type="button" aria-label="Tạo Brand mới">+</button></div>
+        <label class="social-search-field"><span aria-hidden="true">⌕</span><input id="brandSearch" type="search" placeholder="Tìm Brand..." autocomplete="off" /></label>
+        <div class="brand-list" id="brandList" role="listbox" aria-label="Chọn Brand"></div>
+        <div class="social-panel-foot"><span class="live-dot"></span><span>Dữ liệu lưu trong workspace</span><span class="foot-lock" aria-hidden="true">⌁</span></div>
+      </aside>
+
+      <section class="social-panel social-detail-panel" aria-live="polite">
+        <div class="social-empty-state" id="brandDetailEmpty">
+          <div class="empty-illustration"><span>+</span><i></i><i></i><i></i></div>
+          <div class="social-kicker">BRAND ROUTES</div><h2>Chọn một Brand để bắt đầu</h2>
+          <p>Mỗi Brand có một bộ kênh riêng. Chọn Brand bên trái để xem, thêm hoặc gỡ liên kết Social.</p>
+          <button class="social-secondary-button" id="emptyAddBrandButton" type="button">Tạo Brand đầu tiên</button>
+        </div>
+        <div id="brandDetail" hidden>
+          <header class="social-detail-header">
+            <div class="detail-brand-heading"><div class="detail-brand-avatar" id="detailBrandAvatar">A</div><div><div class="social-kicker">BRAND</div><h2 id="detailBrandName">—</h2><p><code id="detailBrandId">—</code><span class="detail-separator">•</span><span id="detailProjectCount">0 project</span></p></div></div>
+            <div class="detail-header-actions"><button class="social-primary-button compact" id="detailAddSocialButton" type="button"><span aria-hidden="true">+</span> Thêm social</button><button class="social-secondary-button compact" id="detailAddBrandButton" type="button">Brand mới</button></div>
+          </header>
+          <div class="social-section-heading"><div><div class="social-kicker">DESTINATIONS</div><h3>Kênh xuất bản</h3></div><span class="route-count" id="detailLinkedCount">0/5 đã gán</span></div>
+          <div class="platform-grid" id="platformGrid"></div>
+          <div class="social-detail-note"><span class="note-icon">i</span><p>Thay đổi được lưu ngay vào cấu hình Social. Nếu YouTube báo “Cần kiểm tra”, bấm “Kết nối lại” để cấp lại quyền Google; Instagram, TikTok và Threads lưu theo đúng Brand.</p></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <dialog class="social-dialog" id="socialDialog" aria-labelledby="socialDialogTitle">
+    <form id="socialForm" method="dialog">
+      <div class="dialog-header"><div><div class="social-kicker">SOCIAL ROUTE</div><h2 id="socialDialogTitle">Thêm kênh xuất bản</h2></div><button class="dialog-close" type="button" data-close-dialog aria-label="Đóng">×</button></div>
+      <p class="dialog-intro">Chọn Brand và account đã kết nối. Thông tin nhạy cảm chỉ được xử lý trong backend, không hiển thị ở đây.</p>
+      <div class="dialog-grid dialog-grid-two"><label class="dialog-field"><span>Brand</span><select id="socialBrandSelect" required></select></label><label class="dialog-field"><span>Nền tảng</span><select id="socialPlatformSelect" required><option value="youtube">YouTube</option><option value="facebook">Facebook</option><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="threads">Threads</option></select></label></div>
+      <div id="socialFormFields"></div><p class="dialog-note" id="socialFormNote"></p>
+      <div class="dialog-footer"><button class="social-secondary-button" type="button" data-close-dialog>Huỷ</button><button class="social-primary-button" id="socialSaveButton" type="submit">Lưu liên kết</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="social-dialog compact-dialog" id="brandDialog" aria-labelledby="brandDialogTitle">
+    <form id="brandForm" method="dialog">
+      <div class="dialog-header"><div><div class="social-kicker">BRAND LIBRARY</div><h2 id="brandDialogTitle">Tạo Brand mới</h2></div><button class="dialog-close" type="button" data-close-dialog aria-label="Đóng">×</button></div>
+      <p class="dialog-intro">Tạo một Brand để tách riêng danh sách kênh và project khi xuất bản.</p>
+      <label class="dialog-field"><span>Tên hiển thị</span><input id="brandDisplayName" type="text" placeholder="Ví dụ: Góc công nghệ" maxlength="64" required /></label>
+      <label class="dialog-field"><span>Mã Brand <small>(không bắt buộc)</small></span><input id="brandId" type="text" placeholder="tu-dong-tao-tu-ten" maxlength="64" pattern="[a-z0-9][a-z0-9._-]{0,63}" /><small class="field-help">Chỉ dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.</small></label>
+      <div class="dialog-footer"><button class="social-secondary-button" type="button" data-close-dialog>Huỷ</button><button class="social-primary-button" type="submit">Tạo Brand</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="social-dialog compact-dialog" id="deleteSocialDialog" aria-labelledby="deleteSocialTitle">
+    <form id="deleteSocialForm" method="dialog">
+      <div class="dialog-header"><div><div class="social-kicker danger-kicker">REMOVE ROUTE</div><h2 id="deleteSocialTitle">Gỡ liên kết Social?</h2></div><button class="dialog-close" type="button" data-close-dialog aria-label="Đóng">×</button></div>
+      <p class="dialog-intro" id="deleteSocialCopy">Liên kết sẽ được gỡ khỏi Brand này.</p>
+      <div class="delete-warning"><span>!</span><p>Thao tác này không xoá Brand hoặc project. Với account riêng của Instagram, TikTok và Threads, connection thuộc Brand cũng sẽ được dọn khỏi cấu hình.</p></div>
+      <div class="dialog-footer"><button class="social-secondary-button" type="button" data-close-dialog>Giữ lại</button><button class="social-danger-button" type="submit">Gỡ liên kết</button></div>
+    </form>
+  </dialog>
+  <div class="social-toast" id="socialToast" role="status" aria-live="polite"></div>
+"""
+    extra_style = r"""
+    .social-page {
+      --social-card: rgba(255, 251, 244, .78);
+      --social-card-strong: #fffaf3;
+      --social-border: rgba(74, 51, 25, .13);
+      --social-border-strong: rgba(74, 51, 25, .2);
+      --social-shadow: 0 18px 50px rgba(104, 72, 36, .08);
+      --social-soft: rgba(81, 58, 33, .06);
+      --social-green: #2f9959;
+      --social-green-soft: rgba(47, 153, 89, .12);
+      --social-orange: #ef762b;
+      --social-orange-soft: rgba(239, 118, 43, .12);
+      --social-purple: #8064e9;
+      max-width: 1380px;
+      margin: 0 auto;
+    }
+    .social-page [hidden] { display: none !important; }
+    body:not(.theme-light) .social-page {
+      --social-card: rgba(255, 255, 255, .055);
+      --social-card-strong: #242424;
+      --social-border: rgba(242, 178, 101, .18);
+      --social-border-strong: rgba(242, 178, 101, .3);
+      --social-shadow: 0 20px 50px rgba(0, 0, 0, .2);
+      --social-soft: rgba(255, 255, 255, .07);
+      --social-green: #76d991;
+      --social-green-soft: rgba(118, 217, 145, .14);
+      --social-orange: #ffb26b;
+      --social-orange-soft: rgba(255, 178, 107, .13);
+      --social-purple: #b3a0ff;
+    }
+    .social-page button, .social-page select, .social-page input { font: inherit; }
+    .social-page button { cursor: pointer; }
+    .social-header { max-width: none; margin: 0 0 28px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 28px; }
+    .social-brand-lockup { display: inline-flex; align-items: center; gap: 11px; color: var(--text); background: transparent; padding: 0; border-radius: 0; box-shadow: none; }
+    .social-brand-lockup:hover { color: var(--text); background: transparent; box-shadow: none; transform: none; }
+    .social-brand-mark { width: 52px; height: 52px; border-radius: 15px; box-shadow: 0 10px 24px rgba(38, 93, 128, .22); }
+    .social-brand-copy { display: grid; gap: 1px; text-align: left; }
+    .social-brand-copy strong { font-size: 18px; letter-spacing: -.04em; }
+    .social-brand-copy small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .social-nav { justify-self: center; display: flex; align-items: center; gap: 5px; padding: 5px; border: 1px solid var(--social-border); border-radius: 15px; background: var(--social-card); box-shadow: var(--social-shadow); }
+    .social-nav a { padding: 9px 13px; border-radius: 10px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 800; }
+    .social-nav a:hover { color: var(--text); background: var(--social-soft); box-shadow: none; transform: none; }
+    .social-nav a.is-active { color: var(--text); background: var(--social-card-strong); box-shadow: 0 4px 12px rgba(60, 35, 15, .08); }
+    .social-header-actions { display: flex; align-items: center; gap: 9px; }
+    .social-quiet-button, .social-primary-button, .social-secondary-button, .social-danger-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; border-radius: 13px; padding: 10px 15px; font-size: 12px; font-weight: 850; transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, background 150ms ease; }
+    .social-quiet-button { border: 1px solid transparent; color: var(--muted); background: transparent; }
+    .social-quiet-button:hover { color: var(--text); background: var(--social-soft); }
+    .theme-symbol, .refresh-symbol { color: var(--social-orange); font-size: 18px; line-height: 1; }.social-refresh-button[aria-busy=\"true\"] .refresh-symbol { display: inline-block; animation: social-spin 800ms linear infinite; }@keyframes social-spin { to { transform: rotate(360deg); } }
+    .social-primary-button { border: 1px solid var(--accent); color: var(--accent-contrast); background: var(--accent); box-shadow: 0 9px 23px var(--accent-glow); }
+    .social-primary-button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px var(--accent-glow); }
+    .social-primary-button.compact, .social-secondary-button.compact { min-height: 38px; padding: 8px 12px; }
+    .social-secondary-button { border: 1px solid var(--social-border-strong); color: var(--text); background: var(--social-card); }
+    .social-secondary-button:hover { transform: translateY(-1px); border-color: var(--accent); background: var(--social-soft); }
+    .social-hero { position: relative; min-height: 286px; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(310px, .85fr); align-items: center; gap: 22px; padding: 38px 44px; border: 1px solid rgba(67, 48, 27, .12); border-radius: 30px; background: linear-gradient(118deg, rgba(255, 252, 247, .96), rgba(253, 240, 219, .78)); box-shadow: var(--social-shadow); }
+    body:not(.theme-light) .social-hero { border-color: var(--social-border); background: radial-gradient(circle at 82% 42%, rgba(242, 178, 101, .14), transparent 22rem), linear-gradient(118deg, rgba(255,255,255,.06), rgba(255,255,255,.025)); }
+    .social-hero::after { content: ""; position: absolute; width: 300px; height: 300px; right: -100px; bottom: -175px; border-radius: 50%; border: 1px solid rgba(239, 118, 43, .15); box-shadow: 0 0 0 26px rgba(239,118,43,.035), 0 0 0 52px rgba(239,118,43,.025); }
+    .social-hero-copy { position: relative; z-index: 1; max-width: 670px; }
+    .social-eyebrow, .social-kicker { color: var(--social-orange); font-size: 10px; font-weight: 900; letter-spacing: .14em; line-height: 1.2; text-transform: uppercase; }
+    .social-eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .eyebrow-dot, .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--social-green); box-shadow: 0 0 0 4px var(--social-green-soft); }
+    .social-hero h1 { margin: 0 0 15px; max-width: 650px; color: var(--text); font-size: clamp(38px, 5vw, 70px); font-weight: 900; line-height: .98; letter-spacing: -.075em; }
+    .social-hero h1 em { color: var(--social-orange); font-style: normal; }
+    .social-hero p { max-width: 610px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+    .social-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 25px; }
+    .social-hero-visual { position: relative; z-index: 1; width: min(100%, 430px); height: 220px; justify-self: end; }
+    .hero-orbit { position: absolute; left: 50%; top: 50%; border: 1px dashed rgba(239, 118, 43, .22); border-radius: 50%; transform: translate(-50%, -50%); }
+    .orbit-one { width: 168px; height: 168px; }.orbit-two { width: 310px; height: 150px; transform: translate(-50%, -50%) rotate(-25deg); }
+    .hero-node { position: absolute; display: grid; place-items: center; width: 44px; height: 44px; border: 5px solid rgba(255, 252, 247, .88); border-radius: 15px; color: #fff; box-shadow: 0 10px 22px rgba(50, 30, 15, .16); }.hero-node b { font-size: 18px; }
+    body:not(.theme-light) .hero-node { border-color: #292929; }
+    .node-center { left: calc(50% - 29px); top: calc(50% - 29px); width: 58px; height: 58px; border-radius: 19px; background: linear-gradient(145deg, #f68b3a, #e7532d); font-size: 21px; font-weight: 900; }
+    .node-youtube { left: 4%; top: 12%; background: #f0443e; }.node-facebook { right: 8%; top: 7%; background: #2b82ed; }.node-instagram { right: 1%; bottom: 8%; background: linear-gradient(145deg, #8a54df, #dc3e70, #f39b33); }.node-tiktok { left: 11%; bottom: 4%; background: #17212d; }
+    .hero-line { position: absolute; height: 1px; transform-origin: left center; background: linear-gradient(90deg, rgba(239,118,43,.42), transparent); }.line-one { left: 15%; top: 28%; width: 105px; transform: rotate(22deg); }.line-two { left: 62%; top: 28%; width: 90px; transform: rotate(-25deg); }.line-three { left: 62%; top: 66%; width: 102px; transform: rotate(25deg); }.line-four { left: 22%; top: 70%; width: 90px; transform: rotate(-24deg); }
+    .social-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 15px 0; }
+    .social-summary-card { display: flex; align-items: center; gap: 13px; min-height: 105px; padding: 18px; border: 1px solid var(--social-border); border-radius: 20px; background: var(--social-card); box-shadow: var(--social-shadow); }
+    .summary-icon { display: grid; place-items: center; flex: 0 0 39px; width: 39px; height: 39px; border-radius: 13px; color: var(--social-orange); background: var(--social-orange-soft); font-size: 21px; font-weight: 900; }.summary-linked .summary-icon { color: var(--social-purple); background: rgba(128,100,233,.12); }.summary-ready .summary-icon { color: var(--social-green); background: var(--social-green-soft); }.summary-attention .summary-icon { color: #bb7910; background: rgba(227,171,48,.16); }
+    .social-summary-card > div:last-child { display: grid; gap: 2px; min-width: 0; }.social-summary-card span { color: var(--muted); font-size: 11px; font-weight: 750; }.social-summary-card strong { color: var(--text); font-size: 27px; letter-spacing: -.06em; line-height: 1; }.social-summary-card small { color: var(--muted); font-size: 10px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .social-workspace-grid { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 15px; align-items: stretch; }.social-panel { border: 1px solid var(--social-border); border-radius: 24px; background: var(--social-card); box-shadow: var(--social-shadow); }
+    .social-brand-panel { display: flex; flex-direction: column; min-height: 538px; padding: 21px 15px 13px; }.social-panel-heading, .social-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }.social-panel-heading { padding: 0 5px 17px; }.social-panel h2, .social-detail-panel h2 { margin: 5px 0 0; color: var(--text); font-size: 20px; letter-spacing: -.055em; }
+    .panel-add-button { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid var(--social-border-strong); border-radius: 10px; color: var(--social-orange); background: var(--social-soft); font-size: 22px; line-height: 1; }.panel-add-button:hover { border-color: var(--accent); background: var(--social-orange-soft); }
+    .social-search-field { display: flex; align-items: center; gap: 8px; min-height: 39px; margin: 0 0 12px; padding: 0 11px; border: 1px solid var(--social-border); border-radius: 12px; color: var(--muted); background: var(--social-soft); }.social-search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }.social-search-field > span { font-size: 22px; line-height: 1; transform: translateY(-1px); }.social-search-field input { width: 100%; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 12px; }.social-search-field input::placeholder { color: var(--muted); }
+    .brand-list { display: grid; gap: 4px; overflow: auto; min-height: 0; padding-right: 2px; }.brand-list::-webkit-scrollbar { width: 4px; }.brand-list::-webkit-scrollbar-thumb { border-radius: 5px; background: var(--social-border-strong); }
+    .brand-list-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 57px; padding: 8px 9px; border: 1px solid transparent; border-radius: 14px; color: var(--text); text-align: left; background: transparent; }.brand-list-item:hover { background: var(--social-soft); }.brand-list-item.is-selected { border-color: rgba(239,118,43,.24); background: var(--social-orange-soft); }
+    .brand-list-avatar, .detail-brand-avatar { display: grid; place-items: center; border-radius: 11px; color: var(--social-orange); background: var(--social-orange-soft); font-size: 14px; font-weight: 900; text-transform: uppercase; }.brand-list-avatar { width: 34px; height: 34px; }.brand-list-copy { display: grid; gap: 3px; min-width: 0; }.brand-list-copy strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.brand-list-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.brand-list-count { min-width: 24px; padding: 4px 6px; border-radius: 7px; color: var(--muted); background: var(--social-soft); font-size: 10px; font-weight: 850; text-align: center; }.brand-list-empty { padding: 22px 10px; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: center; }
+    .social-panel-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 15px 5px 0; border-top: 1px solid var(--social-border); color: var(--muted); font-size: 10px; font-weight: 700; }.social-panel-foot .live-dot { width: 6px; height: 6px; box-shadow: none; }.foot-lock { margin-left: auto; color: var(--social-green); font-size: 16px; }
+    .social-detail-panel { min-height: 538px; padding: 28px 29px 24px; }.social-empty-state { min-height: 480px; display: grid; place-items: center; align-content: center; justify-items: center; padding: 25px; text-align: center; }.social-empty-state h2 { margin-top: 10px; font-size: 25px; }.social-empty-state p { max-width: 390px; margin: 8px 0 20px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .empty-illustration { position: relative; display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 8px; border: 1px dashed rgba(239,118,43,.45); border-radius: 26px; color: var(--social-orange); background: var(--social-orange-soft); font-size: 30px; }.empty-illustration i { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--social-green); }.empty-illustration i:nth-child(2) { top: -5px; right: 12px; }.empty-illustration i:nth-child(3) { bottom: 6px; left: -4px; }.empty-illustration i:nth-child(4) { right: -4px; bottom: 18px; }
+    .social-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 25px; border-bottom: 1px solid var(--social-border); }.detail-brand-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }.detail-brand-avatar { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 17px; color: #fff; background: linear-gradient(145deg, var(--social-orange), #e55532); font-size: 23px; box-shadow: 0 11px 22px rgba(239,118,43,.22); }.detail-brand-heading h2 { overflow: hidden; font-size: clamp(22px, 3vw, 30px); text-overflow: ellipsis; white-space: nowrap; }.detail-brand-heading p { display: flex; align-items: center; gap: 7px; margin: 7px 0 0; color: var(--muted); font-size: 11px; }.detail-brand-heading code { color: var(--muted); font-family: var(--font-ui); font-weight: 750; }.detail-separator { color: var(--social-border-strong); }.detail-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .social-section-heading { margin: 26px 0 14px; }.social-section-heading h3 { margin: 5px 0 0; color: var(--text); font-size: 18px; letter-spacing: -.04em; }.route-count { padding: 7px 10px; border: 1px solid var(--social-border); border-radius: 9px; color: var(--muted); background: var(--social-soft); font-size: 10px; font-weight: 850; }
+    .platform-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }.platform-card { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 105px; padding: 14px; border: 1px solid var(--social-border); border-radius: 17px; background: var(--social-card-strong); transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease; }.platform-card:hover { border-color: var(--social-border-strong); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(65, 38, 15, .07); }.platform-card.has-route { border-color: rgba(47,153,89,.25); }.platform-card.needs-attention { border-color: rgba(218,157,35,.38); }
+    .platform-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: #fff; font-size: 15px; font-weight: 900; }.platform-mark.youtube { background: #f0443e; }.platform-mark.facebook { background: #2b82ed; }.platform-mark.instagram { background: linear-gradient(145deg, #8a54df, #dc3e70, #f39b33); }.platform-mark.tiktok { background: #17212d; }.platform-mark.threads { color: #fff; background: #222; }
+    .platform-copy { display: grid; gap: 4px; min-width: 0; }.platform-copy strong { color: var(--text); font-size: 13px; }.platform-copy small, .platform-copy code { overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }.platform-copy code { font-family: var(--font-ui); }
+    .platform-status { display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 3px 7px; border-radius: 999px; color: var(--muted); background: var(--social-soft); font-size: 9px; font-weight: 850; }.platform-status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }.platform-status.ready { color: var(--social-green); background: var(--social-green-soft); }.platform-status.attention { color: #a9750d; background: rgba(225,171,47,.15); }.platform-status.unconfigured { color: var(--muted); }
+    .platform-actions { display: flex; align-items: center; gap: 5px; }.platform-action { display: grid; place-items: center; min-width: 29px; height: 29px; padding: 0 8px; border: 1px solid var(--social-border); border-radius: 9px; color: var(--social-orange); background: var(--social-soft); font-size: 11px; font-weight: 850; }.platform-action:hover { border-color: var(--accent); }.platform-action.reconnect { border-color: var(--accent); color: var(--accent-contrast); background: var(--accent); box-shadow: 0 5px 13px var(--accent-glow); }.platform-action.reconnect:hover { transform: translateY(-1px); }.platform-action.delete { color: #b94a46; }.platform-action:disabled { cursor: default; opacity: .45; }
+    .social-detail-note { display: flex; gap: 10px; margin-top: 20px; padding: 12px 13px; border: 1px solid var(--social-border); border-radius: 13px; color: var(--muted); background: var(--social-soft); }.social-detail-note p { margin: 0; font-size: 10px; line-height: 1.55; }.note-icon { display: grid; place-items: center; flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; color: var(--social-orange); background: var(--social-orange-soft); font-size: 11px; font-weight: 900; }
+    .social-dialog { width: min(640px, calc(100vw - 30px)); padding: 0; border: 1px solid var(--social-border-strong); border-radius: 24px; color: var(--text); background: var(--social-card-strong); box-shadow: 0 28px 80px rgba(17, 11, 5, .28); }.social-dialog::backdrop { background: rgba(24, 17, 10, .5); backdrop-filter: blur(4px); }.social-dialog form { padding: 26px; }.compact-dialog { width: min(500px, calc(100vw - 30px)); }.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }.dialog-header h2 { margin: 6px 0 0; color: var(--text); font-size: 25px; letter-spacing: -.06em; }.dialog-close { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--social-border); border-radius: 10px; color: var(--muted); background: var(--social-soft); font-size: 22px; line-height: 1; }.dialog-close:hover { color: var(--text); border-color: var(--accent); }
+    .dialog-intro { margin: 12px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.6; }.dialog-grid { display: grid; gap: 12px; }.dialog-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }.dialog-field { display: grid; gap: 7px; margin-top: 12px; color: var(--text); font-size: 11px; font-weight: 850; }.dialog-grid .dialog-field { margin-top: 0; }.dialog-field small { color: var(--muted); font-size: 10px; font-weight: 650; }.dialog-field input, .dialog-field select { width: 100%; min-height: 42px; border: 1px solid var(--social-border); border-radius: 11px; outline: 0; padding: 0 12px; color: var(--text); background: var(--social-soft); font-size: 12px; }.dialog-field input:focus, .dialog-field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }.dialog-field select option { color: #20170f; background: #fffaf3; }.field-help { margin-top: -2px; line-height: 1.4; }.dialog-note { min-height: 18px; margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }.dialog-note.is-warning { color: #a9750d; }.dialog-note.is-error { color: #bb4b46; }.dialog-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 23px; padding-top: 17px; border-top: 1px solid var(--social-border); }
+    .social-danger-button { border: 1px solid rgba(185,74,70,.3); color: #a7433f; background: rgba(185,74,70,.1); }.social-danger-button:hover { border-color: #b94a46; background: rgba(185,74,70,.16); }.danger-kicker { color: #b94a46; }.delete-warning { display: flex; gap: 10px; padding: 13px; border: 1px solid rgba(218,157,35,.28); border-radius: 13px; background: rgba(225,171,47,.09); }.delete-warning > span { display: grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; border-radius: 50%; color: #a9750d; background: rgba(225,171,47,.16); font-size: 12px; font-weight: 900; }.delete-warning p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .social-toast { position: fixed; z-index: 11000; right: 28px; bottom: 27px; max-width: min(360px, calc(100vw - 40px)); padding: 13px 16px; border: 1px solid var(--social-border-strong); border-radius: 13px; color: var(--text); background: var(--social-card-strong); box-shadow: 0 16px 40px rgba(29, 16, 5, .2); font-size: 12px; font-weight: 800; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity 180ms ease, transform 180ms ease; }.social-toast.is-visible { opacity: 1; transform: translateY(0); }.social-toast.is-error { border-color: rgba(185,74,70,.42); color: #b94a46; }
+    @media (max-width: 1120px) { .social-header { grid-template-columns: auto 1fr; }.social-header-actions { justify-self: end; }.social-nav { grid-column: 1 / -1; grid-row: 2; justify-self: start; }.social-hero { grid-template-columns: minmax(0, 1fr) 300px; padding: 32px; }.social-hero-visual { transform: scale(.86); transform-origin: right center; margin-right: -25px; } }
+    @media (max-width: 860px) { body { padding: 25px 18px; }.social-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.social-workspace-grid { grid-template-columns: 1fr; }.social-brand-panel { min-height: 260px; max-height: 380px; }.social-detail-panel { min-height: 500px; }.brand-list { max-height: 245px; }.social-hero { grid-template-columns: 1fr; }.social-hero-visual { position: absolute; right: -40px; bottom: -14px; width: 360px; opacity: .48; }.social-hero-copy { max-width: 100%; }.social-detail-header { align-items: flex-start; flex-direction: column; }.detail-header-actions { justify-content: flex-start; } }
+    @media (max-width: 560px) { .social-header { display: flex; flex-wrap: wrap; gap: 16px; }.social-nav { order: 3; width: 100%; overflow-x: auto; justify-content: flex-start; }.social-nav a { white-space: nowrap; }.social-header-actions { margin-left: auto; }.social-header-actions .social-primary-button { display: none; }.social-header-actions .social-refresh-button { width: 42px; padding: 8px; }.social-refresh-button > span:last-child { display: none; }.social-hero { min-height: 360px; padding: 28px 22px; border-radius: 23px; }.social-hero h1 { font-size: 43px; }.social-summary-grid { gap: 8px; }.social-summary-card { min-height: 97px; padding: 13px 11px; gap: 9px; }.summary-icon { flex-basis: 31px; width: 31px; height: 31px; border-radius: 10px; font-size: 16px; }.social-summary-card strong { font-size: 22px; }.social-summary-card span { font-size: 10px; }.social-summary-card small { font-size: 9px; }.social-detail-panel { padding: 21px 15px; }.platform-grid { grid-template-columns: 1fr; }.social-detail-header { padding-bottom: 18px; }.detail-brand-heading h2 { font-size: 24px; }.dialog-grid-two { grid-template-columns: 1fr; gap: 0; }.social-dialog form { padding: 21px 18px; }.dialog-header h2 { font-size: 22px; } }
+"""
+    return render_page_shell(
+        title="AurexVideo Social",
+        body=body,
+        extra_style=extra_style,
+        extra_script='<script src="/web/social.js?v=20260909-social-v1"></script>',
     )
 
 
@@ -9271,6 +9704,8 @@ def render_page_shell(title: str, body: str, extra_style: str = "", extra_script
     }}
 {extra_style}
   </style>
+  <link rel="stylesheet" href="/webui/app-shell.css?v=20260910-shared-header-v4" />
+  <script defer src="/webui/app-shell.js?v=20260910-shared-header-v3"></script>
 </head>
 <body class="theme-light">
 <script>
@@ -9441,16 +9876,50 @@ class WebHandler(SimpleHTTPRequestHandler):
 
         print(f"ℹ️  {color_text(timestamp, 'dim')}  {format % args}", file=sys.stderr)
 
+    def _social_route_origin_allowed(self) -> bool:
+        """Allow Social mutations only from this local app's origin."""
+        origin = str(self.headers.get("Origin") or "").strip()
+        if not origin:
+            # Command-line and native local callers do not send Origin.
+            return True
+        if origin in {"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"}:
+            return True
+        parsed_origin = urlparse(origin)
+        request_host = str(self.headers.get("Host") or "").strip().lower()
+        return (
+            parsed_origin.scheme in {"http", "https"}
+            and bool(parsed_origin.netloc)
+            and not parsed_origin.path
+            and not parsed_origin.params
+            and not parsed_origin.query
+            and not parsed_origin.fragment
+            and bool(request_host)
+            and parsed_origin.netloc.casefold() == request_host.casefold()
+        )
+
     def end_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         parsed_path = urlparse(self.path).path
+        if parsed_path in {"/api/social/brand-route", "/api/social/brand-connection"}:
+            origin = str(self.headers.get("Origin") or "").strip()
+            if origin and self._social_route_origin_allowed():
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        else:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
         if parsed_path in {"/style.css", "/app.js", "/index.html"} or parsed_path.startswith(("/web/", "/webui/")) or (parsed_path.startswith("/project/") and parsed_path.endswith((".js", ".css"))):
             self.send_header("Cache-Control", "no-store, max-age=0")
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
+        if urlparse(self.path).path in {"/api/social/brand-route", "/api/social/brand-connection"} and not self._social_route_origin_allowed():
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(204)
         self.end_headers()
 
@@ -9590,6 +10059,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_html(200, (REPO_ROOT / "webui" / "affiliate.html").read_bytes())
             return
 
+        if path in {"/social", "/social/"}:
+            self.send_html(200, render_social_html())
+            return
+
         if path in {"/upload-guide/youtube", "/upload-guide/youtube/"}:
             self.send_html(200, render_social_upload_guide_html("youtube"))
             return
@@ -9652,6 +10125,13 @@ class WebHandler(SimpleHTTPRequestHandler):
                     "locked": trial_branding_required(),
                     "defaultCharacterId": default_character_id,
                 })
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/brands":
+            try:
+                self.send_json(200, {"brands": m3.list_brands()})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -9936,10 +10416,31 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if path == "/api/social/youtube/reconnect-url":
+            query_values = parse_qs(parsed.query)
+            brand = canonical_brand((query_values.get("brand") or [""])[0])
+            channel_id = str((query_values.get("channelId") or query_values.get("channel_id") or [""])[0] or "").strip()
+            try:
+                if not brand:
+                    raise ValueError("Cần chọn Brand để kết nối lại YouTube.")
+                config = read_social_config()
+                route = social_brand_route(config, brand, "youtube")
+                expected_channel_id = str(route.get("channel_id") or "").strip()
+                if channel_id and channel_id != expected_channel_id:
+                    raise ValueError("Route YouTube không còn khớp với Brand này. Hãy tải lại trang Social.")
+                self.send_json(200, {
+                    "url": start_youtube_oauth("", brand=brand, channel_id=expected_channel_id),
+                    "brand": brand,
+                    "channel_id": expected_channel_id,
+                })
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if path == "/api/social/youtube/callback":
             try:
                 project = finish_youtube_oauth(parse_qs(parsed.query))
-                message = f"YouTube đã kết nối cho project {project}." if project else "YouTube đã kết nối."
+                message = f"YouTube đã kết nối cho project {project}." if project else "YouTube đã kết nối lại và cập nhật route trong trang Social."
                 self.send_html(200, social_callback_html("Đã kết nối YouTube", message))
             except Exception as exc:
                 self.send_html(400, social_callback_html("Kết nối YouTube thất bại", str(exc), ok=False))
@@ -9991,6 +10492,10 @@ class WebHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+
+        if parsed.path in {"/api/social/brand-route", "/api/social/brand-connection"} and not self._social_route_origin_allowed():
+            self.send_json(403, {"error": "Origin không hợp lệ cho thao tác Social."})
+            return
 
         if parsed.path == "/api/ui-language":
             try:
@@ -10467,6 +10972,16 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if parsed.path == "/api/brands":
+            try:
+                brand = m3.create_brand(self.read_json_body())
+                self.send_json(201, {"brand": brand})
+            except FileExistsError as exc:
+                self.send_json(409, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if parsed.path == "/api/characters/split":
             if trial_branding_required():
                 self.send_json(403, {"error": "Tài khoản Trial chỉ dùng nhân vật hieu-ham-hoc có sẵn."})
@@ -10836,6 +11351,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                     result = update_facebook_page_config(
                         str(payload.get("pageId") or payload.get("page_id") or ""),
                         str(payload.get("pageAccessToken") or payload.get("page_access_token") or ""),
+                        str(payload.get("name") or payload.get("pageName") or ""),
                     )
                 except Exception as exc:
                     self.send_json(400, {"error": str(exc)})
@@ -11129,6 +11645,41 @@ class WebHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/api/social/brand-route":
+            if not self._social_route_origin_allowed():
+                self.send_json(403, {"error": "Origin không hợp lệ cho thao tác Social."})
+                return
+            try:
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                brand = canonical_brand((query.get("brand") or [""])[0])
+                platform = str((query.get("platform") or [""])[0]).strip().casefold()
+                connection_id = str(
+                    (query.get("connectionId") or query.get("connection_id") or [""])[0]
+                ).strip()
+                result = delete_social_brand_route(brand, platform, connection_id=connection_id)
+                self.send_json(200, {"ok": True, **result})
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+        brand_match = re.fullmatch(r"/api/brands/([^/]+)", path)
+        if brand_match:
+            try:
+                brand_id = unquote(brand_match.group(1))
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                cascade = (query.get("cascade") or [""])[0].strip().casefold() in {"1", "true", "yes", "on"}
+                result = delete_brand_cascade(brand_id) if cascade else m3.delete_brand(brand_id)
+                self.send_json(200, result if cascade else {"deleted": result["id"]})
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except m3.BrandInUseError as exc:
+                self.send_json(409, {"error": str(exc), "usage": exc.usage})
+            except RuntimeError as exc:
+                self.send_json(409, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
         if path == "/api/affiliate/pool":
             try:
                 query_values = parse_qs(parsed.query, keep_blank_values=True)

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
+import secrets
 import time
 from datetime import timedelta
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -29,6 +32,9 @@ from .metadata import (
     upload_paragraphs,
 )
 from .schedule import parse_scheduled_publish_at, scheduled_unix_timestamp, validate_schedule_window
+from .thumbnail import extract_thumbnail_frame
+
+FACEBOOK_THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
 
 
 def facebook_config(config: dict | None = None) -> dict:
@@ -125,6 +131,10 @@ def facebook_reels_url(facebook: dict, page: dict | None = None) -> str:
 
 def facebook_post_comment_url(facebook: dict, post_id: str) -> str:
     return f"https://graph.facebook.com/{facebook_graph_version(facebook)}/{quote(post_id, safe='')}/comments"
+
+
+def facebook_video_thumbnails_url(facebook: dict, video_id: str) -> str:
+    return f"https://graph.facebook.com/{facebook_graph_version(facebook)}/{quote(video_id, safe='')}/thumbnails"
 
 
 def facebook_full_post_id(facebook: dict, object_id: str, page: dict | None = None) -> str:
@@ -224,9 +234,10 @@ def disconnect_facebook_page(page_id: str = "") -> dict:
     return {"ok": True, "removed": page_id or "all", "pages": [str(page.get("id") or "") for page in remaining]}
 
 
-def update_facebook_page_config(page_id: str, page_access_token: str) -> dict:
+def update_facebook_page_config(page_id: str, page_access_token: str, name: str = "") -> dict:
     page_id = str(page_id or "").strip()
     page_access_token = str(page_access_token or "").strip()
+    name = str(name or "").strip()
     if not page_id:
         raise ValueError("Missing Facebook page id.")
     if not page_access_token:
@@ -235,18 +246,21 @@ def update_facebook_page_config(page_id: str, page_access_token: str) -> dict:
         raise ValueError("Facebook page id should contain digits only.")
     if len(page_access_token) < 20 or re.search(r"\s", page_access_token):
         raise ValueError("Facebook page access token looks invalid.")
+    if len(name) > 160:
+        raise ValueError("Facebook Page name is too long.")
 
     config = read_social_config()
     facebook = facebook_config(config)
     pages = facebook_pages(facebook)
     next_page = {
         "id": page_id,
+        "name": name,
         "page_access_token": page_access_token,
     }
     replaced = False
     for index, page in enumerate(pages):
         if page.get("id") == page_id:
-            next_page["name"] = str(page.get("name") or "").strip()
+            next_page["name"] = name or str(page.get("name") or "").strip()
             next_page["thumbnail"] = str(page.get("thumbnail") or "").strip()
             pages[index] = next_page
             replaced = True
@@ -363,6 +377,71 @@ def post_facebook_source_comment(
     return "", last_error
 
 
+def _facebook_multipart_thumbnail_body(access_token: str, image_path: Path) -> tuple[bytes, str]:
+    boundary = "----AurexVideo" + secrets.token_hex(16)
+    content_type = mimetypes.guess_type(str(image_path))[0] or "application/octet-stream"
+    parts: list[bytes] = []
+    for name, value in (("is_preferred", "true"), ("access_token", access_token)):
+        parts.append(
+            (
+                f"--{boundary}\r\n"
+                f"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+                f"{value}\r\n"
+            ).encode("utf-8")
+        )
+    parts.append(
+        (
+            f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"source\"; filename=\"{image_path.name}\"\r\n"
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+    )
+    parts.append(image_path.read_bytes())
+    parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), boundary
+
+
+def set_facebook_video_thumbnail(
+    facebook: dict,
+    video_id: str,
+    access_token: str,
+    image_path: Path,
+) -> dict:
+    video_id = str(video_id or "").strip()
+    image_path = Path(image_path).expanduser()
+    if not video_id:
+        return {"ok": False, "error": "Missing Facebook video id for thumbnail."}
+    if not image_path.is_file():
+        return {"ok": False, "error": f"Facebook thumbnail file not found: {image_path}"}
+    size = image_path.stat().st_size
+    if size > FACEBOOK_THUMBNAIL_MAX_BYTES:
+        return {"ok": False, "error": f"Facebook thumbnail is larger than 10 MB: {size}B"}
+
+    body, boundary = _facebook_multipart_thumbnail_body(access_token, image_path)
+    request = Request(
+        facebook_video_thumbnails_url(facebook, video_id),
+        data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=120) as response:
+            data = json.loads(response.read().decode("utf-8") or "{}")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        if access_token:
+            detail = detail.replace(access_token, "[redacted]")
+        return {"ok": False, "error": f"Facebook thumbnail failed: HTTP {exc.code}: {detail}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"Facebook thumbnail failed: {exc}"}
+    if isinstance(data, dict) and data.get("success") is False:
+        return {"ok": False, "error": f"Facebook thumbnail failed: {data}"}
+    return {"ok": True, "source": str(image_path)}
+
+
 def facebook_caption_for_project(project: str, fallback_caption: str) -> tuple[str, str]:
     project_dir = require_project(project)
     script_path = project_dir / "script.txt"
@@ -404,6 +483,7 @@ def facebook_upload_video(payload: dict) -> dict:
         project,
         brand,
         page_id=facebook_page_id(facebook, page),
+        caption_query=caption,
     )
     if affiliate.get("enabled") and affiliate.get("placement") in {"caption", "caption_and_comment"}:
         caption = caption_with_affiliate(caption, str(affiliate.get("link", {}).get("affiliate_url") or ""))
@@ -485,6 +565,13 @@ def facebook_upload_video(payload: dict) -> dict:
     post_id = str(finish_data.get("post_id") or finish_data.get("id") or "").strip()
     comment_target_id = facebook_full_post_id(facebook, post_id or video_id, page)
     permalink_url = str(finish_data.get("permalink_url") or "").strip()
+    thumbnail_path = extract_thumbnail_frame(video_path)
+    if thumbnail_path:
+        thumbnail_result = set_facebook_video_thumbnail(facebook, video_id, access_token, thumbnail_path)
+        thumbnail_result.setdefault("source", "video_frame")
+        thumbnail_result.setdefault("path", str(thumbnail_path))
+    else:
+        thumbnail_result = {"ok": False, "source": "video_frame", "error": "thumbnail extract failed"}
 
     affiliate_result = {}
     affiliate_comment_id = ""
@@ -546,6 +633,10 @@ def facebook_upload_video(payload: dict) -> dict:
         )
     if affiliate_comment_error:
         message += f" Affiliate link đã tạo nhưng chưa comment được: {affiliate_comment_error[:240]}"
+    if thumbnail_result.get("ok"):
+        message += " Thumbnail từ frame giây 1 đã được đặt."
+    else:
+        message += f" Thumbnail từ frame giây 1 chưa đặt được: {str(thumbnail_result.get('error') or '')[:240]}"
     return {
         "ok": True,
         "platform": "facebook",
@@ -560,6 +651,7 @@ def facebook_upload_video(payload: dict) -> dict:
         "source_comment_id": "",
         "source_comment_error": "",
         "affiliate": affiliate_result,
+        "thumbnail": thumbnail_result,
         "video_state": video_state,
         "scheduledPublishAt": scheduled_publish_at or "",
         "message": message,

@@ -190,6 +190,21 @@ class NativeRenderBridgeTests(unittest.TestCase):
         self.assertFalse(requires_text_style_compatibility("auto", topic))
         self.assertFalse(requires_text_style_compatibility("native", topic))
 
+    def test_brand_css_guard_only_applies_to_matching_brand(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
+            stylesheet = Path(temp) / "style.css"
+            stylesheet.write_text(
+                ".stage.brand-suvietky .quiz-question { color: #15100c; }\n",
+                encoding="utf-8",
+            )
+            suvietky = {"characterId": "quizz", "brand": "suvietky"}
+            shared_quiz = {"characterId": "quizz", "brand": "quiz"}
+
+            self.assertTrue(requires_character_css_compatibility("auto", suvietky, stylesheet=stylesheet))
+            self.assertFalse(requires_character_css_compatibility("auto", shared_quiz, stylesheet=stylesheet))
+            with self.assertRaises(NativeRenderUnavailable):
+                requires_character_css_compatibility("native", suvietky, stylesheet=stylesheet)
+
     def test_character_css_guard_routes_auto_and_rejects_explicit_native(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-native-test-") as temp:
             stylesheet = Path(temp) / "style.css"

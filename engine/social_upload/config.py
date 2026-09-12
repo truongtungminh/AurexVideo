@@ -535,6 +535,80 @@ def save_social_brand_route(
     return social_brand_route_records(config).get(brand, {})
 
 
+def delete_social_brand_route(
+    brand: str,
+    platform: str,
+    connection_id: str = "",
+    config: dict | None = None,
+) -> dict[str, object]:
+    """Remove one Brand route without deleting another Brand's account.
+
+    Named Brand connections (Instagram, TikTok, Threads, and Shopee) are
+    deleted only when the route points to that exact connection and the
+    connection is owned by the requested Brand. Global platform accounts,
+    including YouTube and Facebook, are never touched here.
+    """
+    brand = canonical_brand(brand)
+    platform = str(platform or "").strip().casefold()
+    requested_connection_id = str(connection_id or "").strip()
+    if not brand:
+        raise ValueError("Brand không được để trống.")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand):
+        raise ValueError("Brand chỉ được dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.")
+    if platform not in SOCIAL_ROUTE_PLATFORMS:
+        raise ValueError(f"Unsupported social platform: {platform or '<empty>'}.")
+    if len(requested_connection_id) > 256:
+        raise ValueError("Social connection không hợp lệ.")
+
+    config = read_social_config() if config is None else config
+    if not isinstance(config, dict):
+        raise ValueError("Social upload config không hợp lệ.")
+    migrate_brand_aliases(config)
+    routes = config.get("brand_routes")
+    brand_routes = routes.get(brand) if isinstance(routes, dict) else None
+    route = brand_routes.get(platform) if isinstance(brand_routes, dict) else None
+    if not isinstance(route, dict):
+        raise ValueError(f"Social route chưa cấu hình cho brand {brand} trên {platform}.")
+
+    identity_key = SOCIAL_ROUTE_ID_KEYS.get(platform)
+    route_identity = route.get(identity_key) if identity_key else None
+    route_connection_id = str(
+        route_identity or route.get("connection_id") or route.get("account_id") or route.get("id") or ""
+    ).strip()
+    if not route_connection_id:
+        raise ValueError(f"Social route không hợp lệ cho brand {brand} trên {platform}.")
+    if requested_connection_id and requested_connection_id != route_connection_id:
+        raise ValueError(f"Social connection không khớp route của brand {brand} trên {platform}.")
+
+    connection_deleted = False
+    if platform in SOCIAL_CONNECTION_CONFIG_KEYS:
+        connections = social_platform_connections(config, platform)
+        connection = connections.get(route_connection_id)
+        if isinstance(connection, dict) and canonical_brand(connection.get("brand")) == brand:
+            connections.pop(route_connection_id, None)
+            connection_deleted = True
+
+    brand_routes.pop(platform, None)
+    if brand_routes:
+        routes[brand] = brand_routes
+    else:
+        routes.pop(brand, None)
+    config["brand_routes"] = routes
+    try:
+        config["brand_routes_version"] = int(config.get("brand_routes_version") or 0) + 1
+    except (TypeError, ValueError):
+        config["brand_routes_version"] = SOCIAL_BRAND_ROUTES_VERSION + 1
+    if connection_deleted:
+        config["brand_connections_version"] = SOCIAL_BRAND_CONNECTIONS_VERSION
+    write_social_config(config)
+    return {
+        "brand": brand,
+        "platform": platform,
+        "connection_id": route_connection_id,
+        "connection_deleted": connection_deleted,
+    }
+
+
 def social_brand_routes_version(config: dict | None = None) -> int:
     config = read_social_config() if config is None else config
     if isinstance(config, dict):

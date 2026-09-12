@@ -228,6 +228,7 @@ class FacebookBackfillTests(unittest.TestCase):
     def test_existing_comment_detects_marker_or_shopee_url(self):
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛒 Sản phẩm liên quan trong video:\nhttps://shp.today/9Owj"}]))
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛒 Sản phẩm gợi ý trên Shopee"}]))
+        self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "🛍️ Nếu thấy sản phẩm phù hợp, ủng hộ mình bằng cách mua qua link này nhé!\nhttps://shp.today/9Owj"}]))
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "xem https://shopee.vn/product/1/2"}]))
         self.assertTrue(backfill._has_existing_affiliate_comment([{"message": "xem https://shopee.ee/product/1/2"}]))
         self.assertFalse(backfill._has_existing_affiliate_comment([{"message": "Một bình luận bình thường"}]))
@@ -289,6 +290,38 @@ class FacebookBackfillTests(unittest.TestCase):
         )
 
         self.assertEqual({candidate["id"] for candidate in candidates}, {"zero", "valid"})
+
+    def test_pool_selection_accepts_affiliate_only_rows_and_random_fallback(self):
+        rows = [
+            pool_product(
+                product_id="link-only-1",
+                name="Shopee Pool link",
+                origin_url="",
+                affiliate_url="https://s.shopee.vn/link-only-1",
+                commission_rate=0,
+            ),
+            pool_product(
+                product_id="link-only-2",
+                name="Shopee Pool link",
+                origin_url="",
+                affiliate_url="https://s.shopee.vn/link-only-2",
+                commission_rate=0,
+            ),
+        ]
+        context = {**CONTEXT, "settings": {**CONTEXT["settings"], "min_relevance": 0.75}}
+        with patch.object(backfill.affiliate_store, "list_product_pool", return_value=rows):
+            product, reason = backfill._select_product(
+                "knowzy",
+                "Bài không có từ khóa sản phẩm rõ ràng",
+                context,
+                selection_seed="page-1_1",
+            )
+
+        self.assertIn(product["id"], {"link-only-1", "link-only-2"})
+        self.assertEqual(product["origin_url"], "")
+        self.assertEqual(product["link_provider"], "pool")
+        self.assertEqual(product["_aurex_selection_mode"], "pool_random")
+        self.assertIn("ngẫu nhiên", reason)
 
     def test_policy_uses_relevance_before_commission(self):
         selected = backfill._policy_product(
@@ -446,7 +479,7 @@ class FacebookBackfillTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["status"], "commented")
         self.assertEqual(create_link.call_args.kwargs["product_id"], "preview-product")
         self.assertEqual(create_link.call_args.kwargs["origin_url"], "https://shopee.vn/product/9/10")
-        self.assertEqual(post_comment.call_args.args[2], "🛒 Sản phẩm liên quan: Bình giữ nhiệt bản hiện tại\nhttps://shp.today/current")
+        self.assertEqual(post_comment.call_args.args[2], "🛍️ Nếu thấy sản phẩm phù hợp, ủng hộ mình bằng cách mua qua link này nhé!\nBình giữ nhiệt bản hiện tại\nhttps://shp.today/current")
         self.assertNotIn("attachment_url", post_comment.call_args.kwargs)
         self.assertEqual(post_comment.call_args.kwargs["attempts"], 1)
         self.assertFalse(upsert.called)

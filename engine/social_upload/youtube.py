@@ -1,22 +1,35 @@
 from __future__ import annotations
 
+import io
 import json
+import mimetypes
 import os
 import secrets
 import threading
 import time
 from datetime import timedelta
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .config import canonical_brand, read_social_config, social_brand_route, social_config_hint, write_social_config
+from .config import (
+    canonical_brand,
+    read_social_config,
+    save_social_brand_route,
+    social_brand_route,
+    social_config_hint,
+    write_social_config,
+)
 from .metadata import build_upload_metadata, final_video_path_for_project, project_brand_from_topic, read_expected_video_bytes, read_project_upload_metadata, record_social_upload, require_project
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
+from .thumbnail import extract_thumbnail_frame
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 YOUTUBE_OAUTH_SCOPE = f"{YOUTUBE_UPLOAD_SCOPE} {YOUTUBE_READONLY_SCOPE}"
+YOUTUBE_THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024
+YOUTUBE_SHORTS_THUMBNAIL_SIZE = (576, 1024)
 OAUTH_STATES: dict[str, dict] = {}
 OAUTH_STATES_LOCK = threading.Lock()
 
@@ -372,15 +385,28 @@ def youtube_refresh_access_token(config: dict, youtube: dict) -> str:
     return youtube_access_token_for_channel(config, youtube, channel)
 
 
-def start_youtube_oauth(project: str) -> str:
+def start_youtube_oauth(project: str = "", *, brand: str = "", channel_id: str = "") -> str:
+    project = str(project or "").strip()
+    brand = canonical_brand(brand)
+    channel_id = str(channel_id or "").strip()
     config = read_social_config()
     youtube = youtube_config(config)
     if not youtube_is_configured(youtube):
         raise ValueError(social_config_hint())
-    require_project(project)
+    if project:
+        require_project(project)
+    elif not brand:
+        raise ValueError("Cần project hoặc Brand để bắt đầu kết nối YouTube.")
+    if brand and not channel_id:
+        raise ValueError("Thiếu YouTube channel cần kết nối lại cho Brand.")
     state = secrets.token_urlsafe(24)
     with OAUTH_STATES_LOCK:
-        OAUTH_STATES[state] = {"project": project, "created_at": time.time()}
+        OAUTH_STATES[state] = {
+            "project": project,
+            "brand": brand,
+            "channel_id": channel_id,
+            "created_at": time.time(),
+        }
     params = {
         "client_id": youtube["client_id"],
         "redirect_uri": youtube_redirect_uri(youtube),
@@ -424,47 +450,123 @@ def finish_youtube_oauth(query: dict[str, list[str]]) -> str:
         "scope": token_data.get("scope", YOUTUBE_OAUTH_SCOPE),
         "token_type": token_data.get("token_type", "Bearer"),
     }
+    connected_channel_id = str(channel.get("id") or "").strip()
     youtube_store_channel(youtube, channel, tokens)
     youtube.pop("tokens", None)
     youtube.pop("channel", None)
     config["youtube"] = youtube
-    write_social_config(config)
+    reconnect_brand = canonical_brand(state_data.get("brand"))
+    expected_channel_id = str(state_data.get("channel_id") or "").strip()
+    if reconnect_brand:
+        route = social_brand_route(config, reconnect_brand, "youtube")
+        current_channel_id = str(route.get("channel_id") or "").strip()
+        if expected_channel_id and current_channel_id != expected_channel_id:
+            raise RuntimeError("Route YouTube của Brand đã thay đổi. Hãy mở lại kết nối từ trang Social.")
+        save_social_brand_route(
+            reconnect_brand,
+            "youtube",
+            connected_channel_id,
+            name=str(channel.get("title") or "").strip(),
+            config=config,
+        )
+    else:
+        write_social_config(config)
     return str(state_data.get("project") or "")
 
 
-def extract_thumbnail_frame(video_path, at_seconds: float = 1.0):
-    """Extract a JPEG frame from the final video (default: second 1) for the YT thumbnail.
-
-    Cached next to the MP4 as thumbnail_1s.jpg; regenerated when older than the MP4.
-    Returns the Path or None when ffmpeg fails (caller degrades gracefully).
-    """
-    video_path = os.fspath(video_path)
-    thumb_path = os.path.join(os.path.dirname(video_path), "thumbnail_1s.jpg")
+def _jpeg_bytes_under_limit(image_path: Path, target_size: tuple[int, int] | None = None) -> bytes | None:
     try:
-        stale = (not os.path.exists(thumb_path)) or os.path.getmtime(thumb_path) < os.path.getmtime(video_path)
-        if not stale:
-            return thumb_path
-        import subprocess
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(at_seconds), "-i", video_path,
-             "-frames:v", "1", "-q:v", "2", thumb_path],
-            capture_output=True, timeout=60,
-        )
-        if result.returncode == 0 and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 1024:
-            return thumb_path
+        from PIL import Image, ImageOps
     except Exception:
-        pass
+        return None
+
+    with Image.open(image_path) as image:
+        if image.mode in {"RGBA", "LA"} or "transparency" in image.info:
+            canvas = Image.new("RGB", image.size, (255, 255, 255))
+            mask = image.getchannel("A") if "A" in image.getbands() else None
+            canvas.paste(image.convert("RGBA"), mask=mask)
+            image = canvas
+        else:
+            image = image.convert("RGB")
+
+        if target_size:
+            resampling = getattr(Image, "Resampling", Image)
+            image = ImageOps.fit(image, target_size, method=resampling.LANCZOS)
+
+        for quality in (92, 88, 84, 80, 76, 72, 68, 64, 60):
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=quality, optimize=True)
+            data = output.getvalue()
+            if len(data) <= YOUTUBE_THUMBNAIL_MAX_BYTES:
+                return data
     return None
 
 
+def _shorts_png_bytes_under_limit(image_path: Path) -> bytes | None:
+    try:
+        from PIL import Image, ImageOps
+    except Exception:
+        return None
+
+    with Image.open(image_path) as image:
+        image = image.convert("RGB")
+        resampling = getattr(Image, "Resampling", Image)
+        for target_size in (
+            YOUTUBE_SHORTS_THUMBNAIL_SIZE,
+            (504, 896),
+            (432, 768),
+            (360, 640),
+        ):
+            normalized = ImageOps.fit(image, target_size, method=resampling.LANCZOS)
+            output = io.BytesIO()
+            normalized.save(output, format="PNG", optimize=True, compress_level=9)
+            data = output.getvalue()
+            if len(data) <= YOUTUBE_THUMBNAIL_MAX_BYTES:
+                return data
+    return None
+
+
+def _read_youtube_thumbnail_upload(image_path: Path) -> tuple[bytes, str] | tuple[None, str]:
+    image_path = Path(image_path).expanduser()
+    if not image_path.is_file():
+        return None, f"thumbnail file not found: {image_path}"
+
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            is_portrait = image.height > image.width
+    except Exception:
+        is_portrait = False
+
+    if is_portrait:
+        # Higher portrait resolutions make thumbnails.set advertise fhd/qhd/uhd
+        # variants that YouTube's CDN may not create, leaving Studio with a 404
+        # placeholder. 576x1024 keeps the valid maxres variant as the highest.
+        png_data = _shorts_png_bytes_under_limit(image_path)
+        if png_data:
+            return png_data, "image/png"
+        return None, "portrait thumbnail could not fit YouTube's 2MB PNG limit"
+
+    content_type = mimetypes.guess_type(str(image_path))[0] or "application/octet-stream"
+    data = image_path.read_bytes()
+    if len(data) <= YOUTUBE_THUMBNAIL_MAX_BYTES:
+        return data, content_type
+    jpeg_data = _jpeg_bytes_under_limit(image_path)
+    if jpeg_data:
+        return jpeg_data, "image/jpeg"
+    return None, f"thumbnail too large: {len(data)}B"
+
+
 def set_youtube_thumbnail(access_token: str, video_id: str, video_path) -> dict:
-    """Best-effort thumbnails.set for an uploaded YouTube video (frame from second 1)."""
-    thumb = extract_thumbnail_frame(video_path, 1.0)
+    """Best-effort thumbnails.set for an uploaded YouTube video."""
+    source = "video_frame"
+    thumb = extract_thumbnail_frame(video_path)
     if not thumb:
-        return {"ok": False, "error": "thumbnail extract failed"}
-    thumb_bytes = open(thumb, "rb").read()
-    if len(thumb_bytes) > 2 * 1024 * 1024:
-        return {"ok": False, "error": f"thumbnail too large: {len(thumb_bytes)}B"}
+        return {"ok": False, "source": source, "error": "thumbnail extract failed"}
+    thumb_bytes, content_type_or_error = _read_youtube_thumbnail_upload(Path(thumb))
+    if thumb_bytes is None:
+        return {"ok": False, "source": source, "error": content_type_or_error}
     url = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?" + urlencode(
         {"videoId": video_id, "uploadType": "media"}
     )
@@ -473,7 +575,7 @@ def set_youtube_thumbnail(access_token: str, video_id: str, video_path) -> dict:
         data=thumb_bytes,
         headers={
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "image/jpeg",
+            "Content-Type": content_type_or_error,
             "Content-Length": str(len(thumb_bytes)),
         },
         method="POST",
@@ -481,12 +583,14 @@ def set_youtube_thumbnail(access_token: str, video_id: str, video_path) -> dict:
     try:
         with urlopen(request, timeout=60) as response:
             body = json.loads(response.read().decode("utf-8"))
-        return {"ok": True, "items": body.get("items", []) if isinstance(body, dict) else []}
+        return {"ok": True, "source": source, "items": body.get("items", []) if isinstance(body, dict) else []}
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:300]
-        return {"ok": False, "error": f"thumbnails.set failed: HTTP {exc.code}: {detail}"}
+        if access_token:
+            detail = detail.replace(access_token, "[redacted]")
+        return {"ok": False, "source": source, "error": f"thumbnails.set failed: HTTP {exc.code}: {detail}"}
     except Exception as exc:
-        return {"ok": False, "error": f"thumbnails.set failed: {exc}"}
+        return {"ok": False, "source": source, "error": f"thumbnails.set failed: {exc}"}
 
 
 def youtube_upload_video(payload: dict) -> dict:
@@ -604,11 +708,14 @@ def youtube_upload_video(payload: dict) -> dict:
         )
     else:
         message = "Uploaded to YouTube. Review in YouTube Studio before publishing."
-    # Fix thumbnail from second 1 of the video (best-effort, never blocks the upload result).
     try:
         thumbnail_result = set_youtube_thumbnail(access_token, video_id, video_path)
     except Exception as thumb_exc:
-        thumbnail_result = {"ok": False, "error": f"thumbnail error: {thumb_exc}"}
+        thumbnail_result = {"ok": False, "source": "video_frame", "error": f"thumbnail error: {thumb_exc}"}
+    if thumbnail_result.get("ok"):
+        message += " Thumbnail từ frame giây 1 đã được đặt."
+    else:
+        message += f" Thumbnail từ frame giây 1 chưa đặt được: {str(thumbnail_result.get('error') or '')[:240]}"
     return {
         "ok": True,
         "platform": "youtube",

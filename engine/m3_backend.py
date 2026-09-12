@@ -18,7 +18,7 @@ import shutil
 import unicodedata
 import subprocess
 import sys
-from threading import Lock, Thread
+from threading import Lock, RLock, Thread
 import time
 from urllib.parse import parse_qs, quote, unquote, urlparse
 import uuid
@@ -42,6 +42,7 @@ WEBUI_ROOT = ROOT / "webui"
 TTS_CONFIG_PATH = CONFIG_ROOT / "tts.json"
 SOCIAL_CONFIG_PATH = CONFIG_ROOT / "social-upload.json"
 PROJECT_DEFAULTS_PATH = CONFIG_ROOT / "project-defaults.json"
+BRAND_LIBRARY_PATH = CONFIG_ROOT / "brand-library.json"
 AUREX_ROOT = ROOT
 AUREX_TTS_CONFIG_PATH = TTS_CONFIG_PATH
 AUREX_SOCIAL_CONFIG_PATH = SOCIAL_CONFIG_PATH
@@ -55,6 +56,7 @@ DEFAULT_FACEBOOK_CAPTION = "🎬 Sự khác nhau là gì?, Phần 1\n#Hieuhamhoc
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = Lock()
 PROJECT_DEFAULTS_LOCK = Lock()
+BRAND_LIBRARY_LOCK = RLock()
 JOB_PROCESSES: dict[str, subprocess.Popen] = {}
 ACTIVE_STATUSES = {"queued", "running", "cancelling"}
 POSES = ("neutral-left", "neutral-right", "question", "smile-left", "smile-right")
@@ -357,6 +359,245 @@ def validate_slug(value: str) -> str:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}[a-z0-9]", slug):
         raise ValueError("Mã dự án chỉ gồm chữ thường, số và dấu gạch ngang (3-64 ký tự).")
     return slug
+
+
+BRAND_LIBRARY_VERSION = 1
+
+
+class BrandInUseError(RuntimeError):
+    """Raised when a library Brand is still referenced by user data."""
+
+    def __init__(self, brand_id: str, usage: dict[str, list[str]]):
+        self.brand_id = brand_id
+        self.usage = usage
+        references: list[str] = []
+        if usage.get("projects"):
+            references.append(f"project: {', '.join(usage['projects'])}")
+        if usage.get("social"):
+            references.append(f"social: {', '.join(usage['social'])}")
+        detail = "; ".join(references) or "dữ liệu đang dùng"
+        super().__init__(f"Không thể xoá Brand '{brand_id}' vì đang được dùng bởi {detail}.")
+
+
+def normalize_brand_id(value: object) -> str:
+    """Return a stable, URL-safe Brand id from a display name or supplied slug."""
+    raw = str(value or "").strip().casefold()
+    # Preserve the social router's existing safe ids (including `.` and `_`)
+    # during migration; new human-readable names still become conventional
+    # hyphenated slugs below.
+    brand_id = raw if re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", raw) else slugify_project_name(raw)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand_id):
+        raise ValueError("Mã Brand chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang (1-64 ký tự).")
+    try:
+        from social_upload.config import canonical_brand
+        brand_id = canonical_brand(brand_id)
+    except ImportError:
+        # The project manager can still bootstrap before optional social modules
+        # are importable. The id remains safe and will be canonicalized later.
+        pass
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", brand_id):
+        raise ValueError("Mã Brand chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang (1-64 ký tự).")
+    return brand_id
+
+
+def normalize_brand_display_name(value: object, fallback: object = "") -> str:
+    name = normalize_display_text(value, normalize_display_text(fallback, "", 64), 64)
+    if not name:
+        raise ValueError("Tên hiển thị Brand không được để trống.")
+    return name
+
+
+def _brand_record(value: object) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_id = value.get("id", value.get("slug", ""))
+    try:
+        brand_id = normalize_brand_id(raw_id)
+        display_name = normalize_brand_display_name(
+            value.get("displayName", value.get("name", "")),
+            raw_id,
+        )
+    except ValueError:
+        return None
+    return {"id": brand_id, "displayName": display_name}
+
+
+def _read_brand_library_file() -> tuple[list[dict[str, str]], bool]:
+    if not BRAND_LIBRARY_PATH.is_file():
+        return [], False
+    try:
+        payload = json.loads(BRAND_LIBRARY_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Brand library JSON không hợp lệ: {BRAND_LIBRARY_PATH}") from exc
+    except OSError as exc:
+        raise ValueError(f"Không thể đọc Brand library: {BRAND_LIBRARY_PATH}") from exc
+    records = payload.get("brands") if isinstance(payload, dict) else payload
+    if not isinstance(records, list):
+        raise ValueError("Brand library phải có danh sách brands.")
+    normalized: dict[str, dict[str, str]] = {}
+    for value in records:
+        record = _brand_record(value)
+        if record:
+            normalized.setdefault(record["id"], record)
+    brands = sorted(normalized.values(), key=lambda item: (item["displayName"].casefold(), item["id"]))
+    canonical_payload = {"version": BRAND_LIBRARY_VERSION, "brands": brands}
+    return brands, payload != canonical_payload
+
+
+def _write_brand_library(records: list[dict[str, str]]) -> None:
+    CONFIG_ROOT.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(BRAND_LIBRARY_PATH, {
+        "version": BRAND_LIBRARY_VERSION,
+        "brands": records,
+    })
+    try:
+        os.chmod(BRAND_LIBRARY_PATH, 0o600)
+    except OSError:
+        pass
+
+
+def _add_seed_brand(records: dict[str, dict[str, str]], raw_id: object, display_name: object = "") -> None:
+    try:
+        brand_id = normalize_brand_id(raw_id)
+        name = normalize_brand_display_name(display_name, raw_id)
+    except ValueError:
+        return
+    records.setdefault(brand_id, {"id": brand_id, "displayName": name})
+
+
+def _brand_library_seeds() -> dict[str, dict[str, str]]:
+    """Collect Brands already stored in projects or social configuration.
+
+    Only route ids and connection owners are examined; credential values are
+    intentionally never copied into the Brand library.
+    """
+    seeds: dict[str, dict[str, str]] = {}
+    if PROJECTS_ROOT.is_dir():
+        for topic_path in PROJECTS_ROOT.glob("*/topic.json"):
+            try:
+                topic = json.loads(topic_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(topic, dict):
+                _add_seed_brand(seeds, topic.get("brand"), topic.get("brand"))
+
+    try:
+        social = json.loads(SOCIAL_CONFIG_PATH.read_text(encoding="utf-8")) if SOCIAL_CONFIG_PATH.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        social = {}
+    if not isinstance(social, dict):
+        return seeds
+
+    routes = social.get("brand_routes")
+    if isinstance(routes, dict):
+        for raw_brand in routes:
+            _add_seed_brand(seeds, raw_brand, raw_brand)
+    for section in social.values():
+        connections = section.get("connections") if isinstance(section, dict) else None
+        if not isinstance(connections, dict):
+            continue
+        for connection in connections.values():
+            if isinstance(connection, dict):
+                _add_seed_brand(
+                    seeds,
+                    connection.get("brand"),
+                    connection.get("display_name", connection.get("name", connection.get("brand"))),
+                )
+    return seeds
+
+
+def list_brands() -> list[dict[str, str]]:
+    """Return the persistent library, seeding legacy project/social Brands once."""
+    with BRAND_LIBRARY_LOCK:
+        existing, needs_normalization = _read_brand_library_file()
+        current = {record["id"]: record for record in existing}
+        before = dict(current)
+        for brand_id, record in _brand_library_seeds().items():
+            current.setdefault(brand_id, record)
+        brands = sorted(current.values(), key=lambda item: (item["displayName"].casefold(), item["id"]))
+        if needs_normalization or current != before or (brands and not BRAND_LIBRARY_PATH.is_file()):
+            _write_brand_library(brands)
+        return brands
+
+
+def create_brand(payload: dict) -> dict[str, str]:
+    if not isinstance(payload, dict):
+        raise ValueError("Payload Brand không hợp lệ.")
+    display_input = payload.get("displayName", payload.get("name", ""))
+    raw_id = payload.get("id", payload.get("slug", display_input))
+    brand_id = normalize_brand_id(raw_id)
+    display_name = normalize_brand_display_name(display_input, raw_id)
+    with BRAND_LIBRARY_LOCK:
+        brands = list_brands()
+        if any(item["id"] == brand_id for item in brands):
+            raise FileExistsError(f"Brand '{brand_id}' đã tồn tại.")
+        record = {"id": brand_id, "displayName": display_name}
+        brands.append(record)
+        brands.sort(key=lambda item: (item["displayName"].casefold(), item["id"]))
+        _write_brand_library(brands)
+        return record
+
+
+def brand_usage(brand_id: object) -> dict[str, list[str]]:
+    target = normalize_brand_id(brand_id)
+    projects: list[str] = []
+    social_references: list[str] = []
+    if PROJECTS_ROOT.is_dir():
+        for topic_path in PROJECTS_ROOT.glob("*/topic.json"):
+            try:
+                topic = json.loads(topic_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(topic, dict):
+                try:
+                    is_match = normalize_brand_id(topic.get("brand")) == target
+                except ValueError:
+                    is_match = False
+                if is_match:
+                    projects.append(topic_path.parent.name)
+
+    try:
+        social = json.loads(SOCIAL_CONFIG_PATH.read_text(encoding="utf-8")) if SOCIAL_CONFIG_PATH.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        social = {}
+    if isinstance(social, dict):
+        routes = social.get("brand_routes")
+        if isinstance(routes, dict):
+            for raw_brand, platforms in routes.items():
+                try:
+                    is_match = normalize_brand_id(raw_brand) == target
+                except ValueError:
+                    is_match = False
+                if is_match:
+                    labels = sorted(str(platform) for platform in platforms) if isinstance(platforms, dict) else []
+                    social_references.extend(f"route:{label}" for label in labels or ["route"])
+        for section_name, section in social.items():
+            connections = section.get("connections") if isinstance(section, dict) else None
+            if not isinstance(connections, dict):
+                continue
+            for connection_id, connection in connections.items():
+                if not isinstance(connection, dict):
+                    continue
+                try:
+                    is_match = normalize_brand_id(connection.get("brand")) == target
+                except ValueError:
+                    is_match = False
+                if is_match:
+                    social_references.append(f"connection:{section_name}/{connection_id}")
+    return {"projects": sorted(set(projects)), "social": sorted(set(social_references))}
+
+
+def delete_brand(brand_id: object) -> dict[str, str]:
+    target = normalize_brand_id(brand_id)
+    with BRAND_LIBRARY_LOCK:
+        brands = list_brands()
+        if not any(item["id"] == target for item in brands):
+            raise FileNotFoundError(f"Không tìm thấy Brand: {target}")
+        usage = brand_usage(target)
+        if usage["projects"] or usage["social"]:
+            raise BrandInUseError(target, usage)
+        _write_brand_library([item for item in brands if item["id"] != target])
+    return {"id": target}
 
 
 def project_dir(slug: str, *, must_exist: bool = True) -> Path:
@@ -1309,33 +1550,66 @@ def remember_project_defaults(slug: str, topic: dict) -> None:
         if character_id:
             defaults["characterId"] = character_id
 
-        defaults["karaokeColor"] = normalize_hex_color(topic.get("karaokeColor"), "#271f11")
-        defaults["karaokeActiveColor"] = normalize_hex_color(topic.get("karaokeActiveColor"), "#de370d")
-        try:
-            defaults["karaokeSize"] = round(max(0.6, min(1.5, float(topic.get("karaokeSize", 1.2)))), 2)
-        except (TypeError, ValueError):
-            defaults["karaokeSize"] = 1.2
+        is_quiz_template_brand = str(topic.get("brand") or "").strip().lower() in ("quiz", "tinhnhanhchua", "suvietky")
+        if is_quiz_template_brand:
+            # Same bleed concern as backgrounds: quiz-template brands share the
+            # "quizz" character but pin their own karaoke colours per topic
+            # (plugin writes topic.karaokeColor from the render profile). Keep
+            # the shared global preset untouched here.
+            for key in ("karaokeColor", "karaokeActiveColor", "karaokeSize"):
+                if key in previous:
+                    defaults[key] = previous[key]
+                else:
+                    defaults.pop(key, None)
+        else:
+            defaults["karaokeColor"] = normalize_hex_color(topic.get("karaokeColor"), "#271f11")
+            defaults["karaokeActiveColor"] = normalize_hex_color(topic.get("karaokeActiveColor"), "#de370d")
+            try:
+                defaults["karaokeSize"] = round(max(0.6, min(1.5, float(topic.get("karaokeSize", 1.2)))), 2)
+            except (TypeError, ValueError):
+                defaults["karaokeSize"] = 1.2
 
         background_type = str(topic.get("backgroundType") or "default").strip().lower()
         if background_type not in {"default", "color", "image"}:
             background_type = "default"
-        defaults["backgroundType"] = background_type
-        defaults["backgroundColor"] = normalize_hex_color(topic.get("backgroundColor"), "#f5eee3")
-        try:
-            defaults["backgroundImageZoom"] = round(max(1.0, min(3.0, float(topic.get("backgroundImageZoom", 1.0)))), 2)
-            defaults["backgroundImageX"] = round(max(-50.0, min(50.0, float(topic.get("backgroundImageX", 0.0)))), 1)
-            defaults["backgroundImageY"] = round(max(-50.0, min(50.0, float(topic.get("backgroundImageY", 0.0)))), 1)
-        except (TypeError, ValueError):
-            defaults["backgroundImageZoom"] = 1.0
-            defaults["backgroundImageX"] = 0.0
-            defaults["backgroundImageY"] = 0.0
+        if is_quiz_template_brand:
+            # Quiz-template brands share the quizz character but each brand
+            # carries its own background (quiz -> shared giấy preset,
+            # tinhnhanhchua/suvietky -> per-topic background from the plugin).
+            # Skip the whole background remember step (including the asset copy
+            # into project-defaults-assets/backgrounds/) and keep the previous
+            # shared preset untouched, so quiz-family brands never bleed
+            # into each other's backgrounds via project-defaults.
+            for key in (
+                "backgroundType",
+                "backgroundColor",
+                "backgroundImage",
+                "backgroundImageZoom",
+                "backgroundImageX",
+                "backgroundImageY",
+            ):
+                if key in previous:
+                    defaults[key] = previous[key]
+                else:
+                    defaults.pop(key, None)
+        else:
+            defaults["backgroundType"] = background_type
+            defaults["backgroundColor"] = normalize_hex_color(topic.get("backgroundColor"), "#f5eee3")
+            try:
+                defaults["backgroundImageZoom"] = round(max(1.0, min(3.0, float(topic.get("backgroundImageZoom", 1.0)))), 2)
+                defaults["backgroundImageX"] = round(max(-50.0, min(50.0, float(topic.get("backgroundImageX", 0.0)))), 1)
+                defaults["backgroundImageY"] = round(max(-50.0, min(50.0, float(topic.get("backgroundImageY", 0.0)))), 1)
+            except (TypeError, ValueError):
+                defaults["backgroundImageZoom"] = 1.0
+                defaults["backgroundImageX"] = 0.0
+                defaults["backgroundImageY"] = 0.0
 
-        background_image = ""
-        if background_type == "image":
-            source = _resolve_under_root(project, topic.get("backgroundImage"))
-            if source is not None:
-                background_image = _copy_into_project_defaults(source, "backgrounds", "background")
-        defaults["backgroundImage"] = background_image
+            background_image = ""
+            if background_type == "image":
+                source = _resolve_under_root(project, topic.get("backgroundImage"))
+                if source is not None:
+                    background_image = _copy_into_project_defaults(source, "backgrounds", "background")
+            defaults["backgroundImage"] = background_image
         if character_id in ("engzy", "knowzy", "bietchichomet", "july"):
             # Keep the shared background preset for other characters. The
             # engzy/bietchichomet/july no-background defaults and the knowzy
@@ -1809,12 +2083,62 @@ def normalize_topic(slug: str, payload: dict) -> dict:
             current.get("quizCountdownSound", "audio/quiz-countdown.wav"),
         )
         topic["quizCountdownSound"] = safe_relative_asset(countdown_sound, "quizCountdownSound")
+        default_answer_delay = 3.0 if str(payload.get("brand", current.get("brand", ""))).strip().lower() == "suvietky" else 5.0
         try:
-            answer_delay = float(payload.get("quizAnswerDelay", current.get("quizAnswerDelay", 5)))
+            answer_delay = float(payload.get("quizAnswerDelay", current.get("quizAnswerDelay", default_answer_delay)))
         except (TypeError, ValueError):
-            answer_delay = 5.0
+            answer_delay = default_answer_delay
         topic["quizAnswerDelay"] = round(max(0.5, min(60.0, answer_delay)), 2)
-        topic["quizQuestionFontFamily"] = normalize_label_font_family(payload.get("quizQuestionFontFamily", current.get("quizQuestionFontFamily")), DEFAULT_LABEL_FONT_FAMILY)
+        cta_art = payload.get("quizCtaArt", current.get("quizCtaArt", ""))
+        if cta_art:
+            topic["quizCtaArt"] = safe_relative_asset(cta_art, "quizCtaArt")
+        else:
+            topic.pop("quizCtaArt", None)
+        # Optional suvietky hook layer: one spoken segment before the
+        # canonical 16-segment Quiz V2 script. Preserve it through normalization
+        # so the renderer can show the default hook artwork and keep the
+        # hook-to-question beat synchronized with audio.
+        try:
+            hook_count = int(payload.get("quizHookSegmentCount", current.get("quizHookSegmentCount", 0)))
+        except (TypeError, ValueError):
+            hook_count = 0
+        if hook_count > 0:
+            topic["quizHookSegmentCount"] = min(hook_count, 3)
+            try:
+                hook_question_delay = float(payload.get("quizHookQuestionDelay", current.get("quizHookQuestionDelay", 1.0)))
+            except (TypeError, ValueError):
+                hook_question_delay = 1.0
+            topic["quizHookQuestionDelay"] = round(max(0.0, min(10.0, hook_question_delay)), 2)
+            hook_art = payload.get("quizHookArt", current.get("quizHookArt", ""))
+            if hook_art:
+                topic["quizHookArt"] = safe_relative_asset(hook_art, "quizHookArt")
+            hook_title = normalize_display_text(payload.get("quizHookText", current.get("quizHookText", "")), "", 180)
+            if hook_title:
+                topic["quizHookText"] = hook_title
+            raw_hook = payload.get("quizHook", current.get("quizHook", {}))
+            if isinstance(raw_hook, dict):
+                hook_text = normalize_display_text(raw_hook.get("text"), "", 500)
+                if hook_text:
+                    clean_hook = {"text": hook_text}
+                    if raw_hook.get("art"):
+                        clean_hook["art"] = safe_relative_asset(raw_hook.get("art"), "quizHook.art")
+                    if raw_hook.get("pool"):
+                        clean_hook["pool"] = normalize_display_text(raw_hook.get("pool"), "", 120)
+                    try:
+                        raw_index = int(raw_hook.get("poolIndex"))
+                    except (TypeError, ValueError):
+                        raw_index = 0
+                    # poolIndex 0 means a custom-adapted hook (not a verbatim pool
+                    # line); preserve 0 instead of forcing it to 1.
+                    clean_hook["poolIndex"] = 0 if raw_index < 1 else raw_index
+                    topic["quizHook"] = clean_hook
+        else:
+            topic.pop("quizHookSegmentCount", None)
+            topic.pop("quizHookQuestionDelay", None)
+            topic.pop("quizHookArt", None)
+            topic.pop("quizHookText", None)
+            topic.pop("quizHook", None)
+
         topic["quizAnswerFontFamily"] = normalize_label_font_family(payload.get("quizAnswerFontFamily", current.get("quizAnswerFontFamily")), DEFAULT_LABEL_FONT_FAMILY)
         topic["quizQuestionColor"] = normalize_hex_color(payload.get("quizQuestionColor", current.get("quizQuestionColor", "#ffffff")), "#ffffff")
         topic["quizCountdownColor"] = normalize_hex_color(payload.get("quizCountdownColor", current.get("quizCountdownColor", "#ffd166")), "#ffd166")
@@ -1830,6 +2154,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         topic.pop("quizAnswer", None)
         topic.pop("quizAnswerDelay", None)
         topic.pop("quizCountdownSound", None)
+        topic.pop("quizCtaArt", None)
         for key in ("quizQuestionFontFamily", "quizAnswerFontFamily", "quizQuestionColor", "quizCountdownColor", "quizAnswerColor", "quizQuestionSize", "quizAnswerSize"):
             topic.pop(key, None)
     if topic["projectType"] == "custom":
@@ -2237,6 +2562,104 @@ def normalize_display_text(value: object, fallback: str = "", limit: int = 200) 
     return text[:limit]
 
 
+QUIZ_ITEM_COUNT = 3
+QUIZ_LINES_PER_ITEM = 5
+QUIZ_NARRATION_LINE_COUNT = QUIZ_ITEM_COUNT * QUIZ_LINES_PER_ITEM
+QUIZ_DEFAULT_CTA_VI = "Bạn trả lời đúng được mấy câu? Comment kết quả bên dưới và Follow mình để thử thách tiếp nhé!"
+QUIZ_DEFAULT_CTA_EN = "How many questions did you get right? Comment your score below and follow for the next challenge!"
+QUIZ_ANSWER_LINE_RE = re.compile(
+    r"(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$",
+    re.IGNORECASE,
+)
+
+
+def quiz_default_cta(language: object = "vi") -> str:
+    return QUIZ_DEFAULT_CTA_EN if normalize_ui_language(language) == "en" else QUIZ_DEFAULT_CTA_VI
+
+
+def _quiz_script_lines(value: object) -> list[str]:
+    if isinstance(value, str):
+        raw_lines = value.splitlines()
+    elif isinstance(value, list):
+        raw_lines = [str(item or "") for item in value]
+    else:
+        raw_lines = []
+    return [line.strip() for line in raw_lines if line and line.strip()]
+
+
+def parse_quiz_script(value: object, language: object = "vi") -> tuple[list[str], list[dict[str, object]]]:
+    """Parse three five-line Quiz blocks and append one canonical CTA line.
+
+    The first 15 non-empty lines are the Quiz narration contract. Any trailing
+    lines are treated as a custom CTA and collapsed into one final segment. If
+    no CTA is supplied, the localized default CTA is appended automatically.
+    """
+    lines = _quiz_script_lines(value)
+    if len(lines) < QUIZ_NARRATION_LINE_COUNT:
+        raise ValueError(
+            "Kịch bản Quiz cần đúng 3 câu, mỗi câu gồm: câu hỏi, A, B, C và dòng đáp án chính xác."
+        )
+
+    quiz_lines = lines[:QUIZ_NARRATION_LINE_COUNT]
+    raw_items: list[dict[str, object]] = []
+    for item_index in range(QUIZ_ITEM_COUNT):
+        offset = item_index * QUIZ_LINES_PER_ITEM
+        question = quiz_lines[offset]
+        options: list[str] = []
+        for option_index in range(3):
+            expected = chr(ord("A") + option_index)
+            option_line = quiz_lines[offset + 1 + option_index]
+            option_match = re.match(r"^([ABC])\s*[.)]\s*(.+)$", option_line, re.IGNORECASE)
+            if not option_match or option_match.group(1).upper() != expected:
+                raise ValueError(f"Câu Quiz {item_index + 1}: lựa chọn {expected} phải bắt đầu bằng '{expected}.'")
+            options.append(option_match.group(2).strip())
+
+        answer_line = quiz_lines[offset + 4]
+        answer_match = QUIZ_ANSWER_LINE_RE.search(answer_line)
+        if not answer_match:
+            raise ValueError(
+                f"Câu Quiz {item_index + 1}: dòng 5 phải có dạng 'Đáp án chính xác là A. ...'."
+            )
+        correct_index = ord(answer_match.group(1).upper()) - ord("A")
+        answer_prefix = "Correct answer is" if normalize_ui_language(language) == "en" else "Đáp án chính xác là"
+        quiz_lines[offset + 4] = f"{answer_prefix} {answer_match.group(1).upper()}. {options[correct_index]}"
+        raw_items.append({
+            "question": question,
+            "options": options,
+            "correct_index": correct_index,
+        })
+
+    items = normalize_quiz_items(raw_items)
+    trailing = " ".join(lines[QUIZ_NARRATION_LINE_COUNT:]).strip()
+    return [*quiz_lines, trailing or quiz_default_cta(language)], items
+
+
+def quiz_preview_segments(lines: list[str]) -> tuple[list[dict[str, object]], float]:
+    """Build a readable silent-preview timeline that mirrors Quiz render order."""
+    cursor = 0.0
+    segments: list[dict[str, object]] = []
+    for index, text in enumerate(lines):
+        # Text-length timing is only for the silent editor preview. Real render
+        # timing is rebuilt from each generated TTS clip by render_project.py.
+        duration = max(1.0, min(5.0, 0.7 + len(text) / 17.0))
+        start = cursor
+        end = start + duration
+        segments.append({
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "text": text,
+            "speaker": "voice_a" if index == 0 or index == len(lines) - 1 else "voice_b",
+        })
+        cursor = end
+        if index in {3, 8, 13}:
+            cursor += 5.0
+        elif index in {4, 9, 14}:
+            cursor += 1.0
+        elif index < len(lines) - 1:
+            cursor += 0.3
+    return segments, round(max(cursor, segments[-1]["end"] if segments else 1.0), 3)
+
+
 def normalize_quiz_items(value: object) -> list[dict[str, object]]:
     """Validate the fixed three-question Multiple Choice Quiz Scroll contract."""
     if not isinstance(value, list) or len(value) != 3:
@@ -2270,9 +2693,33 @@ def create_project(payload: dict) -> dict:
     language = normalize_ui_language(payload.get("language") or payload.get("locale"))
     is_en = language == "en"
     project_type = normalize_project_type(payload.get("projectType") or payload.get("type"))
+    quiz_script = payload.get("quizScript", payload.get("script", ""))
+    quiz_lines: list[str] | None = None
+    quiz_items: list[dict[str, object]] | None = None
+    quiz_segments: list[dict[str, object]] | None = None
+    quiz_duration = 1.0
+    if project_type == "quiz" and _quiz_script_lines(quiz_script):
+        # Validate before creating any project directory so malformed scripts
+        # never leave a half-created project behind.
+        quiz_lines, quiz_items = parse_quiz_script(quiz_script, language)
+        quiz_segments, quiz_duration = quiz_preview_segments(quiz_lines)
     defaults = read_project_defaults()
     custom_editor_defaults = _read_custom_editor_defaults(defaults.get("customEditorDefaults")) if project_type == "custom" else None
-    character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
+    # Quiz and Custom render without a presenter. Keep a neutral internal pose
+    # contract for the editor/legacy renderer, but never inherit the user's
+    # comparison character default or require a character selection for these
+    # templates. Comparison projects retain the existing character behavior.
+    if project_type in {"quiz", "custom"}:
+        character_id = "human-presenter"
+    else:
+        character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
+    requested_brand = payload.get("brand", payload.get("brandId", ""))
+    project_brand = character_id
+    if str(requested_brand or "").strip():
+        brand_id = normalize_brand_id(requested_brand)
+        if not any(item["id"] == brand_id for item in list_brands()):
+            raise ValueError(f"Brand '{brand_id}' không tồn tại. Hãy tạo Brand trước.")
+        project_brand = brand_id
     try:
         character = character_manifest(character_id)
         character_poses = character["poses"]
@@ -2296,7 +2743,10 @@ def create_project(payload: dict) -> dict:
             )
             for item in character_poses
         }
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
+        # Brand-only project creation must not depend on the character library
+        # being installed or on a stale saved character id.  Keep a portable
+        # pose set in topic.json so the editor can reload and save it later.
         character_id = "human-presenter"
         pose_assets = dict(DEFAULT_POSE_ASSETS)
         pose_labels = {
@@ -2488,19 +2938,26 @@ def create_project(payload: dict) -> dict:
         )
         custom_intro = _copy_custom_intro_defaults(destination, custom_editor_defaults)
 
+    quiz_answer = ""
+    if quiz_items:
+        first_correct = int(quiz_items[0]["correct_index"])
+        quiz_answer = f"{chr(ord('A') + first_correct)}. {quiz_items[0]['options'][first_correct]}"
+
+    default_quiz_answer_delay = 3.0 if project_type == "quiz" and str(project_brand).strip().lower() == "suvietky" else 5.0
+
     topic = {
         "id": slug,
         "projectType": project_type,
-        "brand": character_id,
-        "duration": 1.0,
+        "brand": project_brand,
+        "duration": quiz_duration if quiz_segments else 1.0,
         "leftLabel": normalize_display_text(payload.get("leftLabel"), default_left, 80),
         "rightLabel": normalize_display_text(payload.get("rightLabel"), default_right, 80),
         "leftImage": "assets/placeholder-left.svg",
         "rightImage": "" if project_type == "quiz" else "assets/placeholder-right.svg",
         "voiceover": "audio/silence.wav",
-        "segments": [{"start": 0.0, "end": 1.0, "text": starter_text}],
-        "quizAnswer": "" if project_type == "quiz" else None,
-        "quizAnswerDelay": 5.0 if project_type == "quiz" else None,
+        "segments": quiz_segments or [{"start": 0.0, "end": 1.0, "text": starter_text}],
+        "quizAnswer": quiz_answer if project_type == "quiz" else None,
+        "quizAnswerDelay": default_quiz_answer_delay if project_type == "quiz" else None,
         "quizCountdownSound": quiz_countdown_sound if project_type == "quiz" else None,
         "quizQuestionFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
         "quizAnswerFontFamily": DEFAULT_LABEL_FONT_FAMILY if project_type == "quiz" else None,
@@ -2546,8 +3003,11 @@ def create_project(payload: dict) -> dict:
         "karaokeSize": karaoke_size,
         "karaokeY": 66.0 if project_type == "custom" else 46.2,
     }
+    if quiz_items is not None:
+        topic["quizItems"] = quiz_items
     atomic_write_json(destination / "topic.json", topic)
-    (destination / "script.txt").write_text(starter_text + "\n", encoding="utf-8")
+    initial_script = quiz_lines if quiz_lines is not None else [starter_text]
+    (destination / "script.txt").write_text("\n".join(initial_script) + "\n", encoding="utf-8")
     if project_type == "quiz":
         topic = normalize_topic(slug, topic)
         if topic["comparisons"]:

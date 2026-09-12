@@ -739,7 +739,13 @@ def create_affiliate_link(
     return {"ok": True, "link": link, "product": product, "sub_ids": sub_ids}
 
 
-def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_id: str = "") -> dict:
+def prepare_affiliate_for_publish(
+    payload: dict,
+    project: str,
+    brand: str,
+    page_id: str = "",
+    caption_query: str = "",
+) -> dict:
     config = read_social_config()
     has_affiliate_payload = isinstance(payload.get("affiliate"), dict)
     raw = payload.get("affiliate") if has_affiliate_payload else {}
@@ -758,7 +764,11 @@ def prepare_affiliate_for_publish(payload: dict, project: str, brand: str, page_
         raise ValueError("Affiliate placement không hợp lệ.")
     if placement == "shopee_native_tag":
         raise ValueError("Shopee native tag mới là POC; hãy dùng comment hoặc caption cho lần đăng này.")
-    query = str(raw.get("query") or raw.get("affiliateQuery") or "").strip() or _project_query(project)
+    # A typed affiliate query remains an explicit operator override.  When it
+    # is absent, AUTO ranks the Brand-owned Pool against the final Facebook
+    # caption (not an unfiltered client product or the global catalog).
+    manual_query = str(raw.get("query") or raw.get("affiliateQuery") or "").strip()
+    query = manual_query or str(caption_query or raw.get("captionQuery") or "").strip() or _project_query(project)
     category_hint = str(
         raw.get("categoryHint")
         or raw.get("category_hint")
@@ -980,11 +990,14 @@ def affiliate_comment_text(
     reject the optional ``attachment_url`` field even when the Page token can
     read and comment on the post.
     """
-    label = "Gợi ý trên Shopee" if fallback else "Sản phẩm liên quan"
+    # Keep ``fallback`` in the signature for callers that pass the selection
+    # mode, but use one friendly CTA for both matched and random Pool items.
+    del fallback
+    message = "🛍️ Nếu thấy sản phẩm phù hợp, ủng hộ mình bằng cách mua qua link này nhé!"
     title = _clean_comment_title(product_name)
     if title:
-        return f"🛒 {label}: {title}\n{affiliate_url}"
-    return f"🛒 {label} trong video:\n{affiliate_url}"
+        return f"{message}\n{title}\n{affiliate_url}"
+    return f"{message}\n{affiliate_url}"
 
 
 def caption_with_affiliate(caption: str, affiliate_url: str) -> str:

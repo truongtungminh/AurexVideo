@@ -995,16 +995,29 @@ function scriptLines() {
   return elements.scriptInput.value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+const QUIZ_ITEM_COUNT = 3;
+const QUIZ_LINES_PER_ITEM = 5;
+const QUIZ_NARRATION_LINE_COUNT = QUIZ_ITEM_COUNT * QUIZ_LINES_PER_ITEM;
+
+function quizDefaultCtaText() {
+  return tr(
+    "Bạn trả lời đúng được mấy câu? Comment kết quả bên dưới và Follow mình để thử thách tiếp nhé!",
+    "How many questions did you get right? Comment your score below and follow for the next challenge!",
+  );
+}
+
 function quizItemsFromScript(lines = scriptLines()) {
-  if (!isQuizProject() || lines.length !== 15) return null;
+  if (!isQuizProject() || lines.length < QUIZ_NARRATION_LINE_COUNT) return null;
+  const quizLines = lines.slice(0, QUIZ_NARRATION_LINE_COUNT);
   const items = [];
-  for (let offset = 0; offset < lines.length; offset += 5) {
-    const question = lines[offset];
-    const options = lines.slice(offset + 1, offset + 4).map((line, index) => {
+  for (let offset = 0; offset < QUIZ_NARRATION_LINE_COUNT; offset += QUIZ_LINES_PER_ITEM) {
+    const question = quizLines[offset];
+    const options = quizLines.slice(offset + 1, offset + 4).map((line, index) => {
       const expected = String.fromCharCode(65 + index);
-      return line.replace(new RegExp(`^${expected}\\s*[.)]\\s*`, "i"), "").trim();
+      const match = line.match(new RegExp(`^${expected}\\s*[.)]\\s*(.+)$`, "i"));
+      return match?.[1]?.trim() || "";
     });
-    const answerLine = lines[offset + 4];
+    const answerLine = quizLines[offset + 4];
     const answerMatch = answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$/iu);
     if (!question || options.some((option) => !option) || !answerMatch) return null;
     items.push({
@@ -1014,6 +1027,24 @@ function quizItemsFromScript(lines = scriptLines()) {
     });
   }
   return items;
+}
+
+function quizScriptLinesWithCta(lines = scriptLines()) {
+  if (!isQuizProject()) return lines;
+  const items = quizItemsFromScript(lines);
+  if (!items) return lines;
+  const quizLines = lines.slice(0, QUIZ_NARRATION_LINE_COUNT);
+  items.forEach((item, index) => {
+    const correctIndex = Number(item.correct_index);
+    const letter = String.fromCharCode(65 + correctIndex);
+    const prefix = tr("Đáp án chính xác là", "Correct answer is");
+    quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `${prefix} ${letter}. ${item.options[correctIndex]}`;
+  });
+  const trailingCta = lines.slice(QUIZ_NARRATION_LINE_COUNT).join(" ").trim();
+  return [
+    ...quizLines,
+    trailingCta || quizDefaultCtaText(),
+  ];
 }
 
 function defaultSpeakerDefinitions() {
@@ -1187,7 +1218,7 @@ function distributeSegments(lines, duration, previousSegments = []) {
 }
 
 function segmentsFromEditor(forceRetime = false) {
-  const lines = scriptLines();
+  const lines = quizScriptLinesWithCta(scriptLines());
   if (!lines.length) return [];
   if (!forceRetime && state.topic.segments.length === lines.length) {
     return state.topic.segments.map((segment, index) => ({
@@ -1356,10 +1387,19 @@ function timelineFromPoses(segments) {
 function draftTopic(forceRetime = false) {
   const segments = segmentsFromEditor(forceRetime);
   const parsedQuizItems = quizItemsFromScript(scriptLines());
+  const effectiveLines = quizScriptLinesWithCta(scriptLines());
+  const firstQuizItem = parsedQuizItems?.[0] || state.topic.quizItems?.[0];
+  const firstCorrectIndex = Number(firstQuizItem?.correct_index ?? firstQuizItem?.correctIndex);
+  const firstCorrectOption = Number.isInteger(firstCorrectIndex) && firstCorrectIndex >= 0 && firstCorrectIndex <= 2
+    ? String(firstQuizItem?.options?.[firstCorrectIndex] || "").trim()
+    : "";
+  const quizAnswer = firstCorrectOption
+    ? `${String.fromCharCode(65 + firstCorrectIndex)}. ${firstCorrectOption}`
+    : String(state.topic.quizAnswer || "").trim();
   const ttsConfig = topicTtsConfig(state.topic);
   const speakerConfig = Object.fromEntries(speakerEntries({ ...state.topic, segments }));
   const duration = hasPlaceholderVoiceover()
-    ? Math.max(previewDurationFor(scriptLines()), Number(segments[segments.length - 1]?.end) || 0)
+    ? Math.max(previewDurationFor(effectiveLines), Number(segments[segments.length - 1]?.end) || 0)
     : Number(state.topic.duration);
   const left = readImageFrame("left");
   const right = readImageFrame("right");
@@ -1401,7 +1441,7 @@ function draftTopic(forceRetime = false) {
     leftSubLabelColor: elements.leftSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
     rightSubLabelColor: elements.rightSubLabelColor?.value || DEFAULT_SUBLABEL_COLOR,
     comparisons,
-    quizAnswer: isQuizProject() ? String(segments[1]?.text || state.topic.quizAnswer || "").trim() : "",
+    quizAnswer: isQuizProject() ? quizAnswer : "",
     quizItems: isQuizProject() ? (parsedQuizItems || state.topic.quizItems) : undefined,
     quizAnswerDelay: isQuizProject() ? Number(state.topic.quizAnswerDelay || 5) : undefined,
     duration,
@@ -1500,7 +1540,7 @@ function seekPreview(delta = 0) {
 }
 
 function updatePreviewCounter(index = -1) {
-  const total = scriptLines().length;
+  const total = quizScriptLinesWithCta(scriptLines()).length;
   elements.previewTime.textContent = `${index >= 0 ? index + 1 : "—"}/${total || "—"}`;
 }
 
@@ -2105,6 +2145,12 @@ async function saveEditor(event, quiet = false) {
   event?.preventDefault();
   if (state.saving) { scheduleAutoSave(350); return false; }
   if (!scriptLines().length) { showToast("Kịch bản cần ít nhất một dòng.", true); return false; }
+  if (isQuizProject() && !quizItemsFromScript(scriptLines())) {
+    const message = "Quiz cần đúng 3 câu; mỗi câu gồm 5 dòng: câu hỏi, A, B, C và 'Đáp án chính xác là X. ...'.";
+    elements.saveState.textContent = "Kịch bản Quiz chưa hợp lệ";
+    if (!quiet) showToast(message, true);
+    return false;
+  }
   const savingRevision = state.revision;
   state.saving = true;
   if (elements.saveButton) elements.saveButton.disabled = true;
@@ -2716,7 +2762,8 @@ elements.poseList.addEventListener("change", (event) => {
   const index = Number(row.dataset.index);
   if (event.target.dataset.field === "pose") state.poseBySegment[index].pose = event.target.value;
   if (event.target.dataset.field === "speaker") {
-    state.speakerBySegment[index] = { speaker: resolveSpeakerKey(event.target.value, state.topic) || defaultSpeakerForIndex(index, scriptLines().length) };
+    const total = quizScriptLinesWithCta(scriptLines()).length;
+    state.speakerBySegment[index] = { speaker: resolveSpeakerKey(event.target.value, state.topic) || defaultSpeakerForIndex(index, total) };
   }
   markDirty(); sendDraftToPreview(); scheduleAutoSave(250);
 });

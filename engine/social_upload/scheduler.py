@@ -147,11 +147,16 @@ def _poll_facebook_scheduled_affiliate_comments() -> dict:
                 {"brand": str(job.get("brand_id") or ""), "pageId": str(job.get("page_id") or "")},
             )
             access_token = facebook_module.facebook_page_access_token(facebook, page)
+            comment_target = facebook_module.facebook_full_post_id(facebook, post_id, page)
             metadata = facebook_module.facebook_object_metadata(
                 facebook,
-                post_id,
+                comment_target,
                 access_token,
-                fields="id,status,is_published",
+                # The Graph object endpoint rejects a bare numeric post ID as
+                # a legacy singular status on newer API versions.  The full
+                # Page post ID is required; ``is_published`` is the explicit
+                # signal we need for the deferred comment.
+                fields="id,is_published",
             )
         except (RuntimeError, ValueError) as exc:
             error = str(exc)[:1000]
@@ -193,7 +198,6 @@ def _poll_facebook_scheduled_affiliate_comments() -> dict:
             summary["pending"] += 1
             continue
 
-        comment_target = facebook_module.facebook_full_post_id(facebook, post_id, page)
         comment_id, error = facebook_module.post_facebook_source_comment(
             facebook,
             comment_target,

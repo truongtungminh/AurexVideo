@@ -793,6 +793,11 @@
     return context.connection && typeof context.connection === 'object' ? context.connection : {};
   }
 
+  function affiliateComposerPool() {
+    const context = affiliateComposerContext();
+    return context.pool && typeof context.pool === 'object' ? context.pool : {};
+  }
+
   function affiliateComposerSettings() {
     const context = affiliateComposerContext();
     return context.settings && typeof context.settings === 'object' ? context.settings : {};
@@ -858,8 +863,11 @@
     if (!mode || !placement) return;
 
     const connection = affiliateComposerConnection();
+    const pool = affiliateComposerPool();
     const settings = affiliateComposerSettings();
     const connected = Boolean(connection.connected);
+    const poolEnabled = Number(pool.enabled || 0);
+    const poolConfigured = Boolean(pool.configured) && poolEnabled > 0;
     if (state.affiliateUiBrand !== state.uploadBrand) {
       state.affiliateUiBrand = state.uploadBrand;
       state.affiliateMode = settings.enabled && settings.mode !== 'off' ? String(settings.mode) : 'off';
@@ -880,11 +888,13 @@
     }
     const enabled = state.affiliateMode !== 'off';
     if (badge) {
-      badge.textContent = enabled ? (connected ? state.affiliateMode.toUpperCase() : 'CHƯA KẾT NỐI') : 'OFF';
-      badge.classList.toggle('is-on', enabled && connected);
+      const usable = connected || (state.affiliateMode === 'auto' && poolConfigured);
+      badge.textContent = enabled ? (usable ? state.affiliateMode.toUpperCase() : 'CHƯA KẾT NỐI') : 'OFF';
+      badge.classList.toggle('is-on', enabled && usable);
     }
     if (status) {
       if (!state.uploadBrand) status.textContent = 'Chọn Brand để xem cấu hình Affiliate.';
+      else if (state.affiliateMode === 'auto' && poolConfigured) status.textContent = `AUTO: sẽ chọn ngẫu nhiên/phù hợp trong Pool Shopee (${poolEnabled} link đang bật) theo caption Facebook rồi dùng cho comment đầu tiên.`;
       else if (!connected) status.textContent = connection.message || 'Shopee Affiliate chưa kết nối cho Brand này. Mở cài đặt để kết nối.';
       else if (!enabled) status.textContent = 'Affiliate đang tắt cho lần đăng này. Chính sách mặc định có thể đổi ở Affiliate Dashboard.';
       else if (state.affiliateMode === 'auto') status.textContent = 'AUTO: AurexVideo sẽ tìm, xếp hạng và tạo link theo caption/từ khoá.';
@@ -977,6 +987,7 @@
       mode,
       placement,
       query: String($('#affiliateQuery')?.value || '').trim(),
+      captionQuery: mode === 'auto' ? String($('#commonCaption')?.value || $('#facebookCaption')?.value || '').trim() : '',
       productId: affiliateComposerProductId(product),
       originUrl: String(product.origin_url || product.original_url || product.productLink || '').trim(),
       affiliateUrl: state.affiliateLink,
@@ -1867,7 +1878,7 @@
             <div class="affiliate-composer-grid">
               <label><span>Chế độ</span><select id="affiliateMode"><option value="off">OFF - không gắn link</option><option value="manual">MANUAL - chọn sản phẩm</option><option value="auto">AUTO - tự chọn theo caption</option></select></label>
               <label><span>Vị trí link</span><select id="affiliatePlacement"><option value="first_comment">Comment đầu tiên</option><option value="caption">Caption</option><option value="caption_and_comment">Caption + comment</option><option value="shopee_native_tag">Shopee native tag (POC)</option></select></label>
-              <label class="wide"><span>Từ khoá sản phẩm Shopee</span><input id="affiliateQuery" type="search" maxlength="500" placeholder="Ví dụ: serum vitamin C cho da dầu" /></label>
+              <label class="wide"><span>Từ khoá sản phẩm Shopee</span><input id="affiliateQuery" type="search" maxlength="500" placeholder="AUTO: để trống sẽ chọn Pool theo caption Facebook; nhập từ khoá để ghi đè" /></label>
             </div>
             <div class="affiliate-composer-actions">
               <button class="affiliate-composer-action secondary" id="affiliateSearchProducts" type="button">Tìm sản phẩm</button>
@@ -2289,13 +2300,18 @@
 
   function syncFacebookConfigUi(facebook = {}) {
     const pageIdInput = $('#facebookPageId');
+    const pageNameInput = $('#facebookPageName');
     const tokenInput = $('#facebookPageAccessToken');
     const configState = $('#facebookConfigState');
     const activePageId = String(facebook.active_page_id || facebook.page_id || facebook.page?.id || '').trim();
+    const activePageName = String(facebook.page?.name || facebook.name || '').trim();
     const modalOpen = Boolean($('#facebookConfigModal') && !$('#facebookConfigModal').hidden);
     state.facebookActivePageId = activePageId;
     if (pageIdInput && document.activeElement !== pageIdInput && activePageId) {
       pageIdInput.value = activePageId;
+    }
+    if (pageNameInput && document.activeElement !== pageNameInput && activePageName) {
+      pageNameInput.value = activePageName;
     }
     if (tokenInput) {
       if (!modalOpen && document.activeElement !== tokenInput) tokenInput.value = '';
@@ -4812,12 +4828,14 @@
 
   async function saveFacebookConfig() {
     const pageIdInput = $('#facebookPageId');
+    const pageNameInput = $('#facebookPageName');
     const tokenInput = $('#facebookPageAccessToken');
     const button = $('#saveFacebookConfig');
     const pageId = pageIdInput?.value.trim() || '';
+    const name = pageNameInput?.value.trim() || '';
     const pageAccessToken = tokenInput?.value.trim() || '';
-    if (!pageId || !pageAccessToken) {
-      setUploadStatus('Nhập đủ Facebook Page ID và Page access token trước khi lưu.', 'bad');
+    if (!pageId || !name || !pageAccessToken) {
+      setUploadStatus('Nhập đủ Facebook Page ID, Name và Page access token trước khi lưu.', 'bad');
       return;
     }
     if (facebookConfigSaving) return;
@@ -4828,14 +4846,14 @@
       const response = await fetch('/api/social/facebook/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pageId, pageAccessToken }),
+        body: JSON.stringify({ pageId, name, pageAccessToken }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       if (tokenInput) tokenInput.value = '';
       if (pageIdInput) pageIdInput.value = data.active_page_id || pageId;
       await refreshSocialStatus();
-      setUploadStatus('Đã lưu Facebook Page ID và Page access token trong ứng dụng.', 'good');
+      setUploadStatus(`Đã lưu Facebook Page “${name}”, Page ID và access token trong ứng dụng.`, 'good');
       closeFacebookConfigModal();
     } catch (error) {
       setUploadStatus(error.message || String(error), 'bad');

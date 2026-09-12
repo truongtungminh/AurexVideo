@@ -38,6 +38,63 @@ except ModuleNotFoundError:  # Imported as ``tools.render_demo`` by tests/tools.
 
 ROOT = RESOURCE_ROOT
 PROJECT_MOUNT_PREFIX = "/__aurexvideo_project__/"
+QUIZ_V2_THINKING_SECONDS = 3.0
+QUIZ_V2_REVEAL_HOLD_SECONDS = 1.4
+QUIZ_V2_TRANSITION_SECONDS = 1.0
+
+
+def quiz_countdown_starts(topic: dict) -> list[float]:
+    """Return countdown start times that match the browser Quiz timeline.
+
+    Quiz V2 uses five narration segments per item: question, A, B, C, answer.
+    The configured countdown starts after option C and ends exactly when the
+    answer segment begins. No-narration Quiz V2 exports have no segment markers,
+    so fall back to the browser's configured scene cadence.
+    """
+    if str(topic.get("projectType") or "").strip().lower() != "quiz":
+        return []
+    try:
+        delay = max(0.0, float(topic.get("quizAnswerDelay", QUIZ_V2_THINKING_SECONDS)))
+    except (TypeError, ValueError):
+        delay = QUIZ_V2_THINKING_SECONDS
+    segments = topic.get("segments") if isinstance(topic.get("segments"), list) else []
+    items = topic.get("quizItems") if isinstance(topic.get("quizItems"), list) else []
+    quiz_narration_count = len(items) * 5
+    try:
+        hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
+    except (TypeError, ValueError):
+        hook_count = 0
+    if len(items) == 3 and len(segments) >= hook_count + quiz_narration_count:
+        starts: list[float] = []
+        for base in range(hook_count, hook_count + quiz_narration_count, 5):
+            option_c = segments[base + 3]
+            answer = segments[base + 4]
+            if not isinstance(option_c, dict) or not isinstance(answer, dict):
+                continue
+            try:
+                option_end = max(0.0, float(option_c.get("end") or option_c.get("start") or 0.0))
+                answer_start = max(option_end, float(answer.get("start") or option_end + delay))
+            except (TypeError, ValueError):
+                continue
+            starts.append(max(option_end, answer_start - delay))
+        return starts
+    if len(items) == 3 and not segments:
+        scene_duration = delay + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS
+        return [round(index * scene_duration, 3) for index in range(len(items))]
+
+    starts = []
+    for pair_index in range(0, len(segments) - 1, 2):
+        question = segments[pair_index]
+        answer = segments[pair_index + 1]
+        if not isinstance(question, dict) or not isinstance(answer, dict):
+            continue
+        try:
+            question_end = max(0.0, float(question.get("end") or question.get("start") or 0.0))
+            answer_start = max(question_end, float(answer.get("start") or question_end + delay))
+        except (TypeError, ValueError):
+            continue
+        starts.append(max(question_end, answer_start - delay))
+    return starts
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -221,18 +278,10 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
         countdown_path = resolve_project_path(topic_path, countdown_value, data_root)
         if countdown_path.is_file():
             try:
-                countdown_duration = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
+                countdown_duration = max(0.0, float(topic.get("quizAnswerDelay", QUIZ_V2_THINKING_SECONDS)))
             except (TypeError, ValueError):
-                countdown_duration = 5.0
-            for pair_index in range(0, len(topic.get("segments", [])) - 1, 2):
-                question = topic["segments"][pair_index]
-                if not isinstance(question, dict):
-                    continue
-                try:
-                    start = max(0.0, float(question.get("start") or 0.0))
-                    start = max(start, float(question.get("end") or start))
-                except (TypeError, ValueError):
-                    continue
+                countdown_duration = QUIZ_V2_THINKING_SECONDS
+            for start in quiz_countdown_starts(topic):
                 command.extend(["-i", str(countdown_path)])
                 label = f"countdown{input_index}"
                 delay_ms = round(start * 1000)
@@ -241,7 +290,7 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
                     f"atrim=0:{countdown_duration:.3f},asetpts=PTS-STARTPTS"
                 )
                 # The supplied countdown contains a short accent near its
-                # tail. Fade the exact 5-second clip edge to avoid a click
+                # tail. Fade the configured clip edge to avoid a click
                 # when the answer narration starts, without modifying the
                 # source asset stored in the project.
                 if countdown_duration > 0.12:
@@ -390,7 +439,7 @@ async def render_frames(
                 "-c:a", "aac", "-b:a", quality.audio_bitrate,
                 "-ar", "48000", "-ac", "2", "-channel_layout", "stereo",
             ]
-            mux_options = ["-use_editlist", "0", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart"]
+            mux_options = ["-use_editlist", "0", "-avoid_negative_ts", "disabled", "-movflags", "+faststart"]
         if use_core_encoder:
             # The browser remains a scene adapter for features not yet
             # expressed by the native manifest. Core owns the raw-frame

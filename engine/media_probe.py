@@ -45,19 +45,40 @@ def has_audio_stream(path: Path) -> bool:
 
 
 def _contains_atom(path: Path, atom: bytes) -> bool:
-    """Scan an MP4 without loading the entire delivery file into memory."""
-    overlap = max(0, len(atom) - 1)
-    previous = b""
+    """Find a real MP4 box, not matching bytes inside compressed media data."""
+    containers = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"mvex"}
+
+    def scan(handle, start: int, end: int) -> bool:
+        offset = start
+        while offset + 8 <= end:
+            handle.seek(offset)
+            header = handle.read(8)
+            if len(header) < 8:
+                return False
+            size = int.from_bytes(header[:4], "big")
+            kind = header[4:8]
+            header_size = 8
+            if size == 1:
+                extended = handle.read(8)
+                if len(extended) < 8:
+                    return False
+                size = int.from_bytes(extended, "big")
+                header_size = 16
+            elif size == 0:
+                size = end - offset
+            if size < header_size or offset + size > end:
+                return False
+            if kind == atom:
+                return True
+            if kind in containers and scan(handle, offset + header_size, offset + size):
+                return True
+            offset += size
+        return False
+
     try:
         with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(1024 * 1024)
-                if not chunk:
-                    return False
-                haystack = previous + chunk
-                if atom in haystack:
-                    return True
-                previous = haystack[-overlap:] if overlap else b""
+            handle.seek(0, 2)
+            return scan(handle, 0, handle.tell())
     except OSError:
         return False
 

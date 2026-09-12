@@ -20,19 +20,19 @@
     .native-titlebar-drag-region{display:none}
     html.tauri-macos .native-titlebar-drag-region{position:fixed;top:0;left:100px;right:100px;z-index:10000;display:block;height:30px}
     body{
-      margin:0;min-height:100vh;display:grid;place-items:center;padding:32px;color:var(--text);
+      margin:0;min-height:100vh;display:block;padding:32px;color:var(--text);
       background:
         radial-gradient(circle at 18% 12%,rgba(232,160,96,.12),transparent 28rem),
         radial-gradient(circle at 88% 18%,rgba(204,136,52,.10),transparent 24rem),
         linear-gradient(135deg,#f7f2e8,var(--bg))
     }
     main{
-      width:min(720px,100%);padding:28px 28px 30px;border:1px solid var(--line);border-radius:24px;
+      width:min(720px,100%);margin:0 auto;padding:28px 28px 30px;border:1px solid var(--line);border-radius:24px;
       background:var(--page-panel);box-shadow:0 14px 34px rgba(91,61,30,.06)
     }
-    header{display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}
-    header img{width:58px;height:58px;border-radius:16px;object-fit:cover;box-shadow:0 8px 22px rgba(58,44,24,.12)}
-    header small{display:block;margin-bottom:4px;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.14em}
+    .new-project-intro{display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+    .new-project-intro img{width:58px;height:58px;border-radius:16px;object-fit:cover;box-shadow:0 8px 22px rgba(58,44,24,.12)}
+    .new-project-intro small{display:block;margin-bottom:4px;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.14em}
     h1{margin:0;font-size:30px;letter-spacing:-.04em;color:var(--text-soft);font-weight:950}
     p{margin:5px 0 0;color:var(--muted)}
     form{display:grid;gap:16px}
@@ -62,6 +62,11 @@
     .project-type button{min-height:96px;text-align:left;display:grid;gap:5px;padding:15px}
     .project-type button strong{font-size:16px}.project-type button small{color:var(--muted);font-weight:650;line-height:1.35}
     .project-type button.active{border-color:var(--selected-border);background:linear-gradient(105deg,var(--selected-start),var(--selected-mid),var(--page-control));box-shadow:0 0 0 1px rgba(38,174,66,.12)}
+    .quiz-script-panel{display:grid;gap:10px;padding:16px 18px;border:1px solid var(--selected-border);border-radius:20px;background:linear-gradient(135deg,var(--selected-start),rgba(250,244,236,.28) 42%,var(--page-control));box-shadow:0 0 0 1px rgba(38,174,66,.08)}
+    .quiz-script-panel textarea{min-height:330px;resize:vertical;font-family:"Be Vietnam Pro",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.52;tab-size:2}
+    .quiz-script-panel small{color:var(--muted);font-size:11px;font-weight:720;line-height:1.5}
+    .quiz-script-panel .quiz-contract{display:flex;flex-wrap:wrap;gap:7px;color:var(--text-soft);font-size:11px;font-weight:850}
+    .quiz-script-panel .quiz-contract span{padding:5px 8px;border:1px solid var(--line);border-radius:999px;background:var(--page-control)}
     .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:5px}
     button,a{
       border:1px solid var(--control);border-radius:14px;padding:12px 16px;font:inherit;font-weight:900;
@@ -115,6 +120,11 @@
     .character-selected img{width:74px;height:94px;object-fit:contain;border-radius:12px;border:1px solid var(--line);background:transparent}
     .character-selected div{display:grid;gap:5px}
     .character-selected small{color:var(--muted)}
+    .brand-selected{grid-template-columns:74px 1fr}
+    .brand-avatar{width:74px;height:74px;display:grid;place-items:center;border:1px solid var(--accent-border);border-radius:20px;color:var(--text-soft);background:linear-gradient(135deg,var(--selected-start),var(--selected-mid)),var(--page-control);font-size:30px;font-weight:950;letter-spacing:-.06em;text-transform:uppercase}
+    .brand-selected select{min-height:48px}
+    .brand-note{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+    .brand-id-field small{color:var(--muted);font-size:11px;font-weight:750;line-height:1.45}
     .creator{display:none;gap:15px;padding:18px;border-radius:18px}
     .creator.open{display:grid}
     .prompt{gap:7px;padding:11px}
@@ -181,19 +191,49 @@
     @media(max-width:900px){.character-head{align-items:start;flex-direction:column}.character-head-actions{flex-wrap:wrap;justify-content:flex-start}.character-head label{white-space:normal}}
     @media(max-width:600px){.grid{grid-template-columns:1fr}.project-type-three{grid-template-columns:1fr}main{padding:20px}.prompt>div{align-items:flex-start;flex-direction:column}.reference-sheet{grid-template-columns:1fr}.reference-sheet div{display:flex;align-items:center;justify-content:space-between}.reference-sheet small{max-width:none}}
   </style>
+  <link rel="stylesheet" href="/webui/app-shell.css?v=20260910-shared-header-v4" />
+  <script defer src="/webui/app-shell.js?v=20260910-shared-header-v3"></script>
 </head>
-<body>
+<body class="new-project-page">
   <script>if (window.__TAURI_INTERNALS__ && /Mac/.test(navigator.platform)) document.documentElement.classList.add('tauri-macos');</script>
   <div class="native-titlebar-drag-region" data-tauri-drag-region aria-hidden="true"></div>
+  <header class="aurex-app-header">
+    <a class="aurex-app-brand" href="/" aria-label="Về bảng điều khiển AurexVideo">
+      <img src="/web/aurexvideo-logo.png" alt="Aurex" />
+      <span class="aurex-app-brand-copy"><strong>AurexVideo</strong><small>Creator workspace</small></span>
+    </a>
+    <nav class="aurex-app-nav" aria-label="Điều hướng chính">
+      <a class="is-active" href="/" aria-current="page">Bảng điều khiển</a>
+      <a href="/upload">Đăng tải</a>
+      <a href="/affiliate">Affiliate</a>
+      <a href="/social">Social</a>
+    </nav>
+    <div class="aurex-app-header-actions">
+      <button class="aurex-app-button" type="button" data-app-theme-toggle aria-label="Đổi giao diện"><span class="aurex-app-theme-symbol" aria-hidden="true">☼</span><span class="aurex-app-theme-label">Light</span></button>
+      <a class="aurex-app-button is-primary" href="/"><span class="btn-icon" aria-hidden="true">←</span><span>Về dashboard</span></a>
+    </div>
+  </header>
   <main>
-    <header><img src="/web/aurexvideo-logo.png" alt="Aurex" /><div><small>AUREX</small><h1>Tạo dự án mới</h1><p>Khởi tạo video mới và mở thẳng trong Editor.</p></div></header>
+    <div class="new-project-intro"><img src="/web/aurexvideo-logo.png" alt="Aurex" /><div><small>AUREX</small><h1>Tạo dự án mới</h1><p>Khởi tạo video mới và mở thẳng trong Editor.</p></div></div>
     <form id="form">
       <label class="project-name-field"><span>Tên dự án</span><input name="id" id="projectNameInput" required minlength="3" maxlength="64" pattern="[a-z0-9][a-z0-9\-]{1,62}[a-z0-9]" placeholder="vi-du-noi-com-vs-noi-ap-suat" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="url" /><small id="projectNameHint">Dùng chữ thường không dấu, số và dấu gạch ngang. Ví dụ: tieu-thuyet-phan-1</small></label>
       <input id="projectType" name="projectType" type="hidden" value="comparison" />
-      <section aria-labelledby="projectTypeTitle"><label id="projectTypeTitle">Loại dự án</label><div class="project-type project-type-three" role="group" aria-labelledby="projectTypeTitle"><button class="active" data-project-type="comparison" type="button" aria-pressed="true"><strong>So sánh</strong><small>Video so sánh hai nội dung như các dự án Aurex hiện có.</small></button><button data-project-type="quiz" type="button" aria-pressed="false"><strong>Quiz</strong><small>Video quiz với một ảnh duy nhất; cấu hình quiz sẽ bổ sung sau.</small></button><button data-project-type="custom" type="button" aria-pressed="false"><strong>Custom</strong><small>Slide tự do với kịch bản, chữ phủ, ảnh và hiệu ứng vào cảnh.</small></button></div></section>
-      <section class="character">
+      <section aria-labelledby="projectTypeTitle"><label id="projectTypeTitle">Loại dự án</label><div class="project-type project-type-three" role="group" aria-labelledby="projectTypeTitle"><button class="active" data-project-type="comparison" type="button" aria-pressed="true"><strong>So sánh</strong><small>Video so sánh hai nội dung như các dự án Aurex hiện có.</small></button><button data-project-type="quiz" type="button" aria-pressed="false"><strong>Quiz</strong><small>Dán 3 câu; hệ thống tự nhận đáp án đúng, countdown và CTA cuối.</small></button><button data-project-type="custom" type="button" aria-pressed="false"><strong>Custom</strong><small>Slide tự do với kịch bản, chữ phủ, ảnh và hiệu ứng vào cảnh.</small></button></div></section>
+      <section class="quiz-script-panel" id="quizScriptPanel" hidden>
+        <label for="quizScript"><span>Kịch bản Quiz · 3 câu</span>
+          <textarea id="quizScript" name="quizScript" rows="16" disabled spellcheck="false" placeholder="Con vật nào thường ngủ khi đang đứng?&#10;A. Con ngựa.&#10;B. Con mèo.&#10;C. Con cá.&#10;Đáp án chính xác là A. Con ngựa.&#10;&#10;Thủ đô của Việt Nam là gì?&#10;A. Đà Nẵng.&#10;B. Hà Nội.&#10;C. TP.HCM.&#10;Đáp án chính xác là B. Hà Nội.&#10;&#10;Hành tinh nào gần Mặt Trời nhất?&#10;A. Sao Hỏa.&#10;B. Trái Đất.&#10;C. Sao Thủy.&#10;Đáp án chính xác là C. Sao Thủy."></textarea>
+          <small id="quizScriptHint">Mỗi câu đúng 5 dòng: Câu hỏi → A → B → C → “Đáp án chính xác là X…”. Không cần nhập CTA; AurexVideo tự thêm CTA cuối.</small>
+        </label>
+        <div class="quiz-contract" aria-hidden="true"><span>3 câu</span><span>3 đáp án/câu</span><span>A=0 · B=1 · C=2</span><span>Countdown 3s sau C</span><span>CTA tự động</span></div>
+      </section>
+      <section class="character" id="characterPanel">
         <div class="character-head"><label for="characterSelect">Nhân vật dùng cho video</label><div class="character-head-actions"><button class="character-action edit-character-button tiny" id="editCharacter" type="button"><span class="character-action-icon" aria-hidden="true">✎</span><span>Sửa nhân vật</span></button><button class="character-action new-character-button tiny" id="newCharacter" type="button"><span class="character-action-icon" aria-hidden="true">＋</span><span>Tạo nhân vật</span></button><button class="character-action delete-character-button tiny" id="deleteCharacter" type="button"><span class="character-action-icon" aria-hidden="true">×</span><span>Xoá nhân vật</span></button></div></div>
         <div class="character-selected"><img id="characterCover" alt="Nhân vật" /><div><select name="characterId" id="characterSelect" required></select><small id="characterMeta">Đang tải thư viện...</small></div></div>
+      </section>
+      <section class="character brand" id="brandPanel" hidden>
+        <div class="character-head"><label for="brandSelect">Brand dùng cho video</label><div class="character-head-actions"><button class="character-action new-character-button tiny" id="newBrand" type="button"><span class="character-action-icon" aria-hidden="true">＋</span><span>Tạo brand</span></button><button class="character-action delete-character-button tiny" id="deleteBrand" type="button"><span class="character-action-icon" aria-hidden="true">×</span><span>Xoá brand</span></button></div></div>
+        <div class="character-selected brand-selected"><div class="brand-avatar" id="brandAvatar" aria-hidden="true">B</div><div><select name="brand" id="brandSelect" required disabled></select><small id="brandMeta">Đang tải thư viện brand...</small></div></div>
+        <p class="brand-note">Quiz và Custom dùng brand để áp dụng nhận diện thương hiệu; hai template này không cần nhân vật.</p>
       </section>
       <div id="status"></div>
       <div class="actions"><a class="secondary" href="/">Quay lại</a><button class="primary" type="submit">Tạo và mở Editor</button></div>
@@ -229,12 +269,22 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
       <p class="editor-note" id="editCharacterStatus">Tên pose có thể dùng tiếng Việt; mã pose và file ảnh được giữ nguyên để không làm hỏng timeline cũ.</p>
       <div class="creator-actions"><button class="secondary" id="cancelEditCharacter" type="button">Huỷ</button><button class="primary" id="saveEditCharacter" type="button">Lưu thay đổi</button></div>
     </section>
+    <section class="creator" id="brandCreator">
+      <div><strong>Tạo brand mới</strong><p>Thêm brand vào thư viện để dùng cho các project Quiz và Custom.</p></div>
+      <label class="brand-id-field">Mã brand<input id="brandIdInput" required minlength="2" maxlength="64" pattern="[a-z0-9][a-z0-9._\-]{1,63}" placeholder="ten-brand" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" /><small>Chỉ dùng chữ thường không dấu, số, dấu chấm, gạch ngang hoặc gạch dưới.</small></label>
+      <label>Tên hiển thị<input id="brandNameInput" maxlength="80" placeholder="Tên thương hiệu" autocomplete="off" /></label>
+      <p class="editor-note" id="brandCreatorStatus"></p>
+      <div class="creator-actions"><button class="secondary" id="cancelBrand" type="button">Huỷ</button><button class="primary" id="saveBrand" type="button">Lưu brand</button></div>
+    </section>
     <dialog id="deleteCharacterDialog">
       <div class="delete-dialog-content"><div><h2>Xoá nhân vật?</h2><p>Bạn sắp xoá vĩnh viễn nhân vật <strong class="delete-character-name" id="deleteCharacterName"></strong> khỏi <code>assets/characters</code>.</p></div><p>Nếu nhân vật đang được project sử dụng, hệ thống sẽ chặn để tránh làm hỏng video cũ.</p><div class="delete-dialog-status" id="deleteCharacterStatus"></div><div class="creator-actions"><button class="secondary" id="cancelDeleteCharacter" type="button">Huỷ</button><button class="danger-confirm" id="confirmDeleteCharacter" type="button">Xoá nhân vật</button></div></div>
     </dialog>
+    <dialog id="deleteBrandDialog">
+      <div class="delete-dialog-content"><div><h2>Xoá brand?</h2><p>Bạn sắp xoá brand <strong class="delete-character-name" id="deleteBrandName"></strong> khỏi thư viện.</p></div><p>Thao tác này sẽ xoá luôn các project và social route đang tham chiếu Brand. Các connection social sẽ được giữ lại nhưng gỡ liên kết Brand.</p><div class="delete-dialog-status" id="deleteBrandStatus"></div><div class="creator-actions"><button class="secondary" id="cancelDeleteBrand" type="button">Huỷ</button><button class="danger-confirm" id="confirmDeleteBrand" type="button">Xoá brand và dữ liệu liên quan</button></div></div>
+    </dialog>
   </main>
   <script>
-    const $=s=>document.querySelector(s),form=$('#form'),statusEl=$('#status'),characterSelect=$('#characterSelect'),characterCover=$('#characterCover'),characterMeta=$('#characterMeta'),creator=$('#creator'),characterEditor=$('#characterEditor'),deleteCharacterDialog=$('#deleteCharacterDialog'),draft=$('#draft'),editPoseList=$('#editPoseList'),splitStatus=$('#splitStatus'),editCharacterStatus=$('#editCharacterStatus'),deleteCharacterStatus=$('#deleteCharacterStatus'),characterNameField=$('#characterNameField'),saveCharacter=$('#saveCharacter'),saveEditCharacter=$('#saveEditCharacter'),newCharacterButton=$('#newCharacter'),editCharacterButton=$('#editCharacter'),deleteCharacterButton=$('#deleteCharacter'),confirmDeleteCharacter=$('#confirmDeleteCharacter');let characters=[],split=null,editingCharacterId='',deletingCharacterId='';
+    const $=s=>document.querySelector(s),form=$('#form'),statusEl=$('#status'),characterPanel=$('#characterPanel'),characterSelect=$('#characterSelect'),characterCover=$('#characterCover'),characterMeta=$('#characterMeta'),brandPanel=$('#brandPanel'),brandSelect=$('#brandSelect'),brandAvatar=$('#brandAvatar'),brandMeta=$('#brandMeta'),brandCreator=$('#brandCreator'),brandIdInput=$('#brandIdInput'),brandNameInput=$('#brandNameInput'),brandCreatorStatus=$('#brandCreatorStatus'),newBrandButton=$('#newBrand'),deleteBrandButton=$('#deleteBrand'),deleteBrandDialog=$('#deleteBrandDialog'),deleteBrandName=$('#deleteBrandName'),deleteBrandStatus=$('#deleteBrandStatus'),confirmDeleteBrand=$('#confirmDeleteBrand'),creator=$('#creator'),characterEditor=$('#characterEditor'),deleteCharacterDialog=$('#deleteCharacterDialog'),draft=$('#draft'),editPoseList=$('#editPoseList'),splitStatus=$('#splitStatus'),editCharacterStatus=$('#editCharacterStatus'),deleteCharacterStatus=$('#deleteCharacterStatus'),characterNameField=$('#characterNameField'),saveCharacter=$('#saveCharacter'),saveEditCharacter=$('#saveEditCharacter'),newCharacterButton=$('#newCharacter'),editCharacterButton=$('#editCharacter'),deleteCharacterButton=$('#deleteCharacter'),confirmDeleteCharacter=$('#confirmDeleteCharacter');let characters=[],brands=[],split=null,editingCharacterId='',deletingCharacterId='',deletingBrandId='';
     const trialAccount=window.__AUREX_TRIAL__===true;
     const isEn=(window.__AUREX_LANGUAGE__||document.documentElement.lang)==='en';
     const tr=(vi,en)=>isEn?en:vi;
@@ -278,6 +328,7 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     if(characterIdInput) characterIdInput.placeholder=tr('minh-thong-thai','curious-alex');
     const api=async(url,options={})=>{const r=await fetch(url,{cache:'no-store',headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})},...options});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d};
     const showLibraryError=error=>{characterSelect.innerHTML=`<option value="">${esc(error?.message||tr('Không tải được thư viện','Could not load library'))}</option>`;characterSelect.disabled=true;characterMeta.textContent=error?.message||tr('Không tải được thư viện','Could not load library');};
+    const showBrandLibraryError=error=>{brandSelect.innerHTML=`<option value="">${esc(error?.message||tr('Không tải được thư viện brand','Could not load brand library'))}</option>`;brandSelect.disabled=true;brandMeta.textContent=error?.message||tr('Không tải được thư viện brand','Could not load brand library');deleteBrandButton.disabled=true;};
     if(trialAccount){[newCharacterButton,editCharacterButton,deleteCharacterButton].forEach(button=>{button.classList.add('pro-locked');button.setAttribute('aria-disabled','true');button.dataset.upgradeLabel=tr('Nâng cấp Pro để dùng tính năng này','Upgrade to Pro to use this feature');button.title=tr('Nâng cấp Aurex Pro','Upgrade Aurex Pro')})}
     let upgradePending=false;
     async function requestProUpgrade(){if(upgradePending)return;upgradePending=true;statusEl.textContent=tr('Đang mở lựa chọn gói Aurex Pro...','Opening Aurex Pro plan choices…');window.location.href='/?upgrade=1'}
@@ -285,12 +336,17 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const fileData=f=>new Promise((ok,bad)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=bad;r.readAsDataURL(f)});
     const validCharacterId=value=>/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(String(value||''));
+    const validBrandId=value=>/^[a-z0-9][a-z0-9._-]{1,63}$/.test(String(value||''));
+    const slugifyBrandId=value=>slugifyProjectName(value).replace(/-/g,'-').slice(0,64);
     const forceLowercase=input=>input.addEventListener('input',()=>{const start=input.selectionStart,end=input.selectionEnd,next=input.value.toLowerCase();if(next===input.value)return;input.value=next;if(start!==null&&end!==null)input.setSelectionRange(start,end)});
-    ['characterId','editCharacterId'].forEach(id=>forceLowercase(document.getElementById(id)));
+    ['characterId','editCharacterId','brandIdInput'].forEach(id=>forceLowercase(document.getElementById(id)));
     document.addEventListener('click',event=>{const link=event.target.closest('a[href]');if(!link)return;const url=new URL(link.href,location.href);if(!/^https?:$/.test(url.protocol)||url.origin===location.origin)return;event.preventDefault();openExternal(url.href).catch(error=>{statusEl.textContent=tr(`Không mở được trình duyệt: ${error.message}`,`Could not open the browser: ${error.message}`)})});
     function selectedCharacter(){return characters.find(item=>item.id===characterSelect.value)||characters[0]||null}
+    function selectedBrand(){return brands.find(item=>item.id===brandSelect.value)||brands[0]||null}
     function renderCharacters(selected=''){const preferred=selected||characterSelect.value;characterSelect.disabled=false;characterSelect.innerHTML=characters.map(c=>`<option value="${esc(c.id)}" ${c.id===preferred?'selected':''}>${esc(c.name||c.id)}</option>`).join('');const c=selectedCharacter();if(c&&characterSelect.value!==c.id)characterSelect.value=c.id;characterCover.src=c?.coverUrl||'';characterCover.hidden=!c;characterMeta.textContent=c?tr(`${c.poseCount} dáng pose · mã ${c.id}`,`${c.poseCount} poses · id ${c.id}`):tr('Chưa có nhân vật','No character yet');editCharacterButton.disabled=!c;deleteCharacterButton.disabled=!c;}
-    async function load(){try{const chars=await api('/api/characters');characters=Array.isArray(chars.characters)?chars.characters:[];renderCharacters(chars.defaultCharacterId||'');}catch(error){characters=[];showLibraryError(error);throw error;}}
+    function renderBrands(selected=''){const preferred=selected||brandSelect.value||brands[0]?.id||'';brandSelect.innerHTML=brands.map(b=>`<option value="${esc(b.id)}" ${b.id===preferred?'selected':''}>${esc(b.name||b.displayName||b.id)}</option>`).join('');const b=selectedBrand();if(b&&brandSelect.value!==b.id)brandSelect.value=b.id;const displayName=String(b?.name||b?.displayName||b?.id||'B').trim();brandAvatar.textContent=displayName.slice(0,1).toUpperCase()||'B';const projectCount=Number(b?.projectCount??b?.project_count??0);const inUse=Boolean(b?.inUse??b?.in_use??projectCount>0);brandMeta.textContent=b?tr(`${projectCount} project · mã ${b.id}`,`${projectCount} project(s) · id ${b.id}`):tr('Chưa có brand','No brand yet');deleteBrandButton.disabled=!b||inUse||b.deletable===false;}
+    async function load(){try{const chars=await api('/api/characters');characters=Array.isArray(chars.characters)?chars.characters:[];renderCharacters(chars.defaultCharacterId||'');syncQuizProjectType();}catch(error){characters=[];showLibraryError(error);throw error;}}
+    async function loadBrands(){try{const data=await api('/api/brands');brands=Array.isArray(data.brands)?data.brands:[];renderBrands(data.defaultBrandId||'');syncQuizProjectType();}catch(error){brands=[];showBrandLibraryError(error);throw error;}}
     function setCharacterSaveVisible(visible){characterNameField.hidden=!visible;saveCharacter.hidden=!visible;saveCharacter.disabled=!visible}
     function renderDraft(){draft.innerHTML=(split?.poses||[]).map((p,i)=>`<label class="pose"><img src="${esc(p.url)}" alt="Pose ${i+1}"><span>${tr(`Dáng ${i+1}`,`Pose ${i+1}`)}</span><input data-name required value="${tr(`Dáng ${i+1}`,`Pose ${i+1}`)}"></label>`).join('');setCharacterSaveVisible(Boolean(split));}
     function closeCreator(){creator.classList.remove('open');split=null;draft.replaceChildren();setCharacterSaveVisible(false)}
@@ -301,6 +357,15 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     deleteCharacterButton.onclick=()=>{if(trialAccount){requestProUpgrade();return}const c=selectedCharacter();if(!c)return;deletingCharacterId=c.id;$('#deleteCharacterName').textContent=c.id;deleteCharacterStatus.textContent='';confirmDeleteCharacter.disabled=false;deleteCharacterDialog.showModal()};
     $('#cancelDeleteCharacter').onclick=()=>deleteCharacterDialog.close();
     confirmDeleteCharacter.onclick=async()=>{if(!deletingCharacterId)return;try{confirmDeleteCharacter.disabled=true;deleteCharacterStatus.textContent=tr('Đang kiểm tra và xoá...','Checking and deleting…');await api(`/api/characters/${encodeURIComponent(deletingCharacterId)}`,{method:'DELETE'});characters=characters.filter(item=>item.id!==deletingCharacterId);deleteCharacterDialog.close();statusEl.textContent=tr(`Đã xoá nhân vật ${deletingCharacterId}.`,`Deleted character ${deletingCharacterId}.`);deletingCharacterId='';renderCharacters()}catch(e){deleteCharacterStatus.textContent=e.message}finally{confirmDeleteCharacter.disabled=false}};
+    function closeBrandCreator(){brandCreator.classList.remove('open');brandIdInput.value='';brandNameInput.value='';brandCreatorStatus.textContent='';}
+    newBrandButton.onclick=()=>{closeCreator();closeEditor();brandCreatorStatus.textContent='';brandIdInput.value='';brandNameInput.value='';brandCreator.classList.add('open');brandCreator.scrollIntoView({behavior:'smooth',block:'start'});brandIdInput.focus()};
+    $('#cancelBrand').onclick=closeBrandCreator;
+    brandNameInput.addEventListener('input',()=>{if(!brandIdInput.value)brandIdInput.value=slugifyBrandId(brandNameInput.value)});
+    deleteBrandButton.onclick=()=>{const b=selectedBrand();if(!b)return;deletingBrandId=b.id;deleteBrandName.textContent=b.name||b.displayName||b.id;deleteBrandStatus.textContent='';confirmDeleteBrand.disabled=false;deleteBrandDialog.showModal()};
+    $('#cancelDeleteBrand').onclick=()=>deleteBrandDialog.close();
+    confirmDeleteBrand.onclick=async()=>{if(!deletingBrandId)return;try{confirmDeleteBrand.disabled=true;deleteBrandStatus.textContent=tr('Đang xoá brand và dữ liệu liên quan...','Deleting the brand and related data…');const data=await api(`/api/brands/${encodeURIComponent(deletingBrandId)}?cascade=true`,{method:'DELETE'});const projectCount=Array.isArray(data.projects)?data.projects.length:0,routeCount=Array.isArray(data.social)?data.social.length:0;brands=brands.filter(item=>item.id!==deletingBrandId);deleteBrandDialog.close();statusEl.textContent=tr(`Đã xoá brand ${deletingBrandId}, ${projectCount} project và ${routeCount} social route.`,`Deleted brand ${deletingBrandId}, ${projectCount} project(s) and ${routeCount} social route(s).`);deletingBrandId='';renderBrands()}catch(e){deleteBrandStatus.textContent=e.message}finally{confirmDeleteBrand.disabled=false}};
+    brandIdInput.addEventListener('input',()=>{brandIdInput.value=brandIdInput.value.toLowerCase()});
+    $('#saveBrand').onclick=async()=>{const id=brandIdInput.value.trim(),name=brandNameInput.value.trim()||id;try{if(!validBrandId(id))throw new Error(tr('Mã brand chỉ dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới (2-64 ký tự).','Brand ids must use lowercase letters, numbers, dots, hyphens, or underscores (2-64 characters).'));if(!name)throw new Error(tr('Tên hiển thị brand không được để trống.','Brand display name cannot be empty.'));$('#saveBrand').disabled=true;brandCreatorStatus.textContent=tr('Đang lưu brand...','Saving brand…');const data=await api('/api/brands',{method:'POST',body:JSON.stringify({id,name})});const brand=data.brand||{id,name};brands=[...brands.filter(item=>item.id!==brand.id),brand];renderBrands(brand.id);closeBrandCreator();statusEl.textContent=tr(`Đã tạo brand ${brand.name||brand.displayName||brand.id}.`,`Created brand ${brand.name||brand.displayName||brand.id}.`)}catch(e){brandCreatorStatus.textContent=e.message}finally{$('#saveBrand').disabled=false}};
     $('#copyPrompt').onclick=async()=>{try{await navigator.clipboard.writeText($('#promptText').value)}catch(e){$('#promptText').select();document.execCommand('copy')}$('#copyPrompt').textContent=tr('Đã copy','Copied');setTimeout(()=>$('#copyPrompt').textContent='Copy prompt',1200)};
     $('#copyReferenceImage').onclick=async()=>{const button=$('#copyReferenceImage');try{if(!navigator.clipboard?.write||typeof ClipboardItem==='undefined')throw new Error(tr('Trình duyệt chưa hỗ trợ copy ảnh','This browser cannot copy images'));const response=await fetch('/assets/characters/hieu-ham-hoc/pose-sheet-reference.png',{cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);const image=await response.blob();await navigator.clipboard.write([new ClipboardItem({'image/png':image})]);button.textContent=tr('Đã copy ảnh','Image copied');splitStatus.textContent=tr('Đã copy ảnh mẫu 5 pose. Dán ảnh này cùng prompt vào AI.','Copied the 5-pose sample. Paste it with the prompt into the AI.')}catch(e){button.textContent=tr('Copy lỗi','Copy failed');splitStatus.textContent=tr(`Không copy được ảnh: ${e.message}.`,`Could not copy image: ${e.message}.`)}setTimeout(()=>button.textContent=tr('Copy ảnh','Copy image'),1400)};
     $('#chooseSheet').onclick=()=>$('#sheetFile').click();
@@ -309,17 +374,26 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     saveEditCharacter.onclick=async()=>{const id=$('#editCharacterId').value.trim(),poseNames=[...editPoseList.querySelectorAll('[data-edit-pose-name]')].map(input=>input.value.trim());try{if(!editingCharacterId)throw new Error(tr('Chưa chọn nhân vật để sửa.','No character selected to edit.'));if(!validCharacterId(id))throw new Error(tr('Tên nhân vật chỉ dùng chữ thường không dấu, số và dấu gạch ngang (3-64 ký tự).','Character names must use lowercase letters, numbers, and hyphens (3-64 characters).'));if(!poseNames.length||poseNames.some(name=>!name))throw new Error(tr('Cần đặt tên cho đủ tất cả pose.','Every pose needs a name.'));saveEditCharacter.disabled=true;editCharacterStatus.textContent=tr('Đang lưu và đồng bộ project...','Saving and syncing projects…');const d=await api(`/api/characters/${encodeURIComponent(editingCharacterId)}`,{method:'PUT',body:JSON.stringify({id,poseNames})});characters=characters.map(item=>item.id===editingCharacterId?d.character:item);renderCharacters(d.character.id);editCharacterStatus.textContent=d.updatedProjects?.length?tr(`Đã lưu và đồng bộ ${d.updatedProjects.length} project.`,`Saved and synced ${d.updatedProjects.length} projects.`):tr('Đã lưu vào thư viện nhân vật.','Saved to the character library.');editingCharacterId=d.character.id;setTimeout(closeEditor,700)}catch(e){editCharacterStatus.textContent=e.message}finally{saveEditCharacter.disabled=false}};
     const projectNameInput=form.elements.id;
     const projectTypeInput=$('#projectType');
+    const quizScriptPanel=$('#quizScriptPanel');
+    const quizScriptInput=$('#quizScript');
+    const quizScriptHint=$('#quizScriptHint');
     const quizProjectType=()=>projectTypeInput?.value==='quiz';
-    const syncQuizProjectType=()=>{const quiz=quizProjectType();
-      characterMeta.textContent=quiz?tr('Template Quiz · một ảnh duy nhất','Quiz template · one image only'):(selectedCharacter()?tr(`${selectedCharacter().poseCount} dáng pose · mã ${selectedCharacter().id}`,`${selectedCharacter().poseCount} poses · id ${selectedCharacter().id}`):tr('Chưa có nhân vật','No character yet'));
-      if(quiz){characterSelect.removeAttribute('required');}else{characterSelect.setAttribute('required','required');}
+    const brandProjectType=()=>['quiz','custom'].includes(projectTypeInput?.value);
+    const quizScriptLines=value=>String(value||'').split('\n').map(line=>line.trim()).filter(Boolean);
+    const validateQuizScript=value=>{const lines=quizScriptLines(value);if(lines.length<15)throw new Error(tr('Quiz cần đủ 3 câu × 5 dòng = 15 dòng nội dung.','Quiz needs 3 questions × 5 lines = 15 content lines.'));for(let item=0;item<3;item+=1){const offset=item*5;if(!lines[offset])throw new Error(tr(`Câu ${item+1} đang thiếu câu hỏi.`,`Question ${item+1} is missing.`));for(let option=0;option<3;option+=1){const letter=String.fromCharCode(65+option);if(!new RegExp(`^${letter}\\s*[.)]\\s*.+$`,'i').test(lines[offset+1+option]))throw new Error(tr(`Câu ${item+1}: lựa chọn ${letter} phải bắt đầu bằng “${letter}.”.`,`Question ${item+1}: option ${letter} must start with “${letter}.”.`))}if(!/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*[ABC]\s*[.)]?/iu.test(lines[offset+4]))throw new Error(tr(`Câu ${item+1}: dòng 5 phải có dạng “Đáp án chính xác là A. ...”.`,`Question ${item+1}: line 5 must look like “Correct answer is A. ...”.`))}return lines};
+    const syncQuizProjectType=()=>{const quiz=quizProjectType(),brandProject=brandProjectType();
+      quizScriptPanel.hidden=!quiz;quizScriptInput.disabled=!quiz;quizScriptInput.required=quiz;
+      characterPanel.hidden=brandProject;brandPanel.hidden=!brandProject;
+      if(brandProject){characterSelect.disabled=true;characterSelect.removeAttribute('required');brandSelect.disabled=!brands.length;brandSelect.setAttribute('required','required');characterMeta.textContent=tr('Template này không cần nhân vật','This template does not need a character');}
+      else{characterSelect.disabled=false;characterSelect.setAttribute('required','required');brandSelect.disabled=true;brandSelect.removeAttribute('required');characterMeta.textContent=selectedCharacter()?tr(`${selectedCharacter().poseCount} dáng pose · mã ${selectedCharacter().id}`,`${selectedCharacter().poseCount} poses · id ${selectedCharacter().id}`):tr('Chưa có nhân vật','No character yet');}
     };
     const normalizeProjectSlug=value=>slugifyProjectName(value);
     document.querySelectorAll('[data-project-type]').forEach(button=>button.addEventListener('click',()=>{const type=['custom','quiz'].includes(button.dataset.projectType)?button.dataset.projectType:'comparison';projectTypeInput.value=type;document.querySelectorAll('[data-project-type]').forEach(item=>{const active=item===button;item.classList.toggle('active',active);item.setAttribute('aria-pressed',active?'true':'false')});syncQuizProjectType()}));
     projectNameInput.addEventListener('input',()=>{const start=projectNameInput.selectionStart,end=projectNameInput.selectionEnd,next=normalizeProjectSlug(projectNameInput.value);if(next===projectNameInput.value)return;projectNameInput.value=next;if(start!==null&&end!==null)projectNameInput.setSelectionRange(start,end)});
-    characterSelect.onchange=()=>{renderCharacters(characterSelect.value);syncQuizProjectType()};load().catch(e=>statusEl.textContent=e.message);
+    characterSelect.onchange=()=>{renderCharacters(characterSelect.value);syncQuizProjectType()};brandSelect.onchange=()=>{renderBrands(brandSelect.value);syncQuizProjectType()};load().catch(e=>statusEl.textContent=e.message);loadBrands().catch(e=>{if(brandProjectType())statusEl.textContent=e.message});
     syncQuizProjectType();
-    form.addEventListener('submit',async event=>{event.preventDefault();statusEl.textContent=tr('Đang tạo dự án...','Creating project…');const payload=Object.fromEntries(new FormData(form));payload.id=normalizeProjectSlug(payload.id);projectNameInput.value=payload.id;payload.language=window.__AUREX_LANGUAGE__||document.documentElement.lang||'vi';if(projectTypeInput.value==='quiz'){payload.leftLabel=payload.leftLabel||tr('Ảnh Quiz','Quiz image');payload.rightLabel='N/A'}try{const data=await api('/api/projects',{method:'POST',body:JSON.stringify(payload)});location.href=data.project.url||`/project/${encodeURIComponent(data.project.id)}/`}catch(error){statusEl.textContent=error.message}});
+    quizScriptInput.addEventListener('input',()=>{if(!quizProjectType())return;try{const lines=validateQuizScript(quizScriptInput.value);const customCta=Math.max(0,lines.length-15);quizScriptHint.textContent=customCta?tr(`Đã nhận đủ 3 câu + CTA riêng (${customCta} dòng sẽ được gộp thành 1 CTA).`,`3 questions detected + custom CTA (${customCta} trailing line(s) will become one CTA).`):tr('Đã nhận đủ 3 câu. CTA cuối sẽ được AurexVideo tự thêm.','All 3 questions detected. AurexVideo will append the final CTA automatically.')}catch(error){quizScriptHint.textContent=error.message}});
+    form.addEventListener('submit',async event=>{event.preventDefault();statusEl.textContent=tr('Đang tạo dự án...','Creating project…');try{if(quizProjectType())validateQuizScript(quizScriptInput.value);if(brandProjectType()&&!brandSelect.value)throw new Error(tr('Hãy chọn hoặc tạo một brand trước khi tạo project.','Choose or create a brand before creating the project.'));const payload=Object.fromEntries(new FormData(form));payload.id=normalizeProjectSlug(payload.id);projectNameInput.value=payload.id;payload.language=window.__AUREX_LANGUAGE__||document.documentElement.lang||'vi';if(brandProjectType()){payload.brand=brandSelect.value;delete payload.characterId}if(projectTypeInput.value==='quiz'){payload.leftLabel=payload.leftLabel||tr('Ảnh Quiz','Quiz image');payload.rightLabel='N/A'}const data=await api('/api/projects',{method:'POST',body:JSON.stringify(payload)});location.href=data.project.url||`/project/${encodeURIComponent(data.project.id)}/`}catch(error){statusEl.textContent=error.message}});
   </script>
 </body>
 </html>
