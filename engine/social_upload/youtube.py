@@ -22,7 +22,11 @@ from .config import (
     write_social_config,
 )
 from .metadata import build_upload_metadata, final_video_path_for_project, project_brand_from_topic, read_expected_video_bytes, read_project_upload_metadata, record_social_upload, require_project
+from .metadata import record_scheduled_social_upload
+from .r2 import r2_config, r2_config_hint, r2_is_configured, upload_scheduled_video_asset
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
+from .remote_worker import schedule_on_vps
+from .remote_worker import sync_social_connections_to_vps
 from .thumbnail import extract_thumbnail_frame
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -289,6 +293,41 @@ def youtube_channels_status(config: dict, youtube: dict) -> list[dict]:
     return result
 
 
+def youtube_token_health(channel_id: str = "") -> dict:
+    """Refresh-check YouTube tokens and return a reconnect-friendly status."""
+    config = read_social_config()
+    youtube = youtube_config(config)
+    if not youtube_is_configured(youtube):
+        raise ValueError(social_config_hint())
+    requested = str(channel_id or "").strip()
+    channels = youtube_channels(youtube)
+    if requested:
+        channels = [youtube_channel_for_id(youtube, requested)]
+    result = []
+    for channel in channels:
+        public_channel = youtube_public_channel_entry(channel)
+        try:
+            youtube_access_token_for_channel(config, youtube, channel)
+            public_channel.update({"ok": True, "status": "healthy", "message": "Token YouTube còn dùng được."})
+        except RuntimeError as exc:
+            message = str(exc)
+            needs_reconnect = "invalid_grant" in message or "expired or revoked" in message or "refresh token" in message.lower()
+            public_channel.update({
+                "ok": False,
+                "status": "needs_reconnect" if needs_reconnect else "error",
+                "message": message,
+                "needsReconnect": needs_reconnect,
+            })
+        result.append(public_channel)
+    unhealthy = [item for item in result if not item.get("ok")]
+    return {
+        "ok": not unhealthy,
+        "channels": result,
+        "unhealthy": unhealthy,
+        "message": "" if not unhealthy else "Có YouTube channel cần kết nối lại.",
+    }
+
+
 def set_youtube_active_channel(channel_id: str) -> dict:
     channel_id = str(channel_id or "").strip()
     if not channel_id:
@@ -397,8 +436,6 @@ def start_youtube_oauth(project: str = "", *, brand: str = "", channel_id: str =
         require_project(project)
     elif not brand:
         raise ValueError("Cần project hoặc Brand để bắt đầu kết nối YouTube.")
-    if brand and not channel_id:
-        raise ValueError("Thiếu YouTube channel cần kết nối lại cho Brand.")
     state = secrets.token_urlsafe(24)
     with OAUTH_STATES_LOCK:
         OAUTH_STATES[state] = {
@@ -458,10 +495,18 @@ def finish_youtube_oauth(query: dict[str, list[str]]) -> str:
     reconnect_brand = canonical_brand(state_data.get("brand"))
     expected_channel_id = str(state_data.get("channel_id") or "").strip()
     if reconnect_brand:
-        route = social_brand_route(config, reconnect_brand, "youtube")
+        if expected_channel_id:
+            route = social_brand_route(config, reconnect_brand, "youtube")
+        else:
+            try:
+                route = social_brand_route(config, reconnect_brand, "youtube")
+            except ValueError:
+                route = {}
         current_channel_id = str(route.get("channel_id") or "").strip()
         if expected_channel_id and current_channel_id != expected_channel_id:
             raise RuntimeError("Route YouTube của Brand đã thay đổi. Hãy mở lại kết nối từ trang Social.")
+        if not expected_channel_id and current_channel_id:
+            raise RuntimeError("Brand đã có YouTube route. Hãy dùng chức năng Kết nối lại.")
         save_social_brand_route(
             reconnect_brand,
             "youtube",
@@ -470,6 +515,11 @@ def finish_youtube_oauth(query: dict[str, list[str]]) -> str:
             config=config,
         )
     else:
+        write_social_config(config)
+    try:
+        sync_social_connections_to_vps(config)
+    except Exception as exc:
+        config.setdefault("social_worker", {})["last_youtube_sync_error"] = str(exc)[:500]
         write_social_config(config)
     return str(state_data.get("project") or "")
 
@@ -594,6 +644,7 @@ def set_youtube_thumbnail(access_token: str, video_id: str, video_path) -> dict:
 
 
 def youtube_upload_video(payload: dict) -> dict:
+    payload = dict(payload or {})
     project = str(payload.get("project") or "").strip()
     video_path = final_video_path_for_project(project)
     project_brand = project_brand_from_topic(video_path.parent.parent)
@@ -604,21 +655,21 @@ def youtube_upload_video(payload: dict) -> dict:
     metadata = build_upload_metadata(project)
     title = str(payload.get("title") or metadata["title"]).strip()[:90]
     description = str(payload.get("description") or metadata["description"]).strip()[:5000]
-    privacy_status = str(payload.get("privacyStatus") or metadata.get("privacyStatus") or "public").strip()
-    if privacy_status not in {"private", "unlisted", "public"}:
-        raise ValueError("privacyStatus must be private, unlisted, or public.")
-    scheduled_publish_at = parse_scheduled_publish_at(payload)
+    internal_publish_now = bool(payload.get("_aurex_internal_publish_now"))
+    scheduled_publish_at = None if internal_publish_now else parse_scheduled_publish_at(payload)
     if not scheduled_publish_at:
         try:
             stored = read_project_upload_metadata(project)
         except (FileNotFoundError, ValueError):
             stored = {}
-        scheduled_publish_at = parse_scheduled_publish_at(stored.get('youtube', {}) if isinstance(stored, dict) else {})
+        if not internal_publish_now:
+            scheduled_publish_at = parse_scheduled_publish_at(stored.get('youtube', {}) if isinstance(stored, dict) else {})
     if scheduled_publish_at:
-        # The YouTube API only accepts publishAt on a private video; the
-        # video flips to public automatically when the clock hits the time.
         validate_schedule_window(scheduled_publish_at, timedelta(minutes=2), platform="YouTube")
-        privacy_status = "private"
+    requested_privacy = str(payload.get("privacyStatus") or "").strip()
+    privacy_status = requested_privacy or ("public" if scheduled_publish_at else str(metadata.get("privacyStatus") or "public").strip())
+    if privacy_status not in {"private", "unlisted", "public"}:
+        raise ValueError("privacyStatus must be private, unlisted, or public.")
 
     config = read_social_config()
     youtube = youtube_config(config)
@@ -628,6 +679,64 @@ def youtube_upload_video(payload: dict) -> dict:
     upload_payload["brand"] = brand
     upload_payload["channelId"] = social_brand_route(config, brand, "youtube")["channel_id"]
     channel = youtube_upload_channel(config, youtube, upload_payload)
+    if internal_publish_now:
+        payload.pop("expectedMediaSha256", None)
+        payload.pop("expected_media_sha256", None)
+    r2_asset = {}
+    if scheduled_publish_at or internal_publish_now:
+        r2 = r2_config(config)
+        if not r2_is_configured(r2):
+            raise ValueError(r2_config_hint())
+        r2_asset = upload_scheduled_video_asset(video_path, platform="youtube", brand=brand, project=project, r2=r2)
+    if scheduled_publish_at:
+        queued = schedule_on_vps(
+            "youtube",
+            r2_asset["r2_url"],
+            json.dumps(
+                {
+                    "title": title,
+                    "description": description,
+                    "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else metadata["tags"],
+                    "privacyStatus": privacy_status,
+                },
+                ensure_ascii=False,
+            ),
+            scheduled_publish_at,
+            project=project,
+            brand=brand,
+            account_id=str(channel.get("id") or ""),
+            media_sha256=r2_asset["media_sha256"],
+            r2_key=r2_asset["r2_key"],
+        )
+        worker_id = str(queued.get("id") or queued.get("worker_id") or "").strip()
+        record_scheduled_social_upload(
+            video_path.parent.parent,
+            "youtube",
+            queued["scheduledPublishAt"],
+            brand=brand,
+            connection_id=str(channel.get("id") or ""),
+            worker_id=worker_id,
+            media_sha256=r2_asset["media_sha256"],
+            r2_key=r2_asset["r2_key"],
+            r2_url=r2_asset["r2_url"],
+        )
+        return {
+            "ok": True,
+            "platform": "youtube",
+            "project": project,
+            "brand": brand,
+            "channel_id": str(channel.get("id") or ""),
+            "channel_title": str(channel.get("title") or ""),
+            "state": "SCHEDULED",
+            "privacyStatus": privacy_status,
+            "scheduledPublishAt": queued["scheduledPublishAt"],
+            "schedule_id": worker_id or queued.get("id"),
+            "worker_id": worker_id,
+            "media_sha256": r2_asset["media_sha256"],
+            "r2_key": r2_asset["r2_key"],
+            "r2_url": r2_asset["r2_url"],
+            "message": "Đã upload video lên R2 và chuyển lịch YouTube lên VPS; YouTube chỉ được upload/publish khi đến giờ.",
+        }
     access_token = youtube_access_token_for_channel(config, youtube, channel)
     video_bytes = read_expected_video_bytes(video_path, payload)
 
@@ -699,23 +808,22 @@ def youtube_upload_video(payload: dict) -> dict:
             "brand": brand,
             "state": privacy_status,
             "scheduled_at": scheduled_publish_at or "",
+            "media_sha256": r2_asset.get("media_sha256", ""),
+            "r2_key": r2_asset.get("r2_key", ""),
+            "r2_url": r2_asset.get("r2_url", ""),
         },
     )
     if scheduled_publish_at:
-        message = (
-            f"Đã lên lịch đăng video lúc {scheduled_publish_at}. "
-            "Video đang ở chế độ riêng tư và sẽ tự công khai đúng giờ."
-        )
+        message = f"Đã lên lịch đăng video lúc {scheduled_publish_at}."
     else:
         message = "Uploaded to YouTube. Review in YouTube Studio before publishing."
-    try:
-        thumbnail_result = set_youtube_thumbnail(access_token, video_id, video_path)
-    except Exception as thumb_exc:
-        thumbnail_result = {"ok": False, "source": "video_frame", "error": f"thumbnail error: {thumb_exc}"}
-    if thumbnail_result.get("ok"):
-        message += " Thumbnail từ frame giây 1 đã được đặt."
-    else:
-        message += f" Thumbnail từ frame giây 1 chưa đặt được: {str(thumbnail_result.get('error') or '')[:240]}"
+    thumbnail_result = {
+        "ok": False,
+        "source": "video_frame",
+        "disabled": True,
+        "error": "YouTube thumbnail upload disabled.",
+    }
+    message += " Chức năng đổi thumbnail YouTube đang tắt."
     return {
         "ok": True,
         "platform": "youtube",

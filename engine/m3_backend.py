@@ -1552,7 +1552,7 @@ def remember_project_defaults(slug: str, topic: dict) -> None:
 
         is_quiz_template_brand = str(topic.get("brand") or "").strip().lower() in ("quiz", "tinhnhanhchua", "suvietky")
         if is_quiz_template_brand:
-            # Same bleed concern as backgrounds: quiz-template brands share the
+            # Same bleed concern as backgrounds: quiz brands share the
             # "quizz" character but pin their own karaoke colours per topic
             # (plugin writes topic.karaokeColor from the render profile). Keep
             # the shared global preset untouched here.
@@ -1785,6 +1785,9 @@ CUSTOM_INTRO_MEDIA_EXTENSIONS = {
 }
 CUSTOM_INTRO_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
 CUSTOM_INTRO_VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
+CUSTOM_SLIDE_MEDIA_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", *CUSTOM_INTRO_VIDEO_EXTENSIONS,
+}
 
 
 def normalize_project_type(value: object) -> str:
@@ -1831,7 +1834,7 @@ def default_custom_slide(
                 "x": 0, "y": 20, "w": 100, "h": 12,
             },
             {
-                "id": _custom_token("media"), "type": "image", "src": "assets/placeholder-left.svg",
+                "id": _custom_token("media"), "type": "image", "src": "assets/placeholder-left.svg", "mediaType": "image",
                 "x": 0, "y": 0, "w": 100, "h": 100, "zoom": 1.0, "offsetX": 0.0, "offsetY": 0.0,
             },
         ],
@@ -1972,8 +1975,10 @@ def normalize_custom_slides(raw: object, segment_count: int) -> list[dict]:
                     "fontSize": _clamp_custom_number(raw_layer.get("fontSize"), 1.2, 0.5, 2),
                 })
             else:
+                source = safe_relative_asset(raw_layer.get("src"), "slide.media")
                 layer.update({
-                    "src": safe_relative_asset(raw_layer.get("src"), "slide.image"),
+                    "src": source,
+                    "mediaType": "video" if Path(source).suffix.lower() in CUSTOM_INTRO_VIDEO_EXTENSIONS else "image",
                     "zoom": _clamp_custom_number(raw_layer.get("zoom"), 1, 0.1, 3),
                     "offsetX": _clamp_custom_number(raw_layer.get("offsetX"), 0, -50, 50),
                     "offsetY": _clamp_custom_number(raw_layer.get("offsetY"), 0, -50, 50),
@@ -2073,7 +2078,14 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     topic["segments"] = cleaned_segments
     if topic["projectType"] == "quiz":
         if "quizItems" in payload or "quiz_items" in payload:
-            topic["quizItems"] = normalize_quiz_items(payload.get("quizItems", payload.get("quiz_items")))
+            brand_id = str(payload.get("brand", current.get("brand", "")) or "").strip().lower()
+            raw_quiz_items = payload.get("quizItems", payload.get("quiz_items"))
+            legacy_three_item_payload = isinstance(raw_quiz_items, list) and len(raw_quiz_items) == QUIZ_ITEM_COUNT
+            item_count = QUIZ_ITEM_COUNT if legacy_three_item_payload else SUVietKY_ITEM_COUNT if brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
+            options_count = THEGIOIDODAY_OPTIONS_COUNT if brand_id == "thegioidoday" else 3
+            topic["quizItems"] = normalize_quiz_items(
+                raw_quiz_items, item_count, options_count
+            )
         raw_answer = normalize_display_text(payload.get("quizAnswer", current.get("quizAnswer", "")), "", 300)
         if not raw_answer and len(cleaned_segments) > 1:
             raw_answer = cleaned_segments[1]["text"]
@@ -2565,6 +2577,11 @@ def normalize_display_text(value: object, fallback: str = "", limit: int = 200) 
 QUIZ_ITEM_COUNT = 3
 QUIZ_LINES_PER_ITEM = 5
 QUIZ_NARRATION_LINE_COUNT = QUIZ_ITEM_COUNT * QUIZ_LINES_PER_ITEM
+THEGIOIDODAY_ITEM_COUNT = 5
+THEGIOIDODAY_OPTIONS_COUNT = 4
+SUVietKY_ITEM_COUNT = 5
+
+THEGIOIDODAY_ANSWER_RE = re.compile(r"đáp án(?: chính xác)? là\s*([ABCD])\s*[.)]?\s*(.*?)(?=\s+Đáp án(?: chính xác)? là\s+[ABCD]\b|\s+Bạn đúng|$)", re.IGNORECASE)
 QUIZ_DEFAULT_CTA_VI = "Bạn trả lời đúng được mấy câu? Comment kết quả bên dưới và Follow mình để thử thách tiếp nhé!"
 QUIZ_DEFAULT_CTA_EN = "How many questions did you get right? Comment your score below and follow for the next challenge!"
 QUIZ_ANSWER_LINE_RE = re.compile(
@@ -2587,50 +2604,39 @@ def _quiz_script_lines(value: object) -> list[str]:
     return [line.strip() for line in raw_lines if line and line.strip()]
 
 
-def parse_quiz_script(value: object, language: object = "vi") -> tuple[list[str], list[dict[str, object]]]:
-    """Parse three five-line Quiz blocks and append one canonical CTA line.
-
-    The first 15 non-empty lines are the Quiz narration contract. Any trailing
-    lines are treated as a custom CTA and collapsed into one final segment. If
-    no CTA is supplied, the localized default CTA is appended automatically.
-    """
+def parse_quiz_script(value: object, language: object = "vi", item_count: int = QUIZ_ITEM_COUNT, options_count: int = 3) -> tuple[list[str], list[dict[str, object]]]:
+    """Parse standard Quiz V2 or thegioidoday 31-line quiz contract."""
+    item_count = int(item_count)
+    options_count = int(options_count)
+    is_thegioidoday = item_count == THEGIOIDODAY_ITEM_COUNT and options_count == THEGIOIDODAY_OPTIONS_COUNT
+    lines_per_item = options_count + 2 if is_thegioidoday else QUIZ_LINES_PER_ITEM
+    narration_line_count = item_count * lines_per_item
     lines = _quiz_script_lines(value)
-    if len(lines) < QUIZ_NARRATION_LINE_COUNT:
-        raise ValueError(
-            "Kịch bản Quiz cần đúng 3 câu, mỗi câu gồm: câu hỏi, A, B, C và dòng đáp án chính xác."
-        )
-
-    quiz_lines = lines[:QUIZ_NARRATION_LINE_COUNT]
+    if len(lines) < narration_line_count + (1 if is_thegioidoday else 0):
+        raise ValueError(f"Kịch bản Quiz cần đúng {item_count} câu và đủ đáp án.")
+    quiz_lines = lines[:narration_line_count]
     raw_items: list[dict[str, object]] = []
-    for item_index in range(QUIZ_ITEM_COUNT):
-        offset = item_index * QUIZ_LINES_PER_ITEM
+    for item_index in range(item_count):
+        offset = item_index * lines_per_item
         question = quiz_lines[offset]
         options: list[str] = []
-        for option_index in range(3):
+        for option_index in range(options_count):
             expected = chr(ord("A") + option_index)
             option_line = quiz_lines[offset + 1 + option_index]
-            option_match = re.match(r"^([ABC])\s*[.)]\s*(.+)$", option_line, re.IGNORECASE)
+            option_match = re.match(r"^([A-D])\s*[.)]\s*(.+)$", option_line, re.IGNORECASE)
             if not option_match or option_match.group(1).upper() != expected:
                 raise ValueError(f"Câu Quiz {item_index + 1}: lựa chọn {expected} phải bắt đầu bằng '{expected}.'")
             options.append(option_match.group(2).strip())
-
-        answer_line = quiz_lines[offset + 4]
+        answer_line = quiz_lines[offset + 1 + options_count]
         answer_match = QUIZ_ANSWER_LINE_RE.search(answer_line)
         if not answer_match:
-            raise ValueError(
-                f"Câu Quiz {item_index + 1}: dòng 5 phải có dạng 'Đáp án chính xác là A. ...'."
-            )
+            raise ValueError(f"Câu Quiz {item_index + 1}: dòng đáp án không hợp lệ.")
         correct_index = ord(answer_match.group(1).upper()) - ord("A")
-        answer_prefix = "Correct answer is" if normalize_ui_language(language) == "en" else "Đáp án chính xác là"
-        quiz_lines[offset + 4] = f"{answer_prefix} {answer_match.group(1).upper()}. {options[correct_index]}"
-        raw_items.append({
-            "question": question,
-            "options": options,
-            "correct_index": correct_index,
-        })
-
-    items = normalize_quiz_items(raw_items)
-    trailing = " ".join(lines[QUIZ_NARRATION_LINE_COUNT:]).strip()
+        answer_prefix = "Correct answer is" if normalize_ui_language(language) == "en" else "Đáp án là" if is_thegioidoday else "Đáp án chính xác là"
+        quiz_lines[offset + 1 + options_count] = f"{answer_prefix} {answer_match.group(1).upper()}. {options[correct_index]}"
+        raw_items.append({"question": question, "options": options, "correct_index": correct_index})
+    items = normalize_quiz_items(raw_items, item_count=item_count, options_count=options_count) if is_thegioidoday else (raw_items if item_count == SUVietKY_ITEM_COUNT else normalize_quiz_items(raw_items))
+    trailing = " ".join(lines[narration_line_count:]).strip()
     return [*quiz_lines, trailing or quiz_default_cta(language)], items
 
 
@@ -2651,27 +2657,29 @@ def quiz_preview_segments(lines: list[str]) -> tuple[list[dict[str, object]], fl
             "speaker": "voice_a" if index == 0 or index == len(lines) - 1 else "voice_b",
         })
         cursor = end
-        if index in {3, 8, 13}:
+        if index in {3, 8, 13, 18, 23}:
             cursor += 5.0
-        elif index in {4, 9, 14}:
+        elif index in {4, 9, 14, 19, 24}:
             cursor += 1.0
         elif index < len(lines) - 1:
             cursor += 0.3
     return segments, round(max(cursor, segments[-1]["end"] if segments else 1.0), 3)
 
 
-def normalize_quiz_items(value: object) -> list[dict[str, object]]:
-    """Validate the fixed three-question Multiple Choice Quiz Scroll contract."""
-    if not isinstance(value, list) or len(value) != 3:
-        raise ValueError("Quiz Scroll phải có đúng 3 câu hỏi.")
+def normalize_quiz_items(value: object, item_count: int = QUIZ_ITEM_COUNT, options_count: int = 3) -> list[dict[str, object]]:
+    """Validate fixed-count Multiple Choice Quiz Scroll contract."""
+    options_count = int(options_count)
+    item_count = int(item_count)
+    if not isinstance(value, list) or len(value) != item_count:
+        raise ValueError(f"Quiz Scroll phải có đúng {item_count} câu hỏi.")
     result: list[dict[str, object]] = []
     for index, raw in enumerate(value, 1):
         if not isinstance(raw, dict):
             raise ValueError(f"Câu Quiz {index} không hợp lệ.")
         question = normalize_display_text(raw.get("question"), "", 90)
         options = raw.get("options")
-        if not question or not isinstance(options, list) or len(options) != 3:
-            raise ValueError(f"Câu Quiz {index} phải có câu hỏi và đúng 3 lựa chọn.")
+        if not question or not isinstance(options, list) or len(options) != options_count:
+            raise ValueError(f"Câu Quiz {index} phải có câu hỏi và đúng {options_count} lựa chọn.")
         cleaned_options = [normalize_display_text(option, "", 35) for option in options]
         if any(not option for option in cleaned_options):
             raise ValueError(f"Lựa chọn của câu Quiz {index} không được để trống.")
@@ -2679,9 +2687,13 @@ def normalize_quiz_items(value: object) -> list[dict[str, object]]:
             correct_index = int(raw.get("correct_index", raw.get("correctIndex")))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"correct_index của câu Quiz {index} phải là 0, 1 hoặc 2.") from exc
-        if correct_index not in {0, 1, 2}:
-            raise ValueError(f"correct_index của câu Quiz {index} phải là 0, 1 hoặc 2.")
-        result.append({"question": question, "options": cleaned_options, "correct_index": correct_index})
+        if correct_index not in set(range(options_count)):
+            raise ValueError(f"correct_index của câu Quiz {index} phải nằm trong 0..{options_count - 1}.")
+        item = {"question": question, "options": cleaned_options, "correct_index": correct_index}
+        image = str(raw.get("image") or raw.get("art") or "").strip()
+        if image:
+            item["image"] = safe_relative_asset(image, f"quizItems[{index}].image")
+        result.append(item)
     return result
 
 
@@ -2698,10 +2710,13 @@ def create_project(payload: dict) -> dict:
     quiz_items: list[dict[str, object]] | None = None
     quiz_segments: list[dict[str, object]] | None = None
     quiz_duration = 1.0
+    requested_brand_id = str(payload.get("brand", payload.get("brandId", "")) or "").strip().lower()
+    quiz_item_count = SUVietKY_ITEM_COUNT if requested_brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
+    quiz_options_count = THEGIOIDODAY_OPTIONS_COUNT if requested_brand_id == "thegioidoday" else 3
     if project_type == "quiz" and _quiz_script_lines(quiz_script):
         # Validate before creating any project directory so malformed scripts
         # never leave a half-created project behind.
-        quiz_lines, quiz_items = parse_quiz_script(quiz_script, language)
+        quiz_lines, quiz_items = parse_quiz_script(quiz_script, language, quiz_item_count, quiz_options_count)
         quiz_segments, quiz_duration = quiz_preview_segments(quiz_lines)
     defaults = read_project_defaults()
     custom_editor_defaults = _read_custom_editor_defaults(defaults.get("customEditorDefaults")) if project_type == "custom" else None
@@ -3051,6 +3066,7 @@ def decode_upload(slug: str, payload: dict) -> dict:
         "leftImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
         "rightImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
         "comparisonImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
+        "slideMedia": ("assets", CUSTOM_SLIDE_MEDIA_EXTENSIONS),
         "backgroundImage": ("assets", {".png", ".jpg", ".jpeg", ".webp"}),
         "introMedia": ("assets", CUSTOM_INTRO_MEDIA_EXTENSIONS),
         "introLogo": ("assets", CUSTOM_INTRO_LOGO_EXTENSIONS),
@@ -3082,7 +3098,7 @@ def decode_upload(slug: str, payload: dict) -> dict:
     target.write_bytes(data)
     relative = target.relative_to(directory).as_posix()
     result = {"ok": True, "kind": kind, "path": relative, "url": file_url(target)}
-    if kind == "introMedia":
+    if kind in {"introMedia", "slideMedia"}:
         result["mediaType"] = "video" if suffix in CUSTOM_INTRO_VIDEO_EXTENSIONS else "image"
     if kind == "voiceover":
         result["duration"] = media_duration(target)

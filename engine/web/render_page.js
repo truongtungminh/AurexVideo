@@ -4621,7 +4621,6 @@
 
   async function uploadYoutubeVideo(project, scheduledPublishAtOverride = undefined) {
     const scheduledPublishAt = scheduledPublishAtFor(scheduledPublishAtOverride, '#youtubeScheduleToggle', '#youtubeScheduleTime', 'YouTube');
-    const scheduleEnabled = Boolean(scheduledPublishAt);
     const response = await fetch('/api/social/youtube/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4631,7 +4630,7 @@
         title: $('#uploadTitle')?.value || '',
         description: $('#youtubeDescription')?.value || '',
         tags: state.defaultUploadTags,
-        privacyStatus: scheduleEnabled ? 'private' : ($('#youtubePrivacy')?.value || 'public'),
+        privacyStatus: $('#youtubePrivacy')?.value || 'public',
         ...(scheduledPublishAt ? { scheduledPublishAt } : {}),
       }),
     });
@@ -4756,7 +4755,7 @@
   }
 
   async function uploadInstagramReel(project, scheduledPublishAtOverride = undefined) {
-    const scheduledPublishAt = String(scheduledPublishAtOverride || '');
+    const scheduledPublishAt = scheduledPublishAtFor(scheduledPublishAtOverride, '#instagramScheduleToggle', '#instagramScheduleTime', 'Instagram');
     const response = await fetch('/api/social/instagram/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4773,7 +4772,7 @@
   }
 
   async function uploadThreadsVideo(project, scheduledPublishAtOverride = undefined) {
-    const scheduledPublishAt = String(scheduledPublishAtOverride || '');
+    const scheduledPublishAt = scheduledPublishAtFor(scheduledPublishAtOverride, '#threadsScheduleToggle', '#threadsScheduleTime', 'Threads');
     const response = await fetch('/api/social/threads/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4787,6 +4786,143 @@
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
+  }
+
+  function formatWorkerTime(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Chưa có giờ';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return new Intl.DateTimeFormat('vi-VN', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  function workerStatusClass(status = '') {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'succeeded') return 'succeeded';
+    if (normalized === 'failed' || normalized === 'cancelled') return 'failed';
+    if (normalized === 'running' || normalized === 'retry_wait') return 'running';
+    return '';
+  }
+
+  function workerPlatformLabel(platform = '') {
+    return {
+      facebook: 'Facebook',
+      instagram: 'Instagram',
+      threads: 'Threads',
+      youtube: 'YouTube',
+      tiktok: 'TikTok',
+    }[String(platform || '').toLowerCase()] || platform || 'Social';
+  }
+
+  function renderWorkerJobs(jobs = []) {
+    const list = $('#workerJobList');
+    if (!list) return;
+    list.textContent = '';
+    if (!jobs.length) {
+      const empty = document.createElement('p');
+      empty.className = 'form-note';
+      empty.textContent = 'Chưa có lịch VPS gần đây.';
+      list.appendChild(empty);
+      return;
+    }
+    jobs.forEach((job) => {
+      const status = String(job.status || '').toLowerCase();
+      const row = document.createElement('article');
+      row.className = `worker-job-row ${status === 'failed' ? 'failed' : ''}`;
+
+      const main = document.createElement('div');
+      main.className = 'worker-job-main';
+      const title = document.createElement('strong');
+      title.textContent = `${workerPlatformLabel(job.platform)} · ${job.project || 'Project'}`;
+      const brand = document.createElement('span');
+      brand.textContent = job.brand ? `Brand: ${job.brand}` : `Job: ${job.id || ''}`;
+      main.append(title, brand);
+
+      const meta = document.createElement('div');
+      meta.className = 'worker-job-meta';
+      const statusBadge = document.createElement('strong');
+      statusBadge.className = `worker-job-status ${workerStatusClass(status)}`;
+      statusBadge.textContent = status || 'unknown';
+      const timing = document.createElement('span');
+      const nextAttempt = job.nextAttemptAt ? ` · retry ${formatWorkerTime(job.nextAttemptAt)}` : '';
+      timing.textContent = `${formatWorkerTime(job.scheduledPublishAt)} · ${job.phase || 'queued'}${nextAttempt}`;
+      meta.append(statusBadge, timing);
+      if (job.error) {
+        const error = document.createElement('span');
+        error.textContent = job.error;
+        meta.appendChild(error);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'worker-job-actions';
+      if (status === 'failed' || status === 'retry_wait') {
+        const retry = document.createElement('button');
+        retry.className = 'small-link';
+        retry.type = 'button';
+        retry.dataset.workerAction = 'retry';
+        retry.dataset.workerId = job.id || '';
+        retry.textContent = 'Retry';
+        actions.appendChild(retry);
+      }
+      if (['queued', 'retry_wait', 'failed'].includes(status)) {
+        const cancel = document.createElement('button');
+        cancel.className = 'small-link';
+        cancel.type = 'button';
+        cancel.dataset.workerAction = 'cancel';
+        cancel.dataset.workerId = job.id || '';
+        cancel.textContent = 'Cancel';
+        actions.appendChild(cancel);
+      }
+
+      row.append(main, meta, actions);
+      list.appendChild(row);
+    });
+  }
+
+  async function loadWorkerJobs({ quiet = false } = {}) {
+    const list = $('#workerJobList');
+    if (!list) return;
+    const button = $('#refreshWorkerJobs');
+    if (button) button.disabled = true;
+    if (!quiet && !list.children.length) {
+      list.textContent = '';
+      const loading = document.createElement('p');
+      loading.className = 'form-note';
+      loading.textContent = 'Đang tải lịch VPS...';
+      list.appendChild(loading);
+    }
+    try {
+      const response = await fetch('/api/social/worker/jobs?limit=50', { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      renderWorkerJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    } catch (error) {
+      if (!quiet) {
+        list.textContent = '';
+        const message = document.createElement('p');
+        message.className = 'form-note';
+        message.textContent = `Không tải được VPS Monitor: ${error.message || error}`;
+        list.appendChild(message);
+      }
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function runWorkerJobAction(workerId, action) {
+    const id = String(workerId || '').trim();
+    if (!id || !['retry', 'cancel'].includes(action)) return;
+    const response = await fetch(`/api/social/worker/jobs/${encodeURIComponent(id)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    await loadWorkerJobs();
   }
 
   async function publishMetaAll(project) {
@@ -4956,6 +5092,7 @@
         setUploadStatus(error.message || String(error), 'bad');
       } finally {
         await refreshSocialStatus();
+        await loadWorkerJobs({ quiet: true });
       }
     });
   }
@@ -4995,6 +5132,7 @@
         setUploadStatus(error.message || String(error), 'bad');
       } finally {
         await refreshSocialStatus();
+        await loadWorkerJobs({ quiet: true });
       }
     });
   }
@@ -5040,7 +5178,7 @@
       const project = state.uploadProject || state.project;
       if (!project) return setUploadStatus('Vui lòng render project trước.', 'bad');
       uploadTiktok.disabled = true; setUploadStatus('Đang upload TikTok qua Zernio...', 'warn');
-      try { const data = await uploadTiktokVideo(project); const isDraft = ['DRAFT', 'INBOX'].includes(String(data.state || '').toUpperCase()); setUploadStatus(data.message || 'Đăng TikTok xong.', 'good'); setUploadResult(data.message || 'Uploaded.', 'good', data.url ? [{ label: isDraft ? 'Mở Creator Inbox/Draft' : 'Mở TikTok', href: data.url }] : []); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); } finally { await refreshSocialStatus(); }
+      try { const data = await uploadTiktokVideo(project); const isDraft = ['DRAFT', 'INBOX'].includes(String(data.state || '').toUpperCase()); setUploadStatus(data.message || 'Đăng TikTok xong.', 'good'); setUploadResult(data.message || 'Uploaded.', 'good', data.url ? [{ label: isDraft ? 'Mở Creator Inbox/Draft' : 'Mở TikTok', href: data.url }] : []); } catch (error) { setUploadStatus(error.message || String(error), 'bad'); } finally { await refreshSocialStatus(); await loadWorkerJobs({ quiet: true }); }
     });
   }
 
@@ -5081,6 +5219,7 @@
         setUploadStatus(error.message || String(error), 'bad');
       } finally {
         await refreshSocialStatus();
+        await loadWorkerJobs({ quiet: true });
       }
     });
   }
@@ -5106,6 +5245,7 @@
         setUploadStatus(error.message || String(error), 'bad');
       } finally {
         await refreshSocialStatus();
+        await loadWorkerJobs({ quiet: true });
       }
     });
   }
@@ -5226,6 +5366,30 @@
     });
   }
 
+  const refreshWorkerJobs = $('#refreshWorkerJobs');
+  if (refreshWorkerJobs) {
+    refreshWorkerJobs.addEventListener('click', () => {
+      loadWorkerJobs().catch((error) => setUploadStatus(error.message || String(error), 'bad'));
+    });
+  }
+
+  const workerJobList = $('#workerJobList');
+  if (workerJobList) {
+    workerJobList.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-worker-action]');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        await runWorkerJobAction(button.dataset.workerId || '', button.dataset.workerAction || '');
+      } catch (error) {
+        setUploadStatus(error.message || String(error), 'bad');
+        await loadWorkerJobs({ quiet: true });
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
   ['#closeYoutubeConfig', '#cancelYoutubeConfig'].forEach((selector) => {
     const button = $(selector);
     if (button) button.addEventListener('click', closeYoutubeConfigModal);
@@ -5305,6 +5469,7 @@
         if (links.length) setUploadResult('Một phần đã upload xong trước khi lỗi.', 'warn', links);
       } finally {
         await refreshSocialStatus();
+        await loadWorkerJobs({ quiet: true });
       }
     });
   }
@@ -5367,6 +5532,7 @@
         setUploadStatus(error.message || String(error), 'bad');
       } finally {
         await refreshSocialStatus();
+        await loadWorkerJobs({ quiet: true });
       }
     });
   }
@@ -5412,6 +5578,10 @@
       applyScheduleToggle('facebookScheduleToggle', 'facebookScheduleRow', 'facebookScheduleTime', false);
     } else if (target.id === 'tiktokScheduleToggle') {
       applyScheduleToggle('tiktokScheduleToggle', 'tiktokScheduleRow', 'tiktokScheduleTime', false);
+    } else if (target.id === 'instagramScheduleToggle') {
+      applyScheduleToggle('instagramScheduleToggle', 'instagramScheduleRow', 'instagramScheduleTime', false);
+    } else if (target.id === 'threadsScheduleToggle') {
+      applyScheduleToggle('threadsScheduleToggle', 'threadsScheduleRow', 'threadsScheduleTime', false);
     }
   });
   const facebookSourceComment = $('#facebookSourceComment');
@@ -5518,15 +5688,18 @@
   if (edgeVoice) edgeVoice.addEventListener('change', syncEdgeVoiceCustomField);
 
   enhanceUploadPage();
+  loadWorkerJobs().catch(() => {});
   const initialFromUrl = new URLSearchParams(window.location.search).get('project');
   const initialProject = window.__INITIAL_PROJECT__ || initialFromUrl || projects[0]?.name;
   if (initialProject) setSelectedProject(initialProject, false);
   refreshProjectStatuses().catch(() => {});
   const projectStatusTimer = window.setInterval(() => refreshProjectStatuses().catch(() => {}), 5000);
   const socialStatusTimer = window.setInterval(() => refreshDashboardProjectSocialStatuses().catch(() => {}), 15000);
+  const workerJobTimer = window.setInterval(() => loadWorkerJobs({ quiet: true }).catch(() => {}), 30000);
   window.addEventListener('beforeunload', () => {
     window.clearInterval(projectStatusTimer);
     window.clearInterval(socialStatusTimer);
+    window.clearInterval(workerJobTimer);
   });
   if (typeof syncEdgeVoiceCustomField === 'function') syncEdgeVoiceCustomField();
   syncSpeedPresets();

@@ -590,7 +590,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   padding-top: 16px;
   border-top: 1px solid var(--control-line-soft);
 }
-.slide-card .image-viewport img {
+.slide-card .image-viewport img,
+.slide-card .image-viewport video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -654,7 +655,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .quiz-setting-grid select, .quiz-setting-grid input[type="color"] { width: 100%; min-height: 34px; }
 .quiz-setting-grid input[type="range"] { width: 100%; }
 .quiz-setting-grid output { color: var(--ink); font-size: 12px; font-weight: 800; }
-
 .background-style,
 .subtitle-style,
 .music-style,

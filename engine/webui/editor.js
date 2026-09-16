@@ -995,9 +995,13 @@ function scriptLines() {
   return elements.scriptInput.value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-const QUIZ_ITEM_COUNT = 3;
 const QUIZ_LINES_PER_ITEM = 5;
-const QUIZ_NARRATION_LINE_COUNT = QUIZ_ITEM_COUNT * QUIZ_LINES_PER_ITEM;
+function quizItemCount() {
+  return String(state.topic?.brand || "").toLowerCase() === "suvietky" ? 5 : 3;
+}
+function quizNarrationLineCount() {
+  return quizItemCount() * QUIZ_LINES_PER_ITEM;
+}
 
 function quizDefaultCtaText() {
   return tr(
@@ -1007,10 +1011,11 @@ function quizDefaultCtaText() {
 }
 
 function quizItemsFromScript(lines = scriptLines()) {
-  if (!isQuizProject() || lines.length < QUIZ_NARRATION_LINE_COUNT) return null;
-  const quizLines = lines.slice(0, QUIZ_NARRATION_LINE_COUNT);
+  const narrationLineCount = quizNarrationLineCount();
+  if (!isQuizProject() || lines.length < narrationLineCount) return null;
+  const quizLines = lines.slice(0, narrationLineCount);
   const items = [];
-  for (let offset = 0; offset < QUIZ_NARRATION_LINE_COUNT; offset += QUIZ_LINES_PER_ITEM) {
+  for (let offset = 0; offset < narrationLineCount; offset += QUIZ_LINES_PER_ITEM) {
     const question = quizLines[offset];
     const options = quizLines.slice(offset + 1, offset + 4).map((line, index) => {
       const expected = String.fromCharCode(65 + index);
@@ -1033,14 +1038,14 @@ function quizScriptLinesWithCta(lines = scriptLines()) {
   if (!isQuizProject()) return lines;
   const items = quizItemsFromScript(lines);
   if (!items) return lines;
-  const quizLines = lines.slice(0, QUIZ_NARRATION_LINE_COUNT);
+  const quizLines = lines.slice(0, quizNarrationLineCount());
   items.forEach((item, index) => {
     const correctIndex = Number(item.correct_index);
     const letter = String.fromCharCode(65 + correctIndex);
     const prefix = tr("Đáp án chính xác là", "Correct answer is");
     quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `${prefix} ${letter}. ${item.options[correctIndex]}`;
   });
-  const trailingCta = lines.slice(QUIZ_NARRATION_LINE_COUNT).join(" ").trim();
+  const trailingCta = lines.slice(quizNarrationLineCount()).join(" ").trim();
   return [
     ...quizLines,
     trailingCta || quizDefaultCtaText(),
@@ -2146,7 +2151,7 @@ async function saveEditor(event, quiet = false) {
   if (state.saving) { scheduleAutoSave(350); return false; }
   if (!scriptLines().length) { showToast("Kịch bản cần ít nhất một dòng.", true); return false; }
   if (isQuizProject() && !quizItemsFromScript(scriptLines())) {
-    const message = "Quiz cần đúng 3 câu; mỗi câu gồm 5 dòng: câu hỏi, A, B, C và 'Đáp án chính xác là X. ...'.";
+    const message = `Quiz cần đúng ${quizItemCount()} câu; mỗi câu gồm 5 dòng: câu hỏi, A, B, C và 'Đáp án chính xác là X. ...'.`;
     elements.saveState.textContent = "Kịch bản Quiz chưa hợp lệ";
     if (!quiet) showToast(message, true);
     return false;

@@ -27,7 +27,7 @@ from .metadata import (
     validate_upload_video,
     upload_brand_for_project,
 )
-from .r2 import delete_file, r2_config, r2_config_hint, r2_is_configured, resolve_r2_config, upload_file
+from .r2 import delete_file, r2_config, r2_config_hint, r2_is_configured, resolve_r2_config, upload_file, upload_scheduled_video_asset
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
 from .scheduler import schedule_upload
 from .remote_worker import schedule_on_vps
@@ -381,10 +381,10 @@ def threads_upload_video(payload: dict) -> dict:
         r2 = r2_config(config)
         if not r2_is_configured(r2):
             raise ValueError(r2_config_hint())
-        with video_path.open("rb") as stream:
-            media_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
-        object_key = threads_scheduled_object_key(project, media_sha256)
-        public_url = upload_file(video_path, object_key, "video/mp4", r2)
+        r2_asset = upload_scheduled_video_asset(video_path, platform="threads", brand=brand, project=project, r2=r2)
+        media_sha256 = r2_asset["media_sha256"]
+        object_key = r2_asset["r2_key"]
+        public_url = r2_asset["r2_url"]
         queued = schedule_on_vps(
             "threads",
             public_url,

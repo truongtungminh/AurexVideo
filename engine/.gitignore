@@ -12,6 +12,17 @@ __pycache__/
 output/
 project/
 config/affiliate.sqlite3
+graphify-out/
+.playwright-cli/
+.tmp-golden/
+
+# Local runtime markers
+.aurexvideo-packaged-engine
+.engine_ready
+
+# Local secrets / machine-specific config
+config/social-upload.json
+config/tts.json
 
 # Logs
 *.log

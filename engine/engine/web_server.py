@@ -6466,9 +6466,15 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
                 <option value="PUBLISHED" selected>Publish now</option>
               </select>
             </label>
+            <label class="field upload-field compact schedule-field field-facebook">
+              <span class="field-label schedule-toggle-label">
+                <input type="checkbox" id="facebookShareToStory" checked />
+                <span>Share lên Facebook Story sau khi đăng Reels</span>
+              </span>
+            </label>
             <div class="platform-actions">
               <button class="upload-btn facebook secondary" id="openFacebookConfig" type="button">{ui_icon("plus")}<span>Thêm Page</span></button>
-              <button class="upload-btn facebook" id="uploadFacebook" type="button">{ui_icon("upload")}<span>Upload Facebook Reels</span></button>
+              <button class="upload-btn facebook" id="uploadFacebookButton" type="button">{ui_icon("upload")}<span>Upload Facebook Reels</span></button>
             </div>
           </section>
           <section class="platform-card platform-binance">

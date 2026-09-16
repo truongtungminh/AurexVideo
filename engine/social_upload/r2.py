@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import http.client
 import os
+import re
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -94,6 +96,54 @@ def r2_public_url(key: str, r2: dict | None = None) -> str:
     if not base:
         raise ValueError(r2_config_hint())
     return f"{base}/{quote(str(key).lstrip('/'), safe='/-_.~')}"
+
+
+def _safe_key_part(value: str, fallback: str) -> str:
+    ascii_value = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", ascii_value).strip("-") or fallback
+
+
+def scheduled_video_object_key(
+    platform: str,
+    brand: str,
+    project: str,
+    media_sha256: str,
+    filename: str = "final_video.mp4",
+    r2: dict | None = None,
+) -> str:
+    """Stable R2 key for an internally scheduled publishable render."""
+    digest = str(media_sha256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Không tạo được R2 key ổn định vì media SHA-256 không hợp lệ.")
+    config = resolve_r2_config(r2)
+    prefix = str(config.get("object_prefix") or "").strip("/")
+    base = f"{prefix}/" if prefix else ""
+    safe_brand = _safe_key_part(brand, "brand")
+    safe_project = _safe_key_part(project, "project")
+    safe_filename = _safe_key_part(Path(filename or "final_video.mp4").name, "final_video.mp4")
+    return f"{base}{safe_brand}/videos/{safe_project}/scheduled-{digest}-{safe_filename}"
+
+
+def upload_scheduled_video_asset(
+    file_path: Path,
+    *,
+    platform: str,
+    brand: str,
+    project: str,
+    r2: dict | None = None,
+    content_type: str = "video/mp4",
+) -> dict:
+    path = Path(file_path)
+    media_sha256 = _payload_sha256(path)
+    object_key = scheduled_video_object_key(platform, brand, project, media_sha256, path.name, r2)
+    public_url = upload_file(path, object_key, content_type, r2)
+    return {
+        "media_sha256": media_sha256,
+        "r2_key": object_key,
+        "r2_url": public_url,
+        "size": path.stat().st_size,
+        "content_type": content_type,
+    }
 
 
 def update_r2_config(

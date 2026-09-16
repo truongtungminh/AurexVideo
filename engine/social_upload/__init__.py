@@ -57,6 +57,15 @@ from .instagram import (
     update_instagram_config,
 )
 from .meta_bundle import publish_instagram_facebook_threads
+from .meta_connections import (
+    MetaGraphError,
+    diagnose_meta_connection,
+    diagnose_system_user_token,
+    list_meta_connections,
+    list_meta_pages,
+    save_meta_connection,
+    sync_meta_pages,
+)
 from .threads import (
     disconnect_threads,
     threads_config,
@@ -91,6 +100,7 @@ from .youtube import (
     set_youtube_active_channel,
     start_youtube_oauth,
     update_youtube_oauth_config,
+    youtube_token_health,
     youtube_upload_video,
 )
 
@@ -140,6 +150,13 @@ __all__ = [
     "instagram_upload_video",
     "disconnect_threads",
     "publish_instagram_facebook_threads",
+    "MetaGraphError",
+    "diagnose_meta_connection",
+    "diagnose_system_user_token",
+    "list_meta_connections",
+    "list_meta_pages",
+    "save_meta_connection",
+    "sync_meta_pages",
     "r2_config",
     "r2_config_hint",
     "r2_is_configured",
@@ -163,6 +180,7 @@ __all__ = [
     "update_threads_config",
     "update_r2_config",
     "update_youtube_oauth_config",
+    "youtube_token_health",
     "youtube_upload_video",
     "update_shopee_config",
     "disconnect_zernio",

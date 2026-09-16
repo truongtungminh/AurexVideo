@@ -133,6 +133,53 @@ class SocialWorkerTests(unittest.TestCase):
         upload.assert_not_called()
         self.assertEqual(result["video_url"], "https://media.example.com/scheduled.mp4")
 
+    def test_scheduled_tiktok_uses_existing_r2_url_at_publish_time(self) -> None:
+        calls = []
+
+        def fake_zernio(url, method, body, connection, **kwargs):
+            calls.append((url, method, body))
+            return {
+                "data": {
+                    "post": {
+                        "_id": "post-1",
+                        "status": "published",
+                        "platformPostUrl": {"tiktok": "https://www.tiktok.com/@acct/video/1"},
+                    }
+                }
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with patch.object(worker, "ROOT", root), \
+                patch.object(worker, "DB", root / "jobs.sqlite3"), \
+                patch.object(worker, "MEDIA", root / "media"), \
+                patch.object(worker, "_verify_public_video_url") as verify, \
+                patch.object(worker, "_tiktok_connection", return_value={"api_key": "sk", "account_id": "connection-1", "base_url": "https://zernio.example"}), \
+                patch.object(worker, "_zernio_request", side_effect=fake_zernio), \
+                patch.object(worker, "upload_r2") as upload:
+                worker.init_db()
+                job = self._insert_job(
+                    root,
+                    platform="tiktok",
+                    video_url="https://media.example.com/tiktok.mp4",
+                )
+                result = worker.execute(job)
+
+        verify.assert_called_once_with("https://media.example.com/tiktok.mp4")
+        upload.assert_not_called()
+        self.assertEqual(calls[0][0], "https://zernio.example/posts")
+        self.assertTrue(calls[0][2]["publishNow"])
+        self.assertEqual(calls[0][2]["mediaItems"][0]["url"], "https://media.example.com/tiktok.mp4")
+        self.assertEqual(result["post_id"], "post-1")
+
+    def test_tiktok_schedule_validation_uses_zernio_connection(self) -> None:
+        with patch.object(worker, "_tiktok_connection", return_value={"api_key": "sk", "account_id": "acct", "base_url": "https://zernio.example"}) as tiktok_connection, \
+            patch.object(worker, "_social_connection") as social_connection:
+            worker._validate_social_account("tiktok", "acct", "bietchichomet")
+
+        tiktok_connection.assert_called_once_with("bietchichomet", "acct")
+        social_connection.assert_not_called()
+
     def test_idempotency_index_rejects_duplicate_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from social_upload import schedule
+from social_upload import schedule, scheduler
 import social_upload.facebook as fb
 import social_upload.thumbnail as thumb
 import social_upload.youtube as yt
@@ -39,6 +39,13 @@ SOCIAL_CONFIG = {
         "pages": [{"id": "123", "page_access_token": "EAAfake"}],
         "active_page_id": "123",
         "graph_version": "v25.0",
+    },
+    "r2": {
+        "account_id": "acct",
+        "bucket": "bucket",
+        "access_key_id": "access",
+        "secret_access_key": "secret",
+        "public_base_url": "https://media.example.com",
     },
     "brand_routes": {
         "test-brand": {"youtube": {"channel_id": "UC123"}, "facebook": {"page_id": "123"}},
@@ -132,6 +139,41 @@ class ThumbnailExtractionTests(unittest.TestCase):
             self.assertGreater(thumbnail_path.stat().st_size, 1024)
 
 
+class InternalSchedulerDispatchTests(unittest.TestCase):
+    def _run_item(self, platform: str) -> tuple[dict, dict]:
+        written: dict = {}
+        item = {
+            "id": f"queue-{platform}",
+            "platform": platform,
+            "payload": {"project": "demo", "brand": "test-brand"},
+            "scheduledPublishAt": FUTURE_ISO,
+            "status": "running",
+        }
+        with patch.object(scheduler, "_read", return_value=[dict(item)]), \
+            patch.object(scheduler, "_write", side_effect=lambda items: written.__setitem__("items", items)), \
+            patch("social_upload.facebook.facebook_upload_video", return_value={"ok": True, "platform": "facebook"}) as facebook, \
+            patch("social_upload.youtube.youtube_upload_video", return_value={"ok": True, "platform": "youtube"}) as youtube, \
+            patch("social_upload.tiktok.tiktok_upload_video", return_value={"ok": True, "platform": "tiktok"}) as tiktok:
+            scheduler._run_item(item)
+        calls = {"facebook": facebook, "youtube": youtube, "tiktok": tiktok}
+        return calls[platform].call_args.args[0], written["items"][0]
+
+    def test_facebook_due_job_uses_internal_publish_now(self) -> None:
+        payload, written = self._run_item("facebook")
+        self.assertTrue(payload["_aurex_internal_publish_now"])
+        self.assertEqual(written["status"], "completed")
+
+    def test_youtube_due_job_uses_internal_publish_now(self) -> None:
+        payload, written = self._run_item("youtube")
+        self.assertTrue(payload["_aurex_internal_publish_now"])
+        self.assertEqual(written["status"], "completed")
+
+    def test_tiktok_due_job_remains_third_party_payload(self) -> None:
+        payload, written = self._run_item("tiktok")
+        self.assertNotIn("_aurex_internal_publish_now", payload)
+        self.assertEqual(written["status"], "completed")
+
+
 class YouTubeScheduleTests(unittest.TestCase):
     def test_portrait_thumbnail_is_normalized_for_youtube_cdn(self) -> None:
         try:
@@ -152,7 +194,9 @@ class YouTubeScheduleTests(unittest.TestCase):
             self.assertEqual(normalized.size, yt.YOUTUBE_SHORTS_THUMBNAIL_SIZE)
 
     def _run_upload(self, extra_payload: dict) -> tuple[dict, dict, dict]:
-        captured: dict = {"init_body": None, "record": None}
+        extra_payload = dict(extra_payload)
+        metadata_privacy = extra_payload.pop("_metadata_privacy", "public")
+        captured: dict = {"init_body": None, "record": None, "scheduled_record": None, "queue": None}
 
         def fake_urlopen(request, timeout=60):
             if request.method == "POST":
@@ -164,22 +208,32 @@ class YouTubeScheduleTests(unittest.TestCase):
         with patch.object(yt, "read_social_config", return_value=SOCIAL_CONFIG), \
             patch.object(yt, "final_video_path_for_project", return_value=Path("/tmp/video.mp4")), \
             patch.object(yt, "project_brand_from_topic", return_value="test-brand"), \
-            patch.object(yt, "build_upload_metadata", return_value={"title": "T", "description": "D", "tags": ["tag"], "privacyStatus": "public"}), \
+            patch.object(yt, "build_upload_metadata", return_value={"title": "T", "description": "D", "tags": ["tag"], "privacyStatus": metadata_privacy}), \
             patch.object(yt, "read_expected_video_bytes", return_value=b"video-bytes"), \
             patch.object(yt, "record_social_upload", side_effect=lambda *args: captured.__setitem__("record", args[2])), \
+            patch.object(yt, "record_scheduled_social_upload", side_effect=lambda *args, **kwargs: captured.__setitem__("scheduled_record", (args, kwargs))), \
+            patch.object(yt, "upload_scheduled_video_asset", return_value={"media_sha256": "a" * 64, "r2_key": "r2/video.mp4", "r2_url": "https://media.example.com/r2/video.mp4"}), \
+            patch.object(yt, "schedule_on_vps", side_effect=lambda platform, video_url, caption, scheduled_at, **kwargs: captured.__setitem__("queue", (platform, video_url, caption, scheduled_at, kwargs)) or {"id": "queue-yt", "worker_id": "queue-yt", "scheduledPublishAt": scheduled_at}), \
             patch.object(yt, "urlopen", side_effect=fake_urlopen):
             result = yt.youtube_upload_video({"project": "demo", **extra_payload})
-        return result, captured, {"status": captured["init_body"]["status"]}
+        init_body = captured["init_body"]
+        return result, captured, {"status": init_body["status"] if init_body else None}
 
-    def test_scheduled_upload_sends_publish_at_and_forces_private(self) -> None:
+    def test_scheduled_upload_queues_internal_job_without_youtube_api(self) -> None:
         result, captured, _ = self._run_upload({"scheduledPublishAt": FUTURE_ISO})
-        status = captured["init_body"]["status"]
-        self.assertEqual(status["privacyStatus"], "private")
-        self.assertEqual(status["publishAt"], FUTURE_ISO)
-        self.assertEqual(result["privacyStatus"], "private")
+        self.assertIsNone(captured["init_body"])
+        self.assertEqual(captured["queue"][0], "youtube")
+        self.assertEqual(captured["queue"][1], "https://media.example.com/r2/video.mp4")
+        self.assertEqual(captured["queue"][3], FUTURE_ISO)
         self.assertEqual(result["scheduledPublishAt"], FUTURE_ISO)
-        self.assertIn("lên lịch", result["message"])
-        self.assertEqual(captured["record"]["scheduled_at"], FUTURE_ISO)
+        self.assertEqual(result["schedule_id"], "queue-yt")
+        self.assertIn("VPS", result["message"])
+
+    def test_scheduled_upload_defaults_to_public_when_payload_omits_privacy(self) -> None:
+        result, captured, _ = self._run_upload({"scheduledPublishAt": FUTURE_ISO, "_metadata_privacy": "private"})
+        queued_meta = json.loads(captured["queue"][2])
+        self.assertEqual(queued_meta["privacyStatus"], "public")
+        self.assertEqual(result["privacyStatus"], "public")
 
     def test_plain_upload_keeps_privacy_without_publish_at(self) -> None:
         result, captured, _ = self._run_upload({"privacyStatus": "unlisted"})
@@ -193,26 +247,25 @@ class YouTubeScheduleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._run_upload({"scheduledPublishAt": past})
 
-    def test_upload_sets_frame_thumbnail(self) -> None:
+    def test_upload_skips_frame_thumbnail(self) -> None:
         def fake_urlopen(request, timeout=60):
             if request.method == "POST":
                 return FakeResponse({})
             return FakeResponse({"id": "vid123"})
 
-        thumbnail_result = {"ok": True, "source": "video_frame"}
         with patch.object(yt, "read_social_config", return_value=SOCIAL_CONFIG), \
             patch.object(yt, "final_video_path_for_project", return_value=Path("/tmp/video.mp4")), \
             patch.object(yt, "project_brand_from_topic", return_value="test-brand"), \
             patch.object(yt, "build_upload_metadata", return_value={"title": "T", "description": "D", "tags": ["tag"], "privacyStatus": "public"}), \
             patch.object(yt, "read_expected_video_bytes", return_value=b"video-bytes"), \
             patch.object(yt, "record_social_upload"), \
-            patch.object(yt, "set_youtube_thumbnail", return_value=thumbnail_result) as set_thumbnail, \
+            patch.object(yt, "set_youtube_thumbnail") as set_thumbnail, \
             patch.object(yt, "urlopen", side_effect=fake_urlopen):
             result = yt.youtube_upload_video({"project": "demo"})
 
-        set_thumbnail.assert_called_once_with("tok", "vid123", Path("/tmp/video.mp4"))
-        self.assertEqual(result["thumbnail"], thumbnail_result)
-        self.assertIn("frame giây 1", result["message"])
+        set_thumbnail.assert_not_called()
+        self.assertTrue(result["thumbnail"]["disabled"])
+        self.assertIn("thumbnail YouTube đang tắt", result["message"])
 
 
 class FacebookScheduleTests(unittest.TestCase):
@@ -235,19 +288,21 @@ class FacebookScheduleTests(unittest.TestCase):
             patch.object(fb, "read_expected_video_bytes", return_value=b"video-bytes"), \
             patch.object(fb, "facebook_caption_for_project", return_value=("caption", "https://src.example")), \
             patch.object(fb, "record_social_upload", return_value={}), \
+            patch.object(fb, "record_scheduled_social_upload", return_value={}), \
+            patch.object(fb, "upload_scheduled_video_asset", return_value={"media_sha256": "b" * 64, "r2_key": "r2/facebook.mp4", "r2_url": "https://media.example.com/r2/facebook.mp4"}), \
+            patch.object(fb, "schedule_on_vps", return_value={"id": "queue-fb", "worker_id": "queue-fb", "scheduledPublishAt": extra_payload.get("scheduledPublishAt", FB_FUTURE_ISO)}), \
             patch.object(fb, "http_form_request", side_effect=fake_form), \
             patch.object(fb, "urlopen", side_effect=fake_urlopen):
             result = fb.facebook_upload_video({"project": "demo", **extra_payload})
         return result, form_calls
 
-    def test_scheduled_upload_sends_scheduled_state_and_time(self) -> None:
+    def test_scheduled_upload_queues_internal_job_without_facebook_api(self) -> None:
         result, calls = self._run_upload({"scheduledPublishAt": FB_FUTURE_ISO})
-        finish = next(fields for _, fields in calls if fields.get("upload_phase") == "finish")
-        self.assertEqual(finish["video_state"], "SCHEDULED")
-        self.assertEqual(finish["scheduled_publish_time"], FB_FUTURE_UNIX)
-        self.assertEqual(result["video_state"], "SCHEDULED")
+        self.assertEqual(calls, [])
+        self.assertEqual(result["state"], "SCHEDULED")
         self.assertEqual(result["scheduledPublishAt"], FB_FUTURE_ISO)
-        self.assertIn("lên lịch", result["message"])
+        self.assertEqual(result["schedule_id"], "queue-fb")
+        self.assertIn("VPS", result["message"])
 
     def test_plain_upload_has_no_schedule_fields(self) -> None:
         result, calls = self._run_upload({})

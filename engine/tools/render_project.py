@@ -769,13 +769,15 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
     result: list[dict] = []
     cursor = 0.0
     quiz_items = topic.get("quizItems")
-    quiz_narration_count = len(quiz_items) * 5 if isinstance(quiz_items, list) else 0
+    quiz_lines_per_item = 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    quiz_narration_count = len(quiz_items) * quiz_lines_per_item if isinstance(quiz_items, list) else 0
     try:
         hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
     except (TypeError, ValueError):
         hook_count = 0
     quiz_v2 = (
-        quiz_narration_count == 15
+        quiz_narration_count > 0
+        and quiz_narration_count % quiz_lines_per_item == 0
         and len(segments) >= hook_count + quiz_narration_count
         and len(segment_durations) >= hook_count + quiz_narration_count
     )
@@ -795,9 +797,9 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
         if quiz_v2 and hook_count > 0 and index == hook_count - 1 and index + 1 < len(segments):
             cursor += hook_question_delay
         elif quiz_v2 and 0 <= quiz_index < quiz_narration_count:
-            if quiz_index % 5 == 3:
+            if quiz_index % quiz_lines_per_item == quiz_lines_per_item - 2:
                 cursor += answer_delay
-            elif quiz_index % 5 == 4 and index + 1 < len(segments):
+            elif quiz_index % quiz_lines_per_item == quiz_lines_per_item - 1 and index + 1 < len(segments):
                 cursor += QUIZ_ANSWER_HOLD_SECONDS
         elif not quiz_v2 and index % 2 == 0 and index + 1 < len(segments):
             cursor += answer_delay
@@ -838,13 +840,15 @@ def build_quiz_segment_audio(
     sequence: list[str] = []
     input_index = 0
     quiz_items = topic.get("quizItems")
-    quiz_narration_count = len(quiz_items) * 5 if isinstance(quiz_items, list) else 0
+    quiz_lines_per_item = 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    quiz_narration_count = len(quiz_items) * quiz_lines_per_item if isinstance(quiz_items, list) else 0
     try:
         hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
     except (TypeError, ValueError):
         hook_count = 0
     quiz_v2 = (
-        quiz_narration_count == 15
+        quiz_narration_count > 0
+        and quiz_narration_count % quiz_lines_per_item == 0
         and len(segments) >= hook_count + quiz_narration_count
         and len(segment_audio) >= hook_count + quiz_narration_count
     )
@@ -862,11 +866,11 @@ def build_quiz_segment_audio(
             pause_label = f"quizhookgap{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={hook_question_delay:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
-        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % 5 == 3:
+        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % quiz_lines_per_item == quiz_lines_per_item - 2:
             pause_label = f"quizpause{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={answer_delay:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
-        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % 5 == 4 and index + 1 < len(segment_audio):
+        elif quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % quiz_lines_per_item == quiz_lines_per_item - 1 and index + 1 < len(segment_audio):
             pause_label = f"quizhold{index}"
             graph.append(f"anullsrc=r=48000:cl=mono:d={QUIZ_ANSWER_HOLD_SECONDS:.3f}[{pause_label}]")
             sequence.append(f"[{pause_label}]")
@@ -1718,6 +1722,8 @@ def main() -> None:
     duration = media_duration(render_audio)
 
     prepared = dict(original)
+    if isinstance(original.get("quizItems"), list):
+        prepared["quizItems"] = original["quizItems"]
     prepared["voiceover"] = Path(os.path.relpath(render_audio, project)).as_posix()
     prepared["duration"] = round(duration, 3)
     if quiz_no_narration:

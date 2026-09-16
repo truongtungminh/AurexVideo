@@ -3,6 +3,7 @@ const elements = Object.fromEntries([
   "uploadProject", "uploadVideo", "videoState", "uploadTitle", "youtubeDescription", "facebookCaption",
   "affiliateCard", "affiliateStatus", "affiliateMode", "affiliatePlacement", "affiliateQuery", "affiliateSearchButton", "affiliateLinkButton", "affiliateProduct", "affiliateLink", "affiliateAutoComment", "affiliateDashboardLink",
   "uploadYoutubeChannel", "youtubePrivacy", "youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", "uploadYoutubeButton", "uploadFacebookPage", "facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", "uploadFacebookButton", "instagramScheduleToggle", "instagramScheduleRow", "instagramScheduleTime", "uploadInstagram", "threadsScheduleToggle", "threadsScheduleRow", "threadsScheduleTime", "uploadThreads", "tiktokCaption", "tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime", "uploadTiktokButton", "configureTiktokButton", "tiktokConfigModal", "tiktokConfigClose", "tiktokConfigState", "zernioApiKey", "zernioAccountId", "tiktokSaveButton", "tiktokDisconnectButton", "uploadBinanceButton", "binanceDuration", "binanceCaption",
+  "facebookShareToStory",
   "configureBinanceButton", "binanceConfigModal", "binanceConfigClose", "binanceConfigState", "binanceApiKey", "binanceSaveConfigButton", "binanceDisconnectButton",
   "uploadResult", "toast",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
@@ -68,14 +69,13 @@ function readScheduleTime(input, label) {
 
 setupScheduleToggle("tiktokScheduleToggle", "tiktokScheduleRow", "tiktokScheduleTime");
 setupScheduleToggle("youtubeScheduleToggle", "youtubeScheduleRow", "youtubeScheduleTime", (enabled) => {
-  if (enabled) {
-    elements.youtubePrivacy.value = "private";
-    elements.youtubePrivacy.disabled = true;
-  } else {
-    elements.youtubePrivacy.disabled = false;
-  }
+  elements.youtubePrivacy.disabled = false;
 });
-setupScheduleToggle("facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime");
+setupScheduleToggle("facebookScheduleToggle", "facebookScheduleRow", "facebookScheduleTime", (enabled) => {
+  if (!elements.facebookShareToStory) return;
+  if (enabled) elements.facebookShareToStory.checked = false;
+  elements.facebookShareToStory.disabled = enabled;
+});
 setupScheduleToggle("instagramScheduleToggle", "instagramScheduleRow", "instagramScheduleTime");
 setupScheduleToggle("threadsScheduleToggle", "threadsScheduleRow", "threadsScheduleTime");
 
@@ -304,7 +304,7 @@ async function upload(platform) {
       platform === "youtube"
         ? { project: state.selected, title: elements.uploadTitle.value, description: elements.youtubeDescription.value, privacyStatus: elements.youtubePrivacy.value, ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
         : platform === "facebook"
-          ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", affiliate: readAffiliatePayload({ captionQuery: elements.facebookCaption.value }), ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
+          ? { project: state.selected, facebookCaption: elements.facebookCaption.value, facebookVideoState: "PUBLISHED", facebookShareToStory: Boolean(elements.facebookShareToStory?.checked), affiliate: readAffiliatePayload({ captionQuery: elements.facebookCaption.value }), ...(scheduledPublishAt ? { scheduledPublishAt } : {}) }
           : platform === "tiktok"
             ? { project: state.selected, tiktokCaption: elements.tiktokCaption.value, ...(scheduledPublishAt ? { scheduledPublishAt, scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : {}) }
             : platform === "instagram"

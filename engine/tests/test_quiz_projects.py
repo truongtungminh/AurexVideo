@@ -233,7 +233,6 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertEqual([item["correct_index"] for item in items], [0, 1, 2])
         self.assertEqual(lines[9], "Đáp án chính xác là B. Hà Nội.")
         self.assertEqual(lines[-1], m3.QUIZ_DEFAULT_CTA_VI)
-
         custom_lines, _ = m3.parse_quiz_script(QUIZ_SCRIPT + "\nCTA dòng một\nCTA dòng hai", "vi")
         self.assertEqual(custom_lines[-1], "CTA dòng một CTA dòng hai")
 
@@ -379,8 +378,8 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         app = (ENGINE_ROOT / "app.js").read_text(encoding="utf-8")
         index = (ENGINE_ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="quizCountdown">3</div>', index)
-        self.assertNotIn("quizHookText", index)
-        self.assertIn("app.js?v=20260909-quiz-hook-gap-1", index)
+        self.assertIn("quizHookText", index)
+        self.assertIn("app.js?v=20260914-thegioidoday-countdown-zero-1", index)
         self.assertIn("const last = segments[segments.length - 1];", app)
         self.assertIn("if (segments.length >= quizStart + quizNarrationCount)", app)
         self.assertIn("const QUIZ_V2_DEFAULT_THINKING_SECONDS = 3;", app)
@@ -392,7 +391,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             "const countdownActive = countdownElapsed >= 0 && countdownElapsed < thinkingSeconds;",
             app,
         )
-        self.assertIn("const alwaysShowCountdown = String(topic?.brand || \"\") === \"suvietky\";", app)
+        self.assertIn('const alwaysShowCountdown = ["suvietky", "thegioidoday"].includes(String(topic?.brand || "").toLowerCase());', app)
         self.assertIn("const countdownVisible = countdownActive || alwaysShowCountdown;", app)
         self.assertIn("elements.quizCountdownWrap.hidden = !countdownVisible;", app)
         self.assertIn('alwaysShowCountdown ? (reveal ? "0" : String(thinkingSeconds)) : ""', app)

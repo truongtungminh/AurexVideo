@@ -26,7 +26,6 @@ const elements = {
   quizOptions: document.querySelector("#quizOptions"),
   quizCountdownWrap: document.querySelector("#quizCountdownWrap"),
   quizCountdown: document.querySelector("#quizCountdown"),
-  quizResultArt: document.querySelector("#quizResultArt"),
   quizCtaArt: document.querySelector("#quizCtaArt"),
   quizAnswer: document.querySelector("#quizAnswer"),
   quizLegacyAnswerCard: document.querySelector("#quizLegacyAnswerCard"),
@@ -168,8 +167,8 @@ function activeUiLanguage() {
 }
 
 function customSlidePlaceholderUrl() {
-  const label = activeUiLanguage() === "en" ? "Image" : "Ảnh";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600"><rect width="900" height="1600" fill="#fffaf0"/><rect x="28" y="28" width="844" height="1544" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="450" cy="650" r="92" fill="#de370d" opacity=".16"/><path d="M400 650h100M450 600v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="450" y="850" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">${label}</text></svg>`;
+  const label = activeUiLanguage() === "en" ? "Image / video" : "Ảnh / video";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600"><rect width="900" height="1600" fill="#fffaf0"/><rect x="28" y="28" width="844" height="1544" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="450" cy="650" r="92" fill="#de370d" opacity=".16"/><path d="M400 650h100M450 600v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="450" y="850" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="52" font-weight="700">${label}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -314,34 +313,69 @@ function customSlideAt(time) {
   return [...slides].sort((left, right) => Number(left.startSentence) - Number(right.startSentence)).filter((slide) => Number(slide.startSentence) <= sentence).at(-1) || slides[0] || null;
 }
 
-function applyCustomSlide(slide) {
+function customSlideStartTime(slide) {
+  const sentenceIndex = Math.max(0, Math.floor(Number(slide?.startSentence) || 1) - 1);
+  return Math.max(0, Number(topic?.segments?.[sentenceIndex]?.start) || 0);
+}
+
+function customSlideVideoTargetTime(slide, time, duration) {
+  const safeDuration = Number(duration);
+  if (!Number.isFinite(safeDuration) || safeDuration <= 0) return 0;
+  return Math.max(0, Number(time) - customSlideStartTime(slide)) % safeDuration;
+}
+
+function syncCustomSlideVideosLive(slide, time) {
+  if (offlineRender || !elements.slideCanvas) return;
+  elements.slideCanvas.querySelectorAll("video.slide-image").forEach((video) => {
+    if (mediaReady(video)) {
+      const target = customSlideVideoTargetTime(slide, time, video.duration);
+      if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
+        try { video.currentTime = target; } catch (_error) { /* media is still loading */ }
+      }
+    }
+    if (video.paused) video.play().catch(() => {});
+  });
+}
+
+function applyCustomSlide(slide, time = 0) {
   const canvas = elements.slideCanvas;
   if (!canvas) return;
   canvas.hidden = !slide;
   if (!slide) { canvas.replaceChildren(); return; }
   canvas.className = `slide-canvas slide-effect-${String(slide.enterEffect || "fade")}`;
   const key = JSON.stringify(slide);
-  if (canvas.dataset.slideKey === key) return;
-  canvas.dataset.slideKey = key;
-  const fragment = document.createDocumentFragment();
-  (Array.isArray(slide.layers) ? slide.layers : []).forEach((layer) => {
-    const node = document.createElement("div");
-    node.className = `slide-layer slide-layer-${layer.type === "text" ? "text" : "image"}`;
-    node.style.left = `${Number(layer.x) || 0}%`; node.style.top = `${Number(layer.y) || 0}%`;
-    node.style.width = `${Number(layer.w) || 100}%`;
-    node.style.height = `${Number(layer.h) || (layer.type === "text" ? 12 : 100)}%`;
-    if (layer.type === "text") {
-      const text = document.createElement("p"); text.className = "slide-text"; text.textContent = String(layer.text || "");
-      text.style.color = String(layer.color || "#090909"); text.style.fontFamily = String(layer.font || topic.labelFontFamily || "inherit");
-      text.style.fontSize = `${Math.max(.5, Math.min(2, Number(layer.fontSize) || 1.2)) * 4.62}cqw`; node.append(text);
-    } else {
-      const image = document.createElement("img"); image.className = "slide-image"; image.alt = ""; image.src = resolveCustomSlideAsset(layer.src);
-      const zoom = Math.max(.1, Math.min(3, Number(layer.zoom) || 1)); const x = Math.max(-50, Math.min(50, Number(layer.offsetX) || 0)); const y = Math.max(-50, Math.min(50, Number(layer.offsetY) || 0));
-      image.style.transform = `scale(${zoom}) translate(${x / zoom}%, ${y / zoom}%)`; node.append(image);
-    }
-    fragment.append(node);
-  });
-  canvas.replaceChildren(fragment);
+  if (canvas.dataset.slideKey !== key) {
+    canvas.dataset.slideKey = key;
+    const fragment = document.createDocumentFragment();
+    (Array.isArray(slide.layers) ? slide.layers : []).forEach((layer) => {
+      const node = document.createElement("div");
+      node.className = `slide-layer slide-layer-${layer.type === "text" ? "text" : "image"}`;
+      node.style.left = `${Number(layer.x) || 0}%`; node.style.top = `${Number(layer.y) || 0}%`;
+      node.style.width = `${Number(layer.w) || 100}%`;
+      node.style.height = `${Number(layer.h) || (layer.type === "text" ? 12 : 100)}%`;
+      if (layer.type === "text") {
+        const text = document.createElement("p"); text.className = "slide-text"; text.textContent = String(layer.text || "");
+        text.style.color = String(layer.color || "#090909"); text.style.fontFamily = String(layer.font || topic.labelFontFamily || "inherit");
+        text.style.fontSize = `${Math.max(.5, Math.min(2, Number(layer.fontSize) || 1.2)) * 4.62}cqw`; node.append(text);
+      } else {
+        const videoMedia = String(layer.mediaType || "").toLowerCase() === "video" || isVideoAssetSource(layer.src);
+        const media = document.createElement(videoMedia ? "video" : "img");
+        media.className = "slide-image";
+        if (videoMedia) {
+          media.muted = true; media.playsInline = true; media.loop = !offlineRender; media.preload = "auto";
+        } else {
+          media.alt = "";
+        }
+        media.src = resolveCustomSlideAsset(layer.src);
+        const zoom = Math.max(.1, Math.min(3, Number(layer.zoom) || 1)); const x = Math.max(-50, Math.min(50, Number(layer.offsetX) || 0)); const y = Math.max(-50, Math.min(50, Number(layer.offsetY) || 0));
+        media.style.transform = `scale(${zoom}) translate(${x / zoom}%, ${y / zoom}%)`; node.append(media);
+      }
+      fragment.append(node);
+    });
+    canvas.querySelectorAll("video").forEach((video) => video.pause());
+    canvas.replaceChildren(fragment);
+  }
+  syncCustomSlideVideosLive(slide, time);
 }
 
 const CUSTOM_INTRO_DURATION_SECONDS = 3;
@@ -1331,6 +1365,43 @@ async function syncIntroVideoToOfflineTimeline(time) {
   offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, presentedDrift);
 }
 
+async function syncCustomSlideVideosToOfflineTimeline(slide, time) {
+  if (!offlineRender || !slide || !elements.slideCanvas) return;
+  const videos = [...elements.slideCanvas.querySelectorAll("video.slide-image")];
+  await Promise.all(videos.map(async (video) => {
+    if (!mediaReady(video)) await waitForMediaReady(video).catch(() => {});
+    if (!mediaReady(video)) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const targetTime = customSlideVideoTargetTime(slide, time, duration);
+    const drift = Math.abs((Number(video.currentTime) || 0) - targetTime);
+    offlineMediaSyncStats.maxRequestedDriftMs = Math.max(
+      offlineMediaSyncStats.maxRequestedDriftMs,
+      drift * 1000,
+    );
+    if (drift <= OFFLINE_MEDIA_SYNC_TOLERANCE) {
+      video.pause();
+      offlineMediaSyncStats.skippedSeeks += 1;
+      offlineMediaSyncStats.lastPresentedDriftMs = drift * 1000;
+      offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, drift * 1000);
+      return;
+    }
+    if (targetTime + OFFLINE_MEDIA_SYNC_TOLERANCE < (Number(video.currentTime) || 0)) {
+      video.pause();
+      video.load();
+      await waitForMediaReady(video);
+    }
+    if (targetTime > OFFLINE_MEDIA_SYNC_TOLERANCE) {
+      await playOfflineVideoTo(video, targetTime);
+    } else {
+      video.pause();
+    }
+    const presentedDrift = Math.abs((Number(video.currentTime) || 0) - targetTime) * 1000;
+    offlineMediaSyncStats.lastPresentedDriftMs = presentedDrift;
+    offlineMediaSyncStats.maxDriftMs = Math.max(offlineMediaSyncStats.maxDriftMs, presentedDrift);
+  }));
+}
+
 async function playOfflineVideoTo(video, targetTime) {
   const startedAt = performance.now();
   await new Promise((resolve, reject) => {
@@ -1526,13 +1597,20 @@ function quizHookQuestionDelay(nextTopic = topic) {
 }
 
 function quizItems() {
-  if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== 3) return [];
+  const brand = String(topic?.brand || "").toLowerCase();
+  const expectedCount = ["suvietky", "thegioidoday"].includes(brand) ? 5 : 3;
+  const expectedOptions = brand === "thegioidoday" ? 4 : 3;
+  if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== expectedCount) return [];
   const valid = topic.quizItems.every((item) => item && String(item.question || '').trim()
-    && Array.isArray(item.options) && item.options.length === 3
+    && Array.isArray(item.options) && item.options.length === expectedOptions
     && Number.isInteger(Number(item.correct_index ?? item.correctIndex))
     && Number(item.correct_index ?? item.correctIndex) >= 0
-    && Number(item.correct_index ?? item.correctIndex) <= 2);
+    && Number(item.correct_index ?? item.correctIndex) < expectedOptions);
   return valid ? topic.quizItems : [];
+}
+
+function quizLinesPerItem() {
+  return String(topic?.brand || "").toLowerCase() === "thegioidoday" ? 6 : 5;
 }
 
 function quizHookSegmentCount(nextTopic = topic) {
@@ -1626,10 +1704,10 @@ function renderQuizHook() {
 function quizV2Duration() {
   const items = quizItems();
   const segments = Array.isArray(topic?.segments) ? topic.segments : [];
-  const quizNarrationCount = items.length * 5;
+  const quizNarrationCount = items.length * quizLinesPerItem();
   const quizStart = quizHookSegmentCount();
   if (quizNarrationCount > 0 && segments.length >= quizStart + quizNarrationCount) {
-    // The measured segment timeline already contains the three configured
+    // The measured segment timeline already contains configured
     // countdown gaps. Keep any trailing CTA in the preview duration too.
     const last = segments[segments.length - 1];
     const end = Number(last?.end) || 0;
@@ -1642,11 +1720,11 @@ function quizV2CtaAt(time) {
   const items = quizItems();
   if (!items.length) return null;
   const segments = Array.isArray(topic?.segments) ? topic.segments : [];
-  const quizNarrationCount = items.length * 5;
+  const quizNarrationCount = items.length * quizLinesPerItem();
   const quizStart = quizHookSegmentCount();
   if (segments.length < quizStart + quizNarrationCount) return null;
 
-  // Any narration after the 3 x (question, A, B, C, answer) Quiz blocks is
+  // Any narration after the N x (question, A, B, C, answer) Quiz blocks is
   // the closing CTA. From its first frame onward the Quiz cards must disappear
   // completely and the dedicated CTA artwork owns the center of the stage.
   const firstCta = segments[quizStart + quizNarrationCount];
@@ -1664,17 +1742,18 @@ function quizV2ItemAt(time) {
   const items = quizItems();
   if (!items.length) return null;
   const segments = Array.isArray(topic?.segments) ? topic.segments : [];
-  const quizNarrationCount = items.length * 5;
+  const linesPerItem = quizLinesPerItem();
+  const quizNarrationCount = items.length * linesPerItem;
   const quizStart = quizHookSegmentCount();
   const thinkingSeconds = quizThinkingSeconds();
   if (segments.length >= quizStart + quizNarrationCount) {
     const groups = items.map((item, index) => {
-      const rows = segments.slice(quizStart + index * 5, quizStart + index * 5 + 5);
+      const rows = segments.slice(quizStart + index * linesPerItem, quizStart + index * linesPerItem + linesPerItem);
       const start = Number(rows[0]?.start) || 0;
-      const optionsEnd = Number(rows[3]?.end) || start;
-      const answerEnd = Number(rows[4]?.end) || optionsEnd;
-      // Question + A + B + C are narrated first. The visible configured
-      // countdown must not start until option C has finished speaking.
+      const optionsEnd = Number(rows[linesPerItem - 2]?.end) || start;
+      const answerEnd = Number(rows[linesPerItem - 1]?.end) || optionsEnd;
+      // Question + all options are narrated first. The visible configured
+      // countdown must not start until the final option has finished speaking.
       const countdownStartAt = Math.max(0, optionsEnd - start);
       return {
         item,
@@ -1829,7 +1908,6 @@ function renderQuizCta() {
   if (elements.quizOptions) elements.quizOptions.hidden = true;
   if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = true;
   if (elements.quizCountdown) elements.quizCountdown.textContent = "";
-  if (elements.quizResultArt) elements.quizResultArt.hidden = true;
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (elements.quizCtaArt) elements.quizCtaArt.hidden = false;
 }
@@ -1845,12 +1923,10 @@ function renderQuizV2(scene) {
     ? configuredRevealAt
     : countdownStartAt + thinkingSeconds;
   const reveal = elapsed >= revealAt;
-  // suvietky bakes the clock into the artwork: show the configured countdown
-  // value from scene start; the real countdown tick begins once option C
-  // finishes (countdownStartAt).
-  const alwaysShowCountdown = String(topic?.brand || "") === "suvietky";
-  const countdownVisible = countdownActive || alwaysShowCountdown;
-  const correctIndex = Math.max(0, Math.min(2, Number(item.correct_index ?? item.correctIndex) || 0));
+  // Clock stays visible: default 3, counts 3→2→1→0, holds 0 on answer reveal.
+  const countdownVisible = true;
+  const optionCount = Array.isArray(item.options) ? item.options.length : 0;
+  const correctIndex = Math.max(0, Math.min(optionCount - 1, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);
   if (elements.quizCtaArt) elements.quizCtaArt.hidden = true;
   elements.quizText.hidden = false;
@@ -1867,18 +1943,22 @@ function renderQuizV2(scene) {
   if (elements.quizOptions) {
     elements.quizOptions.hidden = false;
     Array.from(elements.quizOptions.querySelectorAll(".quiz-option")).forEach((option, optionIndex) => {
-      option.classList.toggle("is-correct", reveal && optionIndex === correctIndex);
-      option.classList.toggle("is-wrong", reveal && optionIndex !== correctIndex);
-      option.querySelector(".quiz-option-text").textContent = String(item.options[optionIndex] || "").trim();
+      const hasOption = optionIndex < optionCount;
+      option.hidden = false;
+      option.classList.toggle("is-empty", !hasOption);
+      const isCorrect = hasOption && reveal && optionIndex === correctIndex;
+      option.classList.toggle("is-correct", isCorrect);
+      option.classList.toggle("is-wrong", hasOption && reveal && optionIndex !== correctIndex);
+      const rawOptionText = hasOption ? String(item.options[optionIndex] || "").trim() : "";
+      option.querySelector(".quiz-option-text").textContent = rawOptionText;
     });
     fitSuvietkyOptions();
     document.fonts?.ready.then(fitSuvietkyOptions);
   }
   elements.quizCountdown.textContent = countdownActive
-    ? String(Math.max(1, Math.ceil(thinkingSeconds - countdownElapsed)))
-    : (alwaysShowCountdown ? (reveal ? "0" : String(thinkingSeconds)) : "");
+    ? String(Math.max(0, Math.ceil(thinkingSeconds - countdownElapsed)))
+    : reveal ? "0" : "3";
   if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = !countdownVisible;
-  if (elements.quizResultArt) elements.quizResultArt.hidden = !reveal;
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (index !== lastQuizItemIndex) {
     elements.quizText.classList.remove("quiz-v2-enter");
@@ -1893,7 +1973,7 @@ function renderAt(time, allowPoseSfx = false) {
   elements.stage.classList.remove("preview-blank");
   elements.stage.classList.toggle("quiz-text-only", isQuizProject());
   if (isQuizProject()) renderQuizText(time);
-  else if (isCustomProject()) applyCustomSlide(customSlideAt(time));
+  else if (isCustomProject()) applyCustomSlide(customSlideAt(time), time);
   else applyComparisonToView(comparisonAt(time));
   applyIntro(topic, time);
   if (!isQuizProject()) {
@@ -1925,7 +2005,9 @@ function offlineImagePaths() {
       paths.push(scene.rightImage);
     }
   });
-  (Array.isArray(topic.slides) ? topic.slides : []).forEach((slide) => (slide.layers || []).forEach((layer) => { if (layer?.type === "image" && layer.src) paths.push(layer.src); }));
+  (Array.isArray(topic.slides) ? topic.slides : []).forEach((slide) => (slide.layers || []).forEach((layer) => {
+    if (layer?.type === "image" && layer.src && !isVideoAssetSource(layer.src)) paths.push(layer.src);
+  }));
   const intro = customIntroConfig(topic);
   if (intro.type !== "none" && intro.logo) paths.push(intro.logo);
   if (intro.type === "media" && intro.media && !isVideoAssetSource(intro.media)) paths.push(intro.media);
@@ -1973,6 +2055,7 @@ async function renderOfflineFrame(time) {
   ]).catch(() => {});
   await syncPresenterToOfflineTimeline(poseEvent, time);
   await syncIntroVideoToOfflineTimeline(time);
+  await syncCustomSlideVideosToOfflineTimeline(customSlideAt(time), time);
   applyStageBackground(topic);
   if (currentComparisonScene) {
     applyImageFrame(

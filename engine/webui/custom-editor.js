@@ -98,7 +98,7 @@ function defaultTextLayer(y = 20) {
 
 function defaultMediaLayer() {
   return {
-    id: token("media"), type: "image", src: "assets/placeholder-left.svg",
+    id: token("media"), type: "image", src: "assets/placeholder-left.svg", mediaType: "image",
     x: 0, y: 0, w: 100, h: 100, zoom: 1, offsetX: 0, offsetY: 0,
   };
 }
@@ -179,6 +179,8 @@ function ensureSlide(slide) {
   if (!slide.layers.some((layer) => layer?.type === "text")) slide.layers.unshift(defaultTextLayer());
   if (!slide.layers.some((layer) => layer?.type === "image")) slide.layers.push(defaultMediaLayer());
   slide.layers = slide.layers.filter((layer) => layer && (layer.type === "text" || layer.type === "image"));
+  const media = slideMediaLayer(slide);
+  if (media) media.mediaType = isVideoAssetPath(media.src) ? "video" : "image";
   slide.layers.filter((layer) => layer.type === "text").forEach((layer) => {
     layer.font = normalizeFont(layer.font);
     layer.fontSize = clamp(layer.fontSize, 0.5, 2);
@@ -252,7 +254,7 @@ function isPlaceholder(src) {
 }
 
 function placeholderUrl() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600"><rect width="900" height="1600" fill="#fffaf0"/><rect x="28" y="28" width="844" height="1544" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="450" cy="650" r="92" fill="#de370d" opacity=".16"/><path d="M400 650h100M450 600v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="450" y="850" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="64" font-weight="700">Ảnh</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600"><rect width="900" height="1600" fill="#fffaf0"/><rect x="28" y="28" width="844" height="1544" rx="42" fill="none" stroke="#de370d" stroke-width="8" stroke-dasharray="18 16"/><circle cx="450" cy="650" r="92" fill="#de370d" opacity=".16"/><path d="M400 650h100M450 600v100" stroke="#de370d" stroke-width="20" stroke-linecap="round"/><text x="450" y="850" text-anchor="middle" fill="#4b3a29" font-family="Arial,sans-serif" font-size="52" font-weight="700">Ảnh / video</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -262,7 +264,7 @@ function assetUrl(path) {
   return `/project/${encodeURIComponent(project)}/${value.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-function slideImageUrl(media) {
+function slideMediaUrl(media) {
   return isPlaceholder(media?.src) ? placeholderUrl() : assetUrl(media.src);
 }
 
@@ -275,6 +277,11 @@ function renderSlides() {
     const slide = ensureSlide(rawSlide);
     const texts = slideTextLayers(slide);
     const media = slideMediaLayer(slide);
+    const mediaUrl = slideMediaUrl(media);
+    const videoMedia = media?.mediaType === "video" || isVideoAssetPath(media?.src);
+    const mediaThumb = videoMedia
+      ? `<video data-thumb src="${escapeHtml(mediaUrl)}" muted playsinline loop autoplay preload="metadata"></video>`
+      : `<img data-thumb src="${escapeHtml(mediaUrl)}" alt="" draggable="false" />`;
     const textRows = texts.map((text) => `
       <div class="slide-text-row" data-layer-id="${escapeHtml(text.id)}">
         <div class="comparison-label-field">
@@ -296,10 +303,10 @@ function renderSlides() {
       <button class="button secondary add-scene-button" data-action="add-text" type="button" ${texts.length >= MAX_TEXT_LAYERS ? "disabled" : ""}>＋ ${tr("Thêm chữ", "Add text")}</button>
       <div class="upload-grid single-image-upload-grid">
         <div class="upload-card">
-          <span class="sr-only">${tr("Ảnh", "Image")}</span>
-          <div class="image-viewport" data-image-viewport title="${tr("Kéo để di chuyển vị trí hiển thị", "Drag to reposition")}"><img data-thumb src="${escapeHtml(slideImageUrl(media))}" alt="" draggable="false" /></div>
+          <span class="sr-only">${tr("Ảnh / video", "Image / video")}</span>
+          <div class="image-viewport" data-image-viewport title="${tr("Kéo để di chuyển vị trí hiển thị", "Drag to reposition")}">${mediaThumb}</div>
           <label class="image-zoom"><span>Zoom <output data-zoom-output>${Math.round(Number(media.zoom || 1) * 100)}%</output></span><input data-zoom type="range" min="0.1" max="3" step="0.01" value="${Number(media.zoom || 1)}" /></label>
-          <div class="image-actions"><label class="replace-image">${tr("Thay ảnh", "Replace media")}<input data-image type="file" accept="image/png,image/jpeg,image/webp" /></label><button class="delete-image" data-action="clear-media" type="button">${tr("Xoá", "Delete")}</button></div>
+          <div class="image-actions"><label class="replace-image">${tr("Thay ảnh / video", "Replace media")}<input data-image type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,.m4v" /></label><button class="delete-image" data-action="clear-media" type="button">${tr("Xoá", "Delete")}</button></div>
         </div>
       </div>
       <div class="slide-effect-tools"><label class="comparison-font-row slide-effect-row"><span>${tr("Hiệu ứng", "Effect")}</span><select data-effect>${effectOptions(slide.enterEffect)}</select></label></div>
@@ -455,16 +462,18 @@ async function uploadProjectAsset(kind, file) {
   });
 }
 
-async function uploadSlideImage(slide, file) {
+async function uploadSlideMedia(slide, file) {
   if (!slide || !file) return;
   const slideId = slide.id;
+  const mediaType = isVideoAssetPath(file.name) ? "video" : "image";
   try {
-    setStatus("Đang tải ảnh…");
-    const uploaded = await uploadProjectAsset("leftImage", file);
+    setStatus(mediaType === "video" ? "Đang tải video…" : "Đang tải ảnh…");
+    const uploaded = await uploadProjectAsset("slideMedia", file);
     const currentSlide = state.topic?.slides?.find((item) => item.id === slideId);
     const media = slideMediaLayer(currentSlide);
     if (!media) return;
     media.src = uploaded.path;
+    media.mediaType = uploaded.mediaType || mediaType;
     selectSlide(currentSlide);
     renderSlides();
     queueSave(20);
@@ -708,7 +717,7 @@ $("#slides")?.addEventListener("change", async (event) => {
   if (event.target.matches("[data-image]")) {
     const card = event.target.closest("[data-id]");
     const slide = state.topic?.slides?.find((item) => item.id === card?.dataset.id);
-    await uploadSlideImage(slide, event.target.files?.[0]);
+    await uploadSlideMedia(slide, event.target.files?.[0]);
     event.target.value = "";
     return;
   }

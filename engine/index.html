@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Người dẫn chuyện - One Scene Video</title>
-    <link rel="stylesheet" href="style.css?v=20260910-quiz-hook-text-fit-1" />
+    <link rel="stylesheet" href="style.css?v=20260916" />
   </head>
   <body>
     <main class="app-shell">
@@ -45,7 +45,7 @@
         <div class="karaoke" id="karaoke" aria-live="polite"></div>
         <div class="quiz-text" id="quizText" aria-live="polite" hidden>
           <div class="quiz-progress" id="quizProgress" hidden>
-            <span>CÂU</span>
+            <span>Câu:</span>
             <strong id="quizProgressValue">1/3</strong>
           </div>
           <div class="quiz-question-card">
@@ -55,13 +55,13 @@
             <div class="quiz-option" data-option="A"><div class="quiz-option-label">A.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
             <div class="quiz-option" data-option="B"><div class="quiz-option-label">B.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
             <div class="quiz-option" data-option="C"><div class="quiz-option-label">C.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
+            <div class="quiz-option" data-option="D"><div class="quiz-option-label">D.</div><div class="quiz-option-text"></div><div class="quiz-option-check" aria-hidden="true">✓</div></div>
           </div>
           <div class="quiz-countdown-wrap" id="quizCountdownWrap">
             <span class="quiz-clock-bell quiz-clock-bell-left" aria-hidden="true"></span>
             <span class="quiz-clock-bell quiz-clock-bell-right" aria-hidden="true"></span>
             <div class="quiz-countdown" id="quizCountdown">3</div>
           </div>
-          <img class="quiz-result-art" id="quizResultArt" src="/assets/chinhxac.webp" alt="Chính xác" hidden />
           <div class="quiz-answer-card" id="quizLegacyAnswerCard">
             <div class="quiz-answer" id="quizAnswer"></div>
           </div>
@@ -93,6 +93,6 @@
 
     <audio id="voiceover" preload="auto"></audio>
     <audio id="backgroundMusic" preload="auto" loop></audio>
-    <script src="app.js?v=20260910-quiz-hook-text-fit-1"></script>
+    <script src="app.js?v=20260916"></script>
   </body>
 </html>

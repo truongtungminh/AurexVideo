@@ -488,6 +488,15 @@ def _record_social_upload(project_dir: Path, platform: str, details: dict) -> di
     r2_url = str(details.get("r2_url") or details.get("r2Url") or "").strip()
     if r2_url:
         entry["r2Url"] = r2_url[:2000]
+    story_post_id = str(details.get("storyPostId") or details.get("story_post_id") or "").strip()
+    if story_post_id:
+        entry["storyPostId"] = story_post_id
+    story_video_id = str(details.get("storyVideoId") or details.get("story_video_id") or "").strip()
+    if story_video_id:
+        entry["storyVideoId"] = story_video_id
+    story_url = str(details.get("storyUrl") or details.get("story_url") or "").strip()
+    if story_url:
+        entry["storyUrl"] = story_url[:2000]
     error = str(details.get("error") or "").strip()
     if error:
         entry["error"] = error[:1000]

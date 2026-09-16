@@ -32,6 +32,7 @@ from .r2 import (
     r2_config_hint,
     r2_is_configured,
     resolve_r2_config,
+    upload_scheduled_video_asset,
     upload_file,
 )
 from .schedule import parse_scheduled_publish_at, validate_schedule_window
@@ -288,10 +289,10 @@ def instagram_upload_video(payload: dict) -> dict:
         validate_schedule_window(scheduled, timedelta(minutes=10), platform="Instagram")
         if not r2_is_configured(r2):
             raise ValueError(r2_config_hint())
-        with video_path.open("rb") as stream:
-            media_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
-        object_key = instagram_scheduled_object_key(project, r2, media_sha256)
-        public_url = upload_file(video_path, object_key, "video/mp4", r2)
+        r2_asset = upload_scheduled_video_asset(video_path, platform="instagram", brand=brand, project=project, r2=r2)
+        media_sha256 = r2_asset["media_sha256"]
+        object_key = r2_asset["r2_key"]
+        public_url = r2_asset["r2_url"]
         queued = schedule_on_vps(
             "instagram",
             public_url,

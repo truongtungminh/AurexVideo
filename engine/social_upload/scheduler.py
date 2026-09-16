@@ -281,6 +281,12 @@ def _run_item(item: dict) -> None:
         if platform == "instagram":
             from .instagram import instagram_upload_video
             result = instagram_upload_video(payload)
+        elif platform == "facebook":
+            from .facebook import facebook_upload_video
+            result = facebook_upload_video({**payload, "_aurex_internal_publish_now": True})
+        elif platform == "youtube":
+            from .youtube import youtube_upload_video
+            result = youtube_upload_video({**payload, "_aurex_internal_publish_now": True})
         elif platform == "threads":
             from .threads import threads_upload_video
             result = threads_upload_video(payload)

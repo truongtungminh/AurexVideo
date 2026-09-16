@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 
 import hashlib
 import json
@@ -12,7 +11,11 @@ import time
 import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+try:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+except ImportError:
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    ThreadingHTTPServer = HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
@@ -33,6 +36,10 @@ TIKTOK_SCHEDULE_GRACE_SECONDS = max(0, int(os.environ.get("TIKTOK_SCHEDULE_GRACE
 SOCIAL_MEDIA_RETRY_SECONDS = max(60, int(os.environ.get("SOCIAL_MEDIA_RETRY_SECONDS", "300")))
 SOCIAL_MAX_ATTEMPTS = max(1, int(os.environ.get("SOCIAL_MAX_ATTEMPTS", "3")))
 SOCIAL_CONTAINER_MAX_WAIT_SECONDS = max(30, int(os.environ.get("SOCIAL_CONTAINER_MAX_WAIT_SECONDS", "180")))
+R2_CLEANUP_INTERVAL_SECONDS = max(300, int(os.environ.get("R2_CLEANUP_INTERVAL_SECONDS", "3600")))
+R2_PUBLISHED_RETENTION_SECONDS = max(0, int(os.environ.get("R2_PUBLISHED_RETENTION_SECONDS", str(7 * 24 * 3600))))
+R2_CANCELLED_RETENTION_SECONDS = max(0, int(os.environ.get("R2_CANCELLED_RETENTION_SECONDS", str(24 * 3600))))
+R2_FAILED_RETENTION_SECONDS = max(0, int(os.environ.get("R2_FAILED_RETENTION_SECONDS", str(30 * 24 * 3600))))
 SOCIAL_CONNECTIONS_FILE = Path(
     os.environ.get("SOCIAL_CONNECTIONS_FILE", "/etc/aurex-social-worker-social.json")
 )
@@ -69,6 +76,7 @@ TRANSIENT_TERMS = (
     "try again",
     "5xx",
 )
+_LAST_R2_CLEANUP = 0.0
 
 
 def utc_now() -> datetime:
@@ -133,7 +141,10 @@ def init_db() -> None:
               provider_status TEXT NOT NULL DEFAULT '',
               delivery_status TEXT NOT NULL DEFAULT '',
               phase TEXT NOT NULL DEFAULT 'queued',
-              idempotency_key TEXT NOT NULL DEFAULT ''
+              idempotency_key TEXT NOT NULL DEFAULT '',
+              r2_key TEXT NOT NULL DEFAULT '',
+              r2_deleted_at TEXT,
+              r2_cleanup_error TEXT NOT NULL DEFAULT ''
             )"""
         )
         for name, definition in (
@@ -150,6 +161,9 @@ def init_db() -> None:
             ("delivery_status", "TEXT NOT NULL DEFAULT ''"),
             ("phase", "TEXT NOT NULL DEFAULT 'queued'"),
             ("idempotency_key", "TEXT NOT NULL DEFAULT ''"),
+            ("r2_key", "TEXT NOT NULL DEFAULT ''"),
+            ("r2_deleted_at", "TEXT"),
+            ("r2_cleanup_error", "TEXT NOT NULL DEFAULT ''"),
         ):
             _ensure_column(conn, name, definition)
         conn.execute(
@@ -182,6 +196,7 @@ def init_db() -> None:
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tiktok_watches_due ON tiktok_watches(state, next_check_at)")
     _recover_interrupted_jobs()
+    _backfill_r2_keys_from_urls()
     _retire_legacy_tiktok_jobs()
     _recover_creator_inbox_watches()
 
@@ -240,11 +255,9 @@ def _recover_interrupted_jobs() -> None:
 def _retire_legacy_tiktok_jobs() -> None:
     """Prevent legacy VPS TikTok jobs from creating posts after migration.
 
-    New scheduled TikTok posts are created on Zernio and represented by a
-    tiktok_watches row.  Rows left by the former VPS-creation flow therefore
-    must never reach _create_tiktok_post.  A row with a persisted provider id
-    is kept visible as monitoring; an unclaimed row without one is cancelled
-    because replaying it could create a duplicate.
+    Modern scheduled TikTok rows carry a public R2 video_url and should publish
+    just in time. Older rows without video_url/provider id cannot be replayed
+    safely after a restart because they may have already reached Zernio.
     """
     current = now()
     with db() as conn:
@@ -260,9 +273,10 @@ def _retire_legacy_tiktok_jobs() -> None:
                error=CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END,
                next_attempt_at=NULL, updated_at=?
                WHERE platform='tiktok' AND status IN ('queued', 'retry_wait')
-                 AND COALESCE(provider_post_id, '') = ''""",
+                 AND COALESCE(provider_post_id, '') = ''
+                 AND COALESCE(video_url, '') = ''""",
             (
-                "Legacy TikTok VPS job retired; scheduled posts must be created on Zernio.",
+                "Legacy TikTok VPS job retired; missing R2 video URL for just-in-time publish.",
                 current,
             ),
         )
@@ -724,6 +738,147 @@ def upload_r2(path: Path, job_id: str) -> str:
     return os.environ["R2_PUBLIC_BASE_URL"].rstrip("/") + "/" + key
 
 
+def _r2_object_key(value: Any) -> str:
+    key = str(value or "").strip().lstrip("/")
+    if not key:
+        return ""
+    if "\\" in key or ".." in key.split("/") or any(character.isspace() or ord(character) < 32 for character in key):
+        raise ValueError("R2 object key không hợp lệ.")
+    if len(key) > 500:
+        raise ValueError("R2 object key quá dài.")
+    return key
+
+
+def _r2_key_from_public_url(video_url: Any) -> str:
+    base = str(os.environ.get("R2_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    url = str(video_url or "").strip()
+    if not base or not url.startswith(base + "/"):
+        return ""
+    key = unquote(url[len(base) + 1 :])
+    try:
+        return _r2_object_key(key)
+    except ValueError:
+        return ""
+
+
+def _backfill_r2_keys_from_urls() -> None:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, video_url FROM jobs WHERE COALESCE(r2_key, '') = '' AND COALESCE(video_url, '') <> ''"
+        ).fetchall()
+        for row in rows:
+            key = _r2_key_from_public_url(row["video_url"])
+            if key:
+                conn.execute("UPDATE jobs SET r2_key=?, updated_at=? WHERE id=?", (key, now(), row["id"]))
+
+
+def _delete_r2_object(key: str) -> None:
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("boto3 is required for R2 cleanup") from exc
+    object_key = _r2_object_key(key)
+    if not object_key:
+        raise ValueError("Job không có R2 key để xoá.")
+    account = os.environ["R2_ACCOUNT_ID"]
+    bucket = os.environ["R2_BUCKET"]
+    client = boto3.client(
+        "s3",
+        endpoint_url="https://{}.r2.cloudflarestorage.com".format(account),
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+    )
+    client.delete_object(Bucket=bucket, Key=object_key)
+
+
+def _r2_retention_seconds(status: str) -> Optional[int]:
+    value = str(status or "").lower()
+    if value in {"published", "succeeded", "success", "complete", "completed"}:
+        return R2_PUBLISHED_RETENTION_SECONDS
+    if value in {"cancelled", "canceled", "deleted"}:
+        return R2_CANCELLED_RETENTION_SECONDS
+    if value in {"failed", "failure", "error"}:
+        return R2_FAILED_RETENTION_SECONDS
+    return None
+
+
+def _r2_cleanup_due_at(row: Dict[str, Any]) -> str:
+    retention = _r2_retention_seconds(str(row.get("status") or ""))
+    if retention is None:
+        return ""
+    try:
+        base = parse_time(row.get("updated_at") or row.get("created_at") or now())
+    except Exception:
+        base = utc_now()
+    return iso_at(base + timedelta(seconds=retention))
+
+
+def _delete_job_r2(job_id: str, *, manual: bool = False) -> Dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if not row:
+        raise KeyError("job not found")
+    job = dict(row)
+    if job.get("r2_deleted_at"):
+        return _public_job(job)
+    retention = _r2_retention_seconds(str(job.get("status") or ""))
+    if retention is None:
+        raise ValueError("Chỉ xoá R2 khi job đã đăng, đã hủy hoặc bị lỗi.")
+    if not manual:
+        due = _r2_cleanup_due_at(job)
+        if due and parse_time(due) > utc_now():
+            raise ValueError("Job chưa tới hạn dọn R2.")
+    key = _r2_object_key(job.get("r2_key"))
+    if not key:
+        raise ValueError("Job chưa lưu R2 key nên không thể xoá tự động.")
+    try:
+        _delete_r2_object(key)
+    except Exception as exc:
+        with db() as conn:
+            conn.execute(
+                "UPDATE jobs SET r2_cleanup_error=?, updated_at=? WHERE id=?",
+                (str(exc)[:1600], now(), job_id),
+            )
+        raise
+    with db() as conn:
+        conn.execute(
+            "UPDATE jobs SET r2_deleted_at=?, r2_cleanup_error='', updated_at=? WHERE id=?",
+            (now(), now(), job_id),
+        )
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return _public_job(dict(row))
+
+
+def _cleanup_r2_media(*, limit: int = 50) -> Dict[str, Any]:
+    current = utc_now()
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM jobs
+               WHERE COALESCE(r2_key, '') <> ''
+                 AND r2_deleted_at IS NULL
+                 AND status IN ('published', 'succeeded', 'failed', 'cancelled', 'canceled')
+               ORDER BY updated_at ASC
+               LIMIT ?""",
+            (max(1, min(int(limit or 50), 200)),),
+        ).fetchall()
+    deleted: List[str] = []
+    skipped = 0
+    errors: List[Dict[str, str]] = []
+    for row in rows:
+        job = dict(row)
+        due = _r2_cleanup_due_at(job)
+        if due and parse_time(due) > current:
+            skipped += 1
+            continue
+        try:
+            _delete_job_r2(job["id"], manual=False)
+            deleted.append(job["id"])
+        except Exception as exc:
+            errors.append({"id": job["id"], "error": str(exc)[:500]})
+    return {"deleted": deleted, "deletedCount": len(deleted), "skipped": skipped, "errors": errors}
+
+
 def _tiktok_settings(job: Dict[str, Any]) -> Dict[str, Any]:
     raw = job.get("tiktok_settings") or ""
     if isinstance(raw, dict):
@@ -767,7 +922,7 @@ def _load_social_connections() -> Dict[str, List[Dict[str, str]]]:
     if not isinstance(raw, dict):
         return {}
     result: Dict[str, List[Dict[str, str]]] = {}
-    for platform in ("instagram", "threads"):
+    for platform in ("instagram", "threads", "facebook", "youtube"):
         values = raw.get(platform)
         if isinstance(values, dict):
             values = list(values.values())
@@ -789,9 +944,18 @@ def _social_connection(
     requested = str(account_id or "").strip()
     brand_key = str(brand or "").strip().casefold()
     entries = _load_social_connections().get(platform, [])
+    def entry_account_id(item: Dict[str, str]) -> str:
+        return str(
+            item.get("user_id")
+            or item.get("account_id")
+            or item.get("page_id")
+            or item.get("channel_id")
+            or ""
+        ).strip()
+
     account_matches = [
         item for item in entries
-        if str(item.get("user_id") or item.get("account_id") or "").strip() == requested
+        if entry_account_id(item) == requested
     ] if requested else []
     selected: Dict[str, str] = {}
     if requested:
@@ -821,36 +985,71 @@ def _social_connection(
             )
         )
     if selected:
-        user_id = str(selected.get("user_id") or selected.get("account_id") or "").strip()
-        token = str(selected.get("access_token") or "").strip()
-        if not user_id or not token:
+        user_id = entry_account_id(selected)
+        token = str(selected.get("access_token") or selected.get("page_access_token") or "").strip()
+        refresh_token = str(selected.get("refresh_token") or "").strip()
+        client_id = str(selected.get("client_id") or "").strip()
+        client_secret = str(selected.get("client_secret") or "").strip()
+        has_youtube_refresh = platform == "youtube" and refresh_token and client_id and client_secret
+        if not user_id or (not token and not has_youtube_refresh):
             raise RuntimeError("{} connection trên VPS chưa có user id hoặc access token.".format(platform))
         return {
             "user_id": user_id,
             "access_token": token,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "brand": str(selected.get("brand") or "").strip(),
             "api_mode": str(selected.get("api_mode") or "instagram_login").strip().lower(),
             "graph_version": str(selected.get("graph_version") or "").strip(),
         }
     if platform == "instagram":
+        refresh_token = ""
+        client_id = ""
+        client_secret = ""
         user_id = os.environ.get("INSTAGRAM_USER_ID", "").strip()
         token = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "").strip()
         api_mode = os.environ.get("INSTAGRAM_API_MODE", "instagram_login").strip().lower()
         graph_version = os.environ.get("INSTAGRAM_GRAPH_VERSION", INSTAGRAM_GRAPH_VERSION).strip()
-    else:
+    elif platform == "threads":
+        refresh_token = ""
+        client_id = ""
+        client_secret = ""
         user_id = os.environ.get("THREADS_USER_ID", "").strip()
         token = os.environ.get("THREADS_ACCESS_TOKEN", "").strip()
         api_mode = "threads"
         graph_version = os.environ.get("THREADS_GRAPH_VERSION", THREADS_GRAPH_VERSION).strip()
+    elif platform == "facebook":
+        refresh_token = ""
+        client_id = ""
+        client_secret = ""
+        user_id = os.environ.get("FACEBOOK_PAGE_ID", "").strip()
+        token = os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN", "").strip()
+        api_mode = "facebook"
+        graph_version = os.environ.get("FACEBOOK_GRAPH_VERSION", os.environ.get("META_GRAPH_VERSION", "v26.0")).strip()
+    elif platform == "youtube":
+        user_id = os.environ.get("YOUTUBE_CHANNEL_ID", "").strip()
+        token = os.environ.get("YOUTUBE_ACCESS_TOKEN", "").strip()
+        api_mode = "youtube"
+        graph_version = ""
+        refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN", "").strip()
+        client_id = os.environ.get("YOUTUBE_CLIENT_ID", "").strip()
+        client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET", "").strip()
+    else:
+        raise ValueError("Unsupported scheduled platform: {}".format(platform))
     if requested and user_id and requested != user_id:
         raise RuntimeError(
             "{} accountId không khớp tài khoản được cấu hình trên VPS.".format(platform)
         )
-    if not user_id or not token:
+    has_youtube_refresh = platform == "youtube" and refresh_token and client_id and client_secret
+    if not user_id or (not token and not has_youtube_refresh):
         raise RuntimeError("VPS chưa cấu hình {} user id và access token.".format(platform))
     return {
         "user_id": user_id,
         "access_token": token,
+        "refresh_token": refresh_token if platform == "youtube" else "",
+        "client_id": client_id if platform == "youtube" else "",
+        "client_secret": client_secret if platform == "youtube" else "",
         "brand": "",
         "api_mode": api_mode,
         "graph_version": graph_version,
@@ -862,7 +1061,10 @@ def _validate_social_account(platform: str, account_id: str, brand: str = "") ->
     # New callers resolve a Brand-scoped connection and fail closed if the VPS
     # has no matching credentials.
     if str(account_id or "").strip() or str(brand or "").strip():
-        _social_connection(platform, account_id, brand)
+        if platform == "tiktok":
+            _tiktok_connection(brand, account_id)
+        else:
+            _social_connection(platform, account_id, brand)
 
 
 def _verify_public_video_url(video_url: str) -> None:
@@ -899,11 +1101,204 @@ def _verify_public_video_url(video_url: str) -> None:
         raise RuntimeError("R2 public video URL is not reachable: {}".format(exc.reason)) from exc
 
 
+def _download_video_bytes(video_url: str, expected_sha256: str = "") -> bytes:
+    request = Request(video_url, headers={"Accept": "video/mp4", "User-Agent": "AurexSocialWorker/1"})
+    try:
+        with urlopen(request, timeout=600) as response:
+            data = response.read()
+    except HTTPError as exc:
+        raise RuntimeError("R2 video download returned HTTP {}.".format(exc.code)) from exc
+    except URLError as exc:
+        raise RuntimeError("R2 video download failed: {}".format(exc.reason)) from exc
+    expected = str(expected_sha256 or "").strip().lower()
+    if expected and hashlib.sha256(data).hexdigest() != expected:
+        raise RuntimeError("R2 media checksum mismatch before provider publish.")
+    return data
+
+
+def _facebook_graph_version(connection: Dict[str, str]) -> str:
+    version = str(connection.get("graph_version") or "v26.0").strip()
+    return version if version.startswith("v") else "v" + version
+
+
+def facebook_create_publish(caption: str, video_url: str, *, account_id: str = "", brand: str = "", expected_sha256: str = "") -> Dict[str, Any]:
+    connection = _social_connection("facebook", account_id, brand)
+    page_id = connection["user_id"]
+    token = connection["access_token"]
+    version = _facebook_graph_version(connection)
+    reels_url = "https://graph.facebook.com/{}/{}/video_reels".format(version, quote(page_id, safe=""))
+    start = json_request(reels_url, {"upload_phase": "start"}, token)
+    video_id = str(start.get("video_id") or "").strip()
+    if not video_id:
+        raise RuntimeError("Facebook upload start did not return video_id: {}".format(start))
+    upload_url = str(start.get("upload_url") or "").strip()
+    if not upload_url:
+        upload_url = "https://rupload.facebook.com/video-upload/{}/{}".format(version, quote(video_id, safe=""))
+    video_bytes = _download_video_bytes(video_url, expected_sha256)
+    upload = Request(
+        upload_url,
+        data=video_bytes,
+        headers={
+            "Authorization": "OAuth {}".format(token),
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(video_bytes)),
+            "offset": "0",
+            "file_size": str(len(video_bytes)),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(upload, timeout=600) as response:
+            raw = response.read().decode("utf-8", "replace")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:1000]
+        raise RuntimeError("Facebook video upload failed: HTTP {}: {}".format(exc.code, detail)) from exc
+    data = json.loads(raw) if raw.strip() else {}
+    if isinstance(data, dict) and data.get("success") is False:
+        raise RuntimeError("Facebook video upload failed: {}".format(data))
+    finish = json_request(
+        reels_url,
+        {
+            "upload_phase": "finish",
+            "video_id": video_id,
+            "video_state": "PUBLISHED",
+            "description": caption,
+        },
+        token,
+    )
+    if finish.get("success") is False:
+        raise RuntimeError("Facebook upload finish failed: {}".format(finish))
+    post_id = str(finish.get("post_id") or finish.get("id") or "").strip()
+    return {
+        "platform": "facebook",
+        "video_id": video_id,
+        "post_id": post_id,
+        "media_id": post_id or video_id,
+        "url": str(finish.get("permalink_url") or (("https://www.facebook.com/reel/" + video_id) if video_id else "")),
+        "state": "PUBLISHED",
+    }
+
+
+def _youtube_metadata(raw: str) -> Dict[str, Any]:
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        value = {"title": raw[:90], "description": raw}
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "title": str(value.get("title") or "AurexVideo").strip()[:90],
+        "description": str(value.get("description") or "").strip()[:5000],
+        "tags": value.get("tags") if isinstance(value.get("tags"), list) else [],
+        "privacyStatus": str(value.get("privacyStatus") or "public").strip() if str(value.get("privacyStatus") or "public").strip() in {"private", "unlisted", "public"} else "public",
+    }
+
+
+def _youtube_access_token(connection: Dict[str, str]) -> str:
+    token = str(connection.get("access_token") or "").strip()
+    refresh_token = str(connection.get("refresh_token") or "").strip()
+    client_id = str(connection.get("client_id") or "").strip()
+    client_secret = str(connection.get("client_secret") or "").strip()
+    if refresh_token and client_id and client_secret:
+        payload = urlencode({
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }).encode("utf-8")
+        request = Request(
+            "https://oauth2.googleapis.com/token",
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=60) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            return str(body.get("access_token") or token)
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:600]
+            raise RuntimeError("YouTube token refresh failed: HTTP {}: {}".format(exc.code, detail)) from exc
+    if token:
+        return token
+    raise RuntimeError("VPS chưa cấu hình YouTube access token hoặc refresh token.")
+
+
+def youtube_create_publish(metadata_raw: str, video_url: str, *, account_id: str = "", brand: str = "", expected_sha256: str = "") -> Dict[str, Any]:
+    connection = _social_connection("youtube", account_id, brand)
+    token = _youtube_access_token(connection)
+    meta = _youtube_metadata(metadata_raw)
+    video_bytes = _download_video_bytes(video_url, expected_sha256)
+    init_payload = {
+        "snippet": {
+            "title": meta["title"],
+            "description": meta["description"],
+            "categoryId": "22",
+            "tags": meta["tags"],
+        },
+        "status": {
+            "privacyStatus": meta["privacyStatus"],
+            "selfDeclaredMadeForKids": False,
+        },
+    }
+    init_request = Request(
+        "https://www.googleapis.com/upload/youtube/v3/videos?" + urlencode({"uploadType": "resumable", "part": "snippet,status"}),
+        data=json.dumps(init_payload).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer {}".format(token),
+            "Content-Type": "application/json; charset=utf-8",
+            "X-Upload-Content-Length": str(len(video_bytes)),
+            "X-Upload-Content-Type": "video/mp4",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(init_request, timeout=60) as response:
+            upload_url = response.headers.get("Location")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:1000]
+        raise RuntimeError("YouTube upload init failed: HTTP {}: {}".format(exc.code, detail)) from exc
+    if not upload_url:
+        raise RuntimeError("YouTube upload init did not return an upload URL.")
+    upload_request = Request(
+        upload_url,
+        data=video_bytes,
+        headers={
+            "Authorization": "Bearer {}".format(token),
+            "Content-Type": "video/mp4",
+            "Content-Length": str(len(video_bytes)),
+        },
+        method="PUT",
+    )
+    try:
+        with urlopen(upload_request, timeout=600) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:1000]
+        raise RuntimeError("YouTube upload failed: HTTP {}: {}".format(exc.code, detail)) from exc
+    video_id = str(result.get("id") or "").strip()
+    if not video_id:
+        raise RuntimeError("YouTube upload response did not include a video id: {}".format(result))
+    return {
+        "platform": "youtube",
+        "video_id": video_id,
+        "media_id": video_id,
+        "url": "https://youtu.be/{}".format(video_id),
+        "studio_url": "https://studio.youtube.com/video/{}/edit".format(video_id),
+        "state": meta["privacyStatus"].upper(),
+    }
+
+
 def _create_tiktok_post(job: Dict[str, Any]) -> Dict[str, Any]:
-    path = Path(job["video_path"])
     connection = _tiktok_connection(job.get("brand", ""), job.get("account_id", ""))
     _set_job_phase(job["id"], "media")
-    public_url = upload_r2(path, job["id"])
+    public_url = str(job.get("video_url") or "").strip()
+    if public_url:
+        public_url = _validated_public_video_url(public_url)
+        _verify_public_video_url(public_url)
+    else:
+        path = _validate_media(job)
+        public_url = upload_r2(path, job["id"])
     settings = _tiktok_settings(job)
     requested_draft = bool(settings.get("draft"))
     post_body: Dict[str, Any] = {
@@ -1064,9 +1459,14 @@ def graph_create_publish(
 
 def execute(job: Dict[str, Any]) -> Dict[str, Any]:
     if job["platform"] == "tiktok":
-        path = _validate_media(job)
         return _create_tiktok_post(job)
-    if job["platform"] not in {"instagram", "threads"}:
+    if str(job.get("provider_post_id") or "").strip() and str(job.get("status") or "") == "published":
+        return _json_value(job.get("result")) if isinstance(_json_value(job.get("result")), dict) else {
+            "platform": job["platform"],
+            "media_id": str(job.get("provider_post_id") or ""),
+            "state": str(job.get("provider_status") or "PUBLISHED"),
+        }
+    if job["platform"] not in {"instagram", "threads", "facebook", "youtube"}:
         raise ValueError("Unsupported scheduled platform: {}".format(job["platform"]))
     # New schedules already contain a public R2 URL. The worker only verifies
     # that URL and calls the provider; the legacy path remains solely for old
@@ -1082,16 +1482,31 @@ def execute(job: Dict[str, Any]) -> Dict[str, Any]:
         url = upload_r2(path, job["id"])
     job["phase"] = "provider"
     _set_job_phase(job["id"], "provider")
-    return {
-        **graph_create_publish(
+    if job["platform"] in {"instagram", "threads"}:
+        result = graph_create_publish(
             job["platform"],
             job["caption"],
             url,
             account_id=str(job.get("account_id") or ""),
             brand=str(job.get("brand") or ""),
-        ),
-        "video_url": url,
-    }
+        )
+    elif job["platform"] == "facebook":
+        result = facebook_create_publish(
+            job["caption"],
+            url,
+            account_id=str(job.get("account_id") or ""),
+            brand=str(job.get("brand") or ""),
+            expected_sha256=str(job.get("expected_media_sha256") or ""),
+        )
+    else:
+        result = youtube_create_publish(
+            job["caption"],
+            url,
+            account_id=str(job.get("account_id") or ""),
+            brand=str(job.get("brand") or ""),
+            expected_sha256=str(job.get("expected_media_sha256") or ""),
+        )
+    return {**result, "video_url": url}
 
 
 def _claim_due_jobs() -> List[Dict[str, Any]]:
@@ -1100,8 +1515,7 @@ def _claim_due_jobs() -> List[Dict[str, Any]]:
     with db() as conn:
         rows = conn.execute(
             """SELECT * FROM jobs
-               WHERE platform <> 'tiktok'
-                 AND ((status='queued' AND scheduled_at <= ?)
+               WHERE ((status='queued' AND scheduled_at <= ?)
                   OR (status='retry_wait' AND COALESCE(next_attempt_at, scheduled_at) <= ?))
                ORDER BY scheduled_at, created_at""",
             (current, current),
@@ -1322,7 +1736,7 @@ def _job_failed(job: Dict[str, Any], exc: Exception) -> None:
             )
         print("job {} {} retry scheduled at {}: {}".format(job["id"], job["platform"], retry_at, error), flush=True)
         return
-    if job["platform"] in {"instagram", "threads"} and job.get("phase") == "media" and attempts < SOCIAL_MAX_ATTEMPTS:
+    if job["platform"] in {"instagram", "threads", "facebook", "youtube"} and job.get("phase") == "media" and attempts < SOCIAL_MAX_ATTEMPTS:
         retry_at = iso_at(utc_now() + timedelta(seconds=SOCIAL_MEDIA_RETRY_SECONDS))
         with db() as conn:
             conn.execute(
@@ -1341,6 +1755,95 @@ def _job_failed(job: Dict[str, Any], exc: Exception) -> None:
             (phase, error, now(), job["id"]),
         )
     print("job {} {} failed: {}".format(job["id"], job["platform"], error), flush=True)
+
+
+def _list_jobs(limit: int = 100, status: str = "", platform: str = "") -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit or 100), 500))
+    clauses = []
+    values: List[Any] = []
+    if status:
+        clauses.append("status=?")
+        values.append(str(status).strip())
+    if platform:
+        clauses.append("platform=?")
+        values.append(str(platform).strip().lower())
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs{} ORDER BY scheduled_at DESC, created_at DESC LIMIT ?".format(where),
+            (*values, limit),
+        ).fetchall()
+    return [_public_job(dict(row)) for row in rows]
+
+
+def _cancel_job(job_id: str) -> Dict[str, Any]:
+    current = now()
+    with db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not row:
+            raise KeyError("job not found")
+        if row["status"] not in {"queued", "retry_wait", "failed"}:
+            raise ValueError("Chỉ hủy job queued/retry_wait/failed trước khi publish.")
+        conn.execute(
+            """UPDATE jobs SET status='cancelled', phase='cancelled',
+               next_attempt_at=NULL, updated_at=? WHERE id=?""",
+            (current, job_id),
+        )
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return _public_job(dict(row))
+
+
+def _retry_job(job_id: str) -> Dict[str, Any]:
+    current = now()
+    with db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not row:
+            raise KeyError("job not found")
+        if row["status"] not in {"failed", "retry_wait"}:
+            raise ValueError("Chỉ retry job failed/retry_wait.")
+        conn.execute(
+            """UPDATE jobs SET status='queued', phase='queued',
+               error=NULL, next_attempt_at=NULL, updated_at=? WHERE id=?""",
+            (current, job_id),
+        )
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return _public_job(dict(row))
+
+
+def _update_job(job_id: str, value: Dict[str, Any]) -> Dict[str, Any]:
+    allowed: Dict[str, Any] = {}
+    if "scheduledPublishAt" in value or "scheduled_at" in value:
+        scheduled = iso_at(parse_time(value.get("scheduledPublishAt") or value.get("scheduled_at")))
+        if parse_time(scheduled) <= utc_now():
+            raise ValueError("scheduledPublishAt must be in the future")
+        allowed["scheduled_at"] = scheduled
+    if "caption" in value:
+        caption = str(value.get("caption") or "").strip()
+        if not caption:
+            raise ValueError("caption không được để trống.")
+        allowed["caption"] = caption
+    if "videoUrl" in value or "video_url" in value:
+        allowed["video_url"] = _validated_public_video_url(value.get("videoUrl") or value.get("video_url"))
+    if "expectedMediaSha256" in value or "expected_media_sha256" in value:
+        digest = str(value.get("expectedMediaSha256") or value.get("expected_media_sha256") or "").strip().lower()
+        if digest and not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("expectedMediaSha256 must be a SHA-256 hex digest.")
+        allowed["expected_media_sha256"] = digest
+    if not allowed:
+        raise ValueError("Không có field update hợp lệ.")
+    with db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not row:
+            raise KeyError("job not found")
+        if row["status"] not in {"queued", "retry_wait", "failed"}:
+            raise ValueError("Chỉ update job chưa bắt đầu publish.")
+        assignments = ", ".join("{}=?".format(key) for key in allowed)
+        conn.execute(
+            "UPDATE jobs SET {}, updated_at=? WHERE id=?".format(assignments),
+            (*allowed.values(), now(), job_id),
+        )
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return _public_job(dict(row))
 
 
 def _update_watch(
@@ -1672,6 +2175,7 @@ def _poll_tiktok_watches() -> None:
 
 
 def worker_loop() -> None:
+    global _LAST_R2_CLEANUP
     while True:
         try:
             for job in _claim_due_jobs():
@@ -1680,6 +2184,10 @@ def worker_loop() -> None:
                 except Exception as exc:
                     _job_failed(job, exc)
             _poll_tiktok_watches()
+            current = time.time()
+            if current - _LAST_R2_CLEANUP >= R2_CLEANUP_INTERVAL_SECONDS:
+                _LAST_R2_CLEANUP = current
+                _cleanup_r2_media()
         except BaseException:
             # Keep the scheduler alive on unexpected failures and leave a
             # traceback in journald so a dead loop is diagnosable.
@@ -1725,6 +2233,10 @@ def _public_job(row: Dict[str, Any]) -> Dict[str, Any]:
         "brand": row.get("brand") or "",
         "accountId": row.get("account_id") or "",
         "videoUrl": row.get("video_url") or "",
+        "r2Key": row.get("r2_key") or "",
+        "r2DeletedAt": row.get("r2_deleted_at") or "",
+        "r2CleanupError": row.get("r2_cleanup_error") or "",
+        "r2CleanupEligibleAt": _r2_cleanup_due_at(row),
         "scheduledPublishAt": row["scheduled_at"],
         "status": row["status"],
         "phase": row.get("phase") or "",
@@ -1832,6 +2344,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send(401, {"error": "unauthorized"})
             return
         parts = [part for part in path.split("/") if part]
+        if len(parts) == 1 and parts[0] == "jobs":
+            query = urlparse(self.path).query
+            from urllib.parse import parse_qs
+
+            values = parse_qs(query)
+            limit = int((values.get("limit") or ["100"])[0] or 100)
+            status = str((values.get("status") or [""])[0] or "").strip()
+            platform = str((values.get("platform") or [""])[0] or "").strip().lower()
+            self.send(200, {"ok": True, "jobs": _list_jobs(limit, status=status, platform=platform)})
+            return
         if len(parts) == 2 and parts[0] == "jobs":
             with db() as conn:
                 row = conn.execute("SELECT * FROM jobs WHERE id=?", (parts[1],)).fetchone()
@@ -1857,6 +2379,34 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             value = body(self)
+            parts = [part for part in path.split("/") if part]
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "cancel":
+                try:
+                    self.send(200, {"ok": True, **_cancel_job(parts[1])})
+                except KeyError:
+                    self.send(404, {"error": "job not found"})
+                return
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "retry":
+                try:
+                    self.send(200, {"ok": True, **_retry_job(parts[1])})
+                except KeyError:
+                    self.send(404, {"error": "job not found"})
+                return
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "update":
+                try:
+                    self.send(200, {"ok": True, **_update_job(parts[1], value)})
+                except KeyError:
+                    self.send(404, {"error": "job not found"})
+                return
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "delete-r2":
+                try:
+                    self.send(200, {"ok": True, **_delete_job_r2(parts[1], manual=True)})
+                except KeyError:
+                    self.send(404, {"error": "job not found"})
+                return
+            if path == "/cleanup-r2":
+                self.send(200, {"ok": True, **_cleanup_r2_media(limit=int(value.get("limit") or 50))})
+                return
             if path == "/watch-tiktok":
                 self.send(201, {"ok": True, **_upsert_watch_from_request(value)})
                 return
@@ -1868,12 +2418,11 @@ class Handler(BaseHTTPRequestHandler):
             caption = str(value.get("caption") or "").strip()
             video_path = str(value.get("videoPath") or "").strip()
             video_url = str(value.get("videoUrl") or value.get("video_url") or "").strip()
-            if platform not in {"instagram", "threads", "tiktok"} or not caption:
+            r2_key = _r2_object_key(value.get("r2Key") or value.get("r2_key") or "")
+            if platform not in {"instagram", "threads", "facebook", "youtube", "tiktok"} or not caption:
                 raise ValueError("platform and caption are required")
-            if platform == "tiktok":
-                raise ValueError("TikTok scheduled posts must be created on Zernio; VPS only watches and retries them.")
             if not video_url:
-                raise ValueError("Instagram/Threads scheduled jobs must provide videoUrl from R2.")
+                raise ValueError("Scheduled social jobs must provide videoUrl from R2.")
             video_url = _validated_public_video_url(video_url)
             if parse_time(scheduled) <= utc_now():
                 raise ValueError("scheduledPublishAt must be in the future")
@@ -1926,8 +2475,8 @@ class Handler(BaseHTTPRequestHandler):
                         result, error, created_at, updated_at, project, brand,
                         account_id, tiktok_settings, expected_media_sha256,
                         attempts, next_attempt_at, provider_post_id,
-                        provider_status, delivery_status, idempotency_key)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        provider_status, delivery_status, idempotency_key, r2_key)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         job_id,
                         platform,
@@ -1951,6 +2500,7 @@ class Handler(BaseHTTPRequestHandler):
                         "",
                         "",
                         idempotency_key,
+                        r2_key,
                     ),
                 )
             self.send(
@@ -1963,6 +2513,7 @@ class Handler(BaseHTTPRequestHandler):
                     "scheduledPublishAt": normalized_scheduled,
                     "idempotencyKey": idempotency_key,
                     "videoUrl": video_url,
+                    "r2Key": r2_key,
                 },
             )
         except Exception as exc:

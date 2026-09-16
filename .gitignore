@@ -1,17 +1,44 @@
 # macOS
 .DS_Store
 
+# App-support runtime state
+.dev-entitlement-unlock
+.engine_ready
+.python_ready
+.runtime_ready
+.playwright-cli/
+README.md
+aurex-watchdog.sh
+output/
+python_base/
+runtime/
+studio/
+backups/
+*.log
+*.pid
+*.tar.gz
+
 # Python caches
 __pycache__/
 *.py[cod]
 
-# Backup folders created during app updates (transient copies of tracked files)
+# Backup folders created during app updates
 .backup-*/
 
-# Generated render outputs / project data
-output/
-project/
-config/affiliate.sqlite3
+# Engine generated render outputs / project data
+engine/output/
+engine/project/
+engine/config/brand-library.json
+engine/config/affiliate.sqlite3
+engine/engine/config/affiliate.sqlite3
+engine/graphify-out/
+engine/.playwright-cli/
+engine/.tmp-golden/
 
-# Logs
-*.log
+# Engine local runtime markers
+engine/.aurexvideo-packaged-engine
+engine/.engine_ready
+
+# Engine local secrets / machine-specific config
+engine/config/social-upload.json
+engine/config/tts.json

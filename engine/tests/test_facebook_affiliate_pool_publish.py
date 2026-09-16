@@ -97,6 +97,60 @@ class FacebookAffiliatePoolPublishTests(unittest.TestCase):
         self.assertIn(POOL_LINK, deferred_comment.call_args.args[2])
         self.assertEqual(affiliate_store.get_publish_job(job["id"])["comment_id"], "comment-later")
 
+    def test_share_to_story_uploads_to_page_video_stories(self):
+        form_calls = []
+
+        def fake_form(url, fields):
+            form_calls.append((url, dict(fields)))
+            if fields.get("upload_phase") == "start":
+                suffix = "story" if url.endswith("/video_stories") else "reel"
+                return {"video_id": f"{suffix}-vid-1"}
+            if url.endswith("/video_stories"):
+                return {"post_id": "story-post-1", "url": "https://facebook.com/stories/story-post-1"}
+            return {"post_id": "post-1"}
+
+        with (
+            patch.object(facebook, "read_social_config", return_value=CONFIG),
+            patch("social_upload.affiliate.read_social_config", return_value=CONFIG),
+            patch.object(facebook, "final_video_path_for_project", return_value=Path("/tmp/video.mp4")),
+            patch.object(facebook, "project_brand_from_topic", return_value="brand-a"),
+            patch.object(facebook, "build_upload_metadata", return_value={"facebookCaption": "metadata", "facebookVideoState": "PUBLISHED"}),
+            patch.object(facebook, "facebook_caption_for_project", return_value=("Máy hút bụi cầm tay đang giảm giá", "")),
+            patch.object(facebook, "read_expected_video_bytes", return_value=b"video"),
+            patch.object(facebook, "record_social_upload") as record,
+            patch.object(facebook, "http_form_request", side_effect=fake_form),
+            patch.object(facebook, "urlopen", return_value=FakeResponse()),
+            patch.object(facebook, "post_facebook_source_comment", return_value=("comment-1", "")),
+        ):
+            result = facebook.facebook_upload_video({
+                "project": "demo",
+                "facebookShareToStory": True,
+                "affiliate": {"enabled": True, "mode": "auto", "placement": "first_comment", "autoComment": True},
+            })
+
+        self.assertTrue(result["story"]["ok"])
+        self.assertEqual(result["story"]["post_id"], "story-post-1")
+        self.assertTrue(any(url.endswith("/video_stories") and fields.get("upload_phase") == "start" for url, fields in form_calls))
+        self.assertTrue(any(url.endswith("/video_stories") and fields.get("upload_phase") == "finish" for url, fields in form_calls))
+        self.assertEqual(record.call_args.args[2]["storyPostId"], "story-post-1")
+
+    def test_share_to_story_rejects_scheduled_reels(self):
+        scheduled_at = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        with (
+            patch.object(facebook, "read_social_config", return_value=CONFIG),
+            patch.object(facebook, "final_video_path_for_project", return_value=Path("/tmp/video.mp4")),
+            patch.object(facebook, "project_brand_from_topic", return_value="brand-a"),
+            patch.object(facebook, "build_upload_metadata", return_value={"facebookCaption": "metadata", "facebookVideoState": "PUBLISHED"}),
+            patch.object(facebook, "facebook_caption_for_project", return_value=("caption", "")),
+            patch.object(facebook, "read_expected_video_bytes", return_value=b"video"),
+        ):
+            with self.assertRaisesRegex(ValueError, "Story"):
+                facebook.facebook_upload_video({
+                    "project": "demo",
+                    "facebookShareToStory": True,
+                    "scheduledPublishAt": scheduled_at,
+                })
+
 
 if __name__ == "__main__":
     unittest.main()

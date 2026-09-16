@@ -157,17 +157,32 @@ body {
 
 .quiz-cta-art {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 9;
-  width: 80cqw;
-  max-width: 88%;
-  max-height: 58%;
-  height: auto;
-  object-fit: contain;
+  inset: 0;
+  z-index: 20;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  object-position: center;
   pointer-events: none;
-  transform: translate(-50%, -50%);
-  filter: drop-shadow(0 1.2cqw .8cqw rgba(11, 11, 11, .2));
+  transform: none;
+  filter: none;
+}
+.stage.brand-thegioidoday .quiz-cta-art {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stage.brand-quiz .quiz-cta-art {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
 }
 
 .quiz-cta-art[hidden] { display: none; }
@@ -458,9 +473,10 @@ body {
   text-shadow: .16cqw .24cqw 0 #0b0b0b;
 }
 .quiz-v2 .quiz-options {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
   width: 78cqw;
+  height: 63.4cqw;
   gap: 2cqw;
   margin: 0 0 2cqw;
 }
@@ -511,6 +527,10 @@ body {
   font: 900 6cqw/1 Arial, sans-serif;
   -webkit-text-stroke: .2cqw #0b0b0b;
 }
+.quiz-v2 .quiz-option.is-empty {
+  visibility: hidden;
+  pointer-events: none;
+}
 .quiz-option.is-correct {
   background: linear-gradient(180deg, #79df46, #32ae59);
   transform: scale(1.02);
@@ -523,7 +543,7 @@ body {
   position: relative;
   width: 31cqw;
   height: 31cqw;
-  margin-top: 0;
+  margin-top: -16%;
   overflow: visible;
   isolation: isolate;
   background: url("assets/quiz-clock.png") center / contain no-repeat;
@@ -591,6 +611,113 @@ body {
 }
 .quiz-v2 .quiz-answer-card { display: none !important; }
 
+/* The Gioi Do Day: artwork already contains progress board, clock, question frame,
+   four answer pills, and A/B/C/D badges. Render dynamic text only. */
+.stage.brand-thegioidoday .quiz-text.quiz-v2 {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  transform: none !important;
+  animation: none !important;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-progress {
+  position: absolute;
+  left: 67.9%;
+  top: 31.7%;
+  width: 27%;
+  min-height: 4.9%;
+  margin: 0;
+  padding: 0;
+  color: #fff;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 3.8cqw;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-question-card {
+  position: absolute;
+  left: 4%;
+  top: 36.5%;
+  width: 92%;
+  min-height: 16.5%;
+  margin: 0;
+  padding: 2.2% 3.5%;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  box-sizing: border-box;
+  animation: none;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-question-card::after { content: none; }
+.stage.brand-thegioidoday .quiz-v2 .quiz-question {
+  color: #183f61 !important;
+  font-family: "Be Vietnam Pro", Inter, sans-serif !important;
+  font-size: var(--quiz-question-fit-size, 5.4cqw) !important;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0;
+  text-align: center;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-options {
+  position: absolute;
+  left: 2.5%;
+  top: 55.6%;
+  width: 94.8%;
+  height: 17.9%;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  /*column-gap: 7.2%;
+  row-gap: 11%; */
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-option {
+  min-width: 0;
+  min-height: 0;
+  padding: 0 5% 0 25%;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  box-sizing: border-box;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-option-label,
+.stage.brand-thegioidoday .quiz-v2 .quiz-option-check { display: none; }
+.stage.brand-thegioidoday .quiz-v2 .quiz-option-text {
+  color: #183f61;
+  font: 800 4.3cqw/1.05 "Be Vietnam Pro", Inter, sans-serif;
+  letter-spacing: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-countdown-wrap {
+  position: absolute;
+  left: 39.6%;
+  top: 24%;
+  width: 20.4cqw;
+  height: 20.4cqw;
+  margin: 0;
+  background: none;
+  animation: none;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-countdown {
+  color: #fff;
+  font-size: 8.2cqw;
+  text-shadow: 0 .35cqw .4cqw rgba(16, 64, 95, .55);
+}
+
 /* Su Viet Ky: the progress badge, clock, question frame, answer pills, and A/B/C badges are already baked into
    background-suvietky.png. Keep this block to dynamic text/state only. */
 .stage.brand-suvietky .quiz-text.quiz-v2 {
@@ -622,38 +749,48 @@ body {
 
 .stage.brand-suvietky .quiz-v2 .quiz-progress {
   position: absolute;
-  left: 76.7%;
-  top: 1.9%;
-  width: 16.5%;
+  left: 32.7%;
+  top: 74.6%;
+  width: 35%;
   height: 8%;
   min-height: 0;
   margin: 0;
   padding: 0;
-  gap: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4cqw;
   color: #fff;
+  font-family: "Bevan", serif;
   background: transparent;
   border: 0;
   border-radius: 0;
   box-shadow: none;
 }
 
-.stage.brand-suvietky .quiz-v2 .quiz-progress span { display: none; }
+.stage.brand-suvietky .quiz-v2 .quiz-progress span {
+  display: inline-block;
+  color: #fff;
+  font: 400 4.45cqw/.95 "Bevan", serif;
+  letter-spacing: 0;
+  text-shadow: 0 .18cqw .25cqw rgba(77, 0, 0, .36);
+}
 .stage.brand-suvietky .quiz-v2 .quiz-progress strong {
   color: #fff;
-  font: 900 5.25cqw/1 "Be Vietnam Pro", Inter, sans-serif;
-  letter-spacing: -.06em;
+  font: 400 5.05cqw/.95 "Bevan", serif;
+  letter-spacing: 0;
   text-shadow: 0 .18cqw .25cqw rgba(77, 0, 0, .36);
 }
 
 .stage.brand-suvietky .quiz-v2 .quiz-question-card {
   position: absolute;
-  left: 12.1%;
-  top: 30%;
-  width: 72.2%;
-  height: 16.6%;
+  left: 15.5%;
+  top: 41%;
+  width: 69.2%;
+  height: 13.1%;
   min-height: 0;
   margin: 0;
-  padding: 2.4cqw 4.4cqw;
+  padding: 2cqw 4.4cqw;
   background: transparent;
   border: 0;
   border-radius: 0;
@@ -675,21 +812,20 @@ body {
 
 .stage.brand-suvietky .quiz-v2 .quiz-options {
   position: absolute;
-    left: 15.5%;
-    top: 45.8%;
-    width: 66.5%;
-    height: 23.5%;
-    display: flex;
-    flex-direction: column;
-    gap: 0%;
-    margin: 0;
+  left: 15.5%;
+  top: 54%;
+  width: 68%;
+  height: 29.1%;
+  display: grid;
+  grid-template-rows: repeat(4, 1fr);
+  gap: 0;
+  margin: 0;
 }
 
 .stage.brand-suvietky .quiz-v2 .quiz-option {
   position: relative;
-  flex: 1 1 0;
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
   padding: 0;
   gap: 0;
@@ -717,7 +853,7 @@ body {
 .stage.brand-suvietky .quiz-v2 .quiz-option-text {
   position: absolute;
   top: 0;
-  left: 50%;
+  left: 52%;
   width: calc(100% - 28cqw);
   max-width: none;
   height: 100%;
@@ -819,8 +955,8 @@ body {
 
 .stage.brand-suvietky .quiz-v2 .quiz-countdown-wrap {
   position: absolute;
-  left: 38.5%;
-  top: 19.8%;
+  left: 39.9%;
+  top: 30.9%;
   width: 21.2cqw;
   height: 21.2cqw;
   margin: 0;
@@ -1889,6 +2025,24 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 .stage.character-anhtinhbiettuot .karaoke .active {
   color: #A71916 !important;
 }
+
+/* =========================================================
+   THE GIOI DO DAY — CORRECT ANSWER
+   Không sử dụng ảnh "CHÍNH XÁC"
+   ========================================================= */
+.stage.brand-thegioidoday .quiz-result-art { display: none !important; }
+.stage.brand-thegioidoday .quiz-v2 .quiz-option.is-correct {
+  position: relative; z-index: 10;
+  background: linear-gradient(180deg, #6cf079 0%, #2dcc5b 46%, #11933d 100%);
+  border: .42cqw solid #ffd85a; border-radius: 999px;
+  box-shadow: 0 0 0 .18cqw #9c6515, 0 0 .7cqw .18cqw rgba(255,229,91,.95), 0 0 1.8cqw .3cqw rgba(65,255,111,.72), inset 0 .35cqw .55cqw rgba(255,255,255,.42), inset 0 -.35cqw .5cqw rgba(0,80,30,.28);
+  overflow: hidden; animation: thegioidoday-correct-pop .48s cubic-bezier(.18,.9,.22,1.35) both;
+}
+.stage.brand-thegioidoday .quiz-v2 .quiz-option.is-correct .quiz-option-text {left: -5px; position: relative; z-index: 3; color: #fff !important; font-weight: 900; text-shadow: 0 .15cqw .18cqw rgba(0,66,25,.6), 0 0 .25cqw rgba(255,255,255,.22); }
+.stage.brand-thegioidoday .quiz-v2 .quiz-option.is-correct::after { content: ""; position: absolute; z-index: 2; top: -45%; left: -28%; width: 16%; height: 190%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), rgba(255,255,255,.9), rgba(255,255,255,.12), transparent); transform: rotate(18deg); animation: thegioidoday-correct-shine .72s ease-out .08s both; pointer-events: none; }
+.stage.brand-thegioidoday .quiz-v2 .quiz-option.is-wrong { opacity: 1; }
+@keyframes thegioidoday-correct-pop { 0% { transform: scale(1); filter: brightness(1); } 38% { transform: scale(1.055); filter: brightness(1.15); } 68% { transform: scale(.99); } 100% { transform: scale(1.018); filter: brightness(1); } }
+@keyframes thegioidoday-correct-shine { from { left: -28%; opacity: 0; } 12% { opacity: 1; } to { left: 118%; opacity: 0; } }
 
 /* A single image is a centered 16:9 scene, never the left half of a pair.
    Keep this after character overrides so its geometry stays identical in the

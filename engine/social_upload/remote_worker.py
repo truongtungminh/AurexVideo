@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -187,6 +189,232 @@ def worker_job_status(worker_id: str) -> dict:
     if not worker_id:
         raise ValueError("VPS worker job id is required.")
     return _worker_request(f"/jobs/{worker_id}")
+
+
+def worker_jobs(limit: int = 100, status: str = "", platform: str = "") -> dict:
+    query = []
+    if limit:
+        query.append(("limit", str(max(1, min(int(limit), 500)))))
+    if status:
+        query.append(("status", str(status).strip()))
+    if platform:
+        query.append(("platform", str(platform).strip().lower()))
+    suffix = ""
+    if query:
+        from urllib.parse import urlencode
+
+        suffix = "?" + urlencode(query)
+    return _worker_request("/jobs" + suffix)
+
+
+def cancel_worker_job(worker_id: str) -> dict:
+    worker_id = str(worker_id or "").strip()
+    if not worker_id:
+        raise ValueError("VPS worker job id is required.")
+    return _worker_request(f"/jobs/{worker_id}/cancel", "POST", {})
+
+
+def retry_worker_job(worker_id: str) -> dict:
+    worker_id = str(worker_id or "").strip()
+    if not worker_id:
+        raise ValueError("VPS worker job id is required.")
+    return _worker_request(f"/jobs/{worker_id}/retry", "POST", {})
+
+
+def _brand_for_route(config: dict, platform: str, account_id: str) -> str:
+    routes = config.get("brand_routes") if isinstance(config, dict) else {}
+    routes = routes if isinstance(routes, dict) else {}
+    for brand, platforms in routes.items():
+        if not isinstance(platforms, dict):
+            continue
+        item = platforms.get(platform)
+        if not isinstance(item, dict):
+            continue
+        values = {
+            str(item.get("connection_id") or "").strip(),
+            str(item.get("page_id") or "").strip(),
+            str(item.get("channel_id") or "").strip(),
+            str(item.get("account_id") or "").strip(),
+        }
+        if account_id and account_id in values:
+            return str(brand or "").strip()
+    return ""
+
+
+def _worker_social_payload(config: dict) -> dict:
+    social = {"instagram": [], "threads": [], "facebook": [], "youtube": [], "version": 2}
+    instagram = config.get("instagram") if isinstance(config.get("instagram"), dict) else {}
+    for connection_id, item in (instagram.get("connections") or {}).items():
+        if not isinstance(item, dict):
+            continue
+        user_id = str(item.get("ig_user_id") or item.get("user_id") or "").strip()
+        token = str(item.get("access_token") or "").strip()
+        if user_id and token:
+            social["instagram"].append({
+                "connection_id": str(connection_id),
+                "brand": str(item.get("brand") or _brand_for_route(config, "instagram", str(connection_id))).strip(),
+                "user_id": user_id,
+                "account_id": user_id,
+                "access_token": token,
+                "api_mode": str(item.get("api_mode") or instagram.get("api_mode") or "instagram_login").strip(),
+                "graph_version": str(item.get("graph_version") or instagram.get("graph_version") or "v26.0").strip(),
+                "display_name": str(item.get("display_name") or item.get("name") or "").strip(),
+            })
+
+    threads = config.get("threads") if isinstance(config.get("threads"), dict) else {}
+    for connection_id, item in (threads.get("connections") or {}).items():
+        if not isinstance(item, dict):
+            continue
+        user_id = str(item.get("threads_user_id") or item.get("user_id") or item.get("id") or "").strip()
+        token = str(item.get("access_token") or "").strip()
+        if user_id and token:
+            social["threads"].append({
+                "connection_id": str(connection_id),
+                "brand": str(item.get("brand") or _brand_for_route(config, "threads", str(connection_id))).strip(),
+                "user_id": user_id,
+                "account_id": user_id,
+                "access_token": token,
+                "graph_version": str(item.get("graph_version") or threads.get("graph_version") or "v1.0").strip(),
+                "display_name": str(item.get("display_name") or item.get("name") or "").strip(),
+            })
+
+    facebook = config.get("facebook") if isinstance(config.get("facebook"), dict) else {}
+    for item in facebook.get("pages") or []:
+        if not isinstance(item, dict):
+            continue
+        page_id = str(item.get("id") or "").strip()
+        token = str(item.get("page_access_token") or item.get("access_token") or "").strip()
+        if page_id and token:
+            social["facebook"].append({
+                "brand": _brand_for_route(config, "facebook", page_id),
+                "user_id": page_id,
+                "account_id": page_id,
+                "page_id": page_id,
+                "access_token": token,
+                "page_access_token": token,
+                "graph_version": str(facebook.get("graph_version") or "v26.0").strip(),
+                "display_name": str(item.get("name") or "").strip(),
+            })
+
+    youtube = config.get("youtube") if isinstance(config.get("youtube"), dict) else {}
+    client_id = str(youtube.get("client_id") or "").strip()
+    client_secret = str(youtube.get("client_secret") or "").strip()
+    channels = youtube.get("channels") if isinstance(youtube.get("channels"), list) else []
+    for item in channels:
+        if not isinstance(item, dict):
+            continue
+        channel_id = str(item.get("id") or "").strip()
+        tokens = item.get("tokens") if isinstance(item.get("tokens"), dict) else {}
+        access_token = str(tokens.get("access_token") or "").strip()
+        refresh_token = str(tokens.get("refresh_token") or "").strip()
+        if channel_id and (access_token or (refresh_token and client_id and client_secret)):
+            social["youtube"].append({
+                "brand": _brand_for_route(config, "youtube", channel_id),
+                "user_id": channel_id,
+                "account_id": channel_id,
+                "channel_id": channel_id,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "display_name": str(item.get("title") or "").strip(),
+            })
+    return social
+
+
+def sync_social_connections_to_vps(config: dict | None = None) -> dict:
+    """Merge local social credentials into the VPS worker secret file."""
+    config = read_social_config() if config is None else config
+    _, _, ssh_target, ssh_key, ssh_port, _ = _worker_config()
+    if not ssh_target:
+        raise RuntimeError("VPS social worker SSH chưa được cấu hình.")
+    payload = _worker_social_payload(config)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+        temp_path = Path(handle.name)
+    remote_tmp = "/tmp/aurex-social-worker-social-sync.json"
+    try:
+        scp_cmd = ["scp", "-P", ssh_port, "-o", "BatchMode=yes"]
+        ssh_cmd = ["ssh", "-p", ssh_port, "-o", "BatchMode=yes"]
+        if ssh_key:
+            scp_cmd[1:1] = ["-i", ssh_key]
+            ssh_cmd[1:1] = ["-i", ssh_key]
+        subprocess.run([*scp_cmd, str(temp_path), f"{ssh_target}:{remote_tmp}"], check=True, capture_output=True, text=True, timeout=30)
+        merge_script = r'''
+import json, os, shutil, time
+from pathlib import Path
+target = Path("/etc/aurex-social-worker-social.json")
+incoming_path = Path("/tmp/aurex-social-worker-social-sync.json")
+def load(path):
+    try:
+        with open(str(path), "r", encoding="utf-8") as f:
+            value = json.load(f)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+def key(item):
+    return str(item.get("connection_id") or item.get("user_id") or item.get("account_id") or item.get("page_id") or item.get("channel_id") or "").strip()
+existing = load(target)
+incoming = load(incoming_path)
+merged = dict(existing)
+for platform in ("instagram", "threads", "facebook", "youtube"):
+    old = existing.get(platform) if isinstance(existing.get(platform), list) else []
+    new = incoming.get(platform) if isinstance(incoming.get(platform), list) else []
+    by_key, order = {}, []
+    for item in old:
+        if isinstance(item, dict) and key(item):
+            by_key[key(item)] = item
+            order.append(key(item))
+    for item in new:
+        if isinstance(item, dict) and key(item):
+            if key(item) not in order:
+                order.append(key(item))
+            by_key[key(item)] = item
+    merged[platform] = [by_key[item_key] for item_key in order if item_key in by_key]
+merged["version"] = max(int(existing.get("version") or 0), int(incoming.get("version") or 0), 2)
+if target.exists():
+    backup = str(target) + ".bak-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    shutil.copy2(str(target), backup)
+with open(str(target), "w", encoding="utf-8") as f:
+    json.dump(merged, f, ensure_ascii=False, indent=2)
+os.chmod(str(target), 0o600)
+try:
+    incoming_path.unlink()
+except OSError:
+    pass
+print(json.dumps({"ok": True, "counts": {p: len(merged.get(p) or []) for p in ("instagram","threads","facebook","youtube")}}))
+'''
+        result = subprocess.run([*ssh_cmd, ssh_target, f"python3 - <<'PY'\n{merge_script}\nPY"], check=True, capture_output=True, text=True, timeout=30)
+        try:
+            return json.loads(result.stdout.strip().splitlines()[-1])
+        except Exception:
+            return {"ok": True, "message": result.stdout.strip()}
+    finally:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+
+
+def update_worker_job(worker_id: str, values: dict) -> dict:
+    worker_id = str(worker_id or "").strip()
+    if not worker_id:
+        raise ValueError("VPS worker job id is required.")
+    if not isinstance(values, dict):
+        raise ValueError("Worker job update payload must be an object.")
+    return _worker_request(f"/jobs/{worker_id}/update", "POST", values)
+
+
+def delete_worker_job_r2(worker_id: str) -> dict:
+    worker_id = str(worker_id or "").strip()
+    if not worker_id:
+        raise ValueError("VPS worker job id is required.")
+    return _worker_request(f"/jobs/{worker_id}/delete-r2", "POST", {})
+
+
+def cleanup_worker_r2(limit: int = 50) -> dict:
+    return _worker_request("/cleanup-r2", "POST", {"limit": max(1, min(int(limit or 50), 200))})
 
 
 def worker_tiktok_status(post_id: str) -> dict:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import secrets
 import time
@@ -26,12 +27,15 @@ from .metadata import (
     first_url_from_source,
     read_expected_video_bytes,
     read_project_upload_metadata,
+    record_scheduled_social_upload,
     record_social_upload,
     project_brand_from_topic,
     require_project,
     upload_paragraphs,
 )
+from .r2 import r2_config, r2_config_hint, r2_is_configured, upload_scheduled_video_asset
 from .schedule import parse_scheduled_publish_at, scheduled_unix_timestamp, validate_schedule_window
+from .remote_worker import schedule_on_vps
 from .thumbnail import extract_thumbnail_frame
 
 FACEBOOK_THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
@@ -46,7 +50,7 @@ def facebook_config(config: dict | None = None) -> dict:
 
 
 def facebook_graph_version(facebook: dict) -> str:
-    version = str(facebook.get("graph_version") or "v25.0").strip()
+    version = str(os.environ.get("META_GRAPH_API_VERSION") or facebook.get("graph_version") or "v25.0").strip()
     return version if version.startswith("v") else f"v{version}"
 
 
@@ -68,6 +72,10 @@ def facebook_pages(facebook: dict) -> list[dict]:
             "page_access_token": page_access_token,
             "name": str(page.get("name") or "").strip(),
             "thumbnail": str(page.get("thumbnail") or "").strip(),
+            "meta_connection_id": str(page.get("meta_connection_id") or "").strip(),
+            "tasks": list(page.get("tasks") or []) if isinstance(page.get("tasks"), list) else [],
+            "status": str(page.get("status") or "active").strip().casefold(),
+            "last_synced_at": str(page.get("last_synced_at") or "").strip(),
         })
     legacy_page_id = str(facebook.get("page_id") or "").strip()
     legacy_page_access_token = str(facebook.get("page_access_token") or "").strip()
@@ -104,6 +112,8 @@ def facebook_page_for_id(facebook: dict, page_id: str) -> dict:
         raise ValueError("Facebook page id is empty.")
     for page in facebook_pages(facebook):
         if str(page.get("id") or "").strip() == page_id:
+            if str(page.get("status") or "active").strip().casefold() == "inaccessible":
+                raise ValueError(f"Facebook Page {page_id} đã mất quyền truy cập. Hãy đồng bộ lại Meta Connection.")
             return page
     raise ValueError(f"Facebook Page {page_id} is not configured in facebook.pages.")
 
@@ -117,7 +127,12 @@ def facebook_page_access_token(facebook: dict, page: dict | None = None) -> str:
 
 
 def facebook_is_configured(facebook: dict) -> bool:
-    return bool(facebook_page_id(facebook) and facebook_page_access_token(facebook))
+    return any(
+        facebook_page_id(facebook, page)
+        and facebook_page_access_token(facebook, page)
+        and str(page.get("status") or "active").strip().casefold() != "inaccessible"
+        for page in facebook_pages(facebook)
+    )
 
 
 def facebook_config_hint() -> str:
@@ -127,6 +142,11 @@ def facebook_config_hint() -> str:
 def facebook_reels_url(facebook: dict, page: dict | None = None) -> str:
     page_id = facebook_page_id(facebook, page)
     return f"https://graph.facebook.com/{facebook_graph_version(facebook)}/{quote(page_id, safe='')}/video_reels"
+
+
+def facebook_video_stories_url(facebook: dict, page: dict | None = None) -> str:
+    page_id = facebook_page_id(facebook, page)
+    return f"https://graph.facebook.com/{facebook_graph_version(facebook)}/{quote(page_id, safe='')}/video_stories"
 
 
 def facebook_post_comment_url(facebook: dict, post_id: str) -> str:
@@ -193,7 +213,25 @@ def facebook_pages_status(facebook: dict) -> list[dict]:
     active_page_id = facebook_active_page_id(facebook)
     result = []
     for page in facebook_pages(facebook):
-        profile = facebook_page_profile(facebook, page)
+        managed = bool(page.get("meta_connection_id"))
+        inaccessible = str(page.get("status") or "active") == "inaccessible"
+        if managed or inaccessible:
+            profile = {
+                "id": str(page.get("id") or ""),
+                "name": str(page.get("name") or ""),
+                "thumbnail": str(page.get("thumbnail") or ""),
+            }
+        else:
+            profile = facebook_page_profile(facebook, page)
+        profile.update({
+            "meta_connection_id": str(page.get("meta_connection_id") or ""),
+            "tasks": list(page.get("tasks") or []),
+            "status": str(page.get("status") or "active"),
+            "last_synced_at": str(page.get("last_synced_at") or ""),
+            "token_status": "inaccessible" if inaccessible else "active",
+        })
+        if inaccessible:
+            profile["error"] = "Page không còn được Meta Connection cấp quyền."
         profile["active"] = profile.get("id") == active_page_id
         result.append(profile)
     return result
@@ -260,8 +298,10 @@ def update_facebook_page_config(page_id: str, page_access_token: str, name: str 
     replaced = False
     for index, page in enumerate(pages):
         if page.get("id") == page_id:
+            next_page = {**page, **next_page}
             next_page["name"] = name or str(page.get("name") or "").strip()
             next_page["thumbnail"] = str(page.get("thumbnail") or "").strip()
+            next_page["status"] = "active"
             pages[index] = next_page
             replaced = True
             break
@@ -442,6 +482,81 @@ def set_facebook_video_thumbnail(
     return {"ok": True, "source": str(image_path)}
 
 
+def should_share_facebook_story(payload: dict) -> bool:
+    value = payload.get("facebookShareToStory")
+    if value is None:
+        value = payload.get("shareToStory")
+    if value is None:
+        value = payload.get("share_to_story")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def publish_facebook_video_story(
+    facebook: dict,
+    page: dict,
+    video_bytes: bytes,
+    access_token: str,
+) -> dict:
+    stories_url = facebook_video_stories_url(facebook, page)
+    start_data = http_form_request(
+        stories_url,
+        {
+            "upload_phase": "start",
+            "access_token": access_token,
+        },
+    )
+    story_video_id = str(start_data.get("video_id") or "").strip()
+    if not story_video_id:
+        raise RuntimeError(f"Facebook Story upload start did not return a video_id: {start_data}")
+    upload_url = str(start_data.get("upload_url") or "").strip()
+    if not upload_url:
+        upload_url = f"https://rupload.facebook.com/video-upload/{facebook_graph_version(facebook)}/{quote(story_video_id, safe='')}"
+
+    file_size = len(video_bytes)
+    upload_request = Request(
+        upload_url,
+        data=video_bytes,
+        headers={
+            "Authorization": f"OAuth {access_token}",
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(file_size),
+            "offset": "0",
+            "file_size": str(file_size),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(upload_request, timeout=600) as response:
+            upload_text = response.read().decode("utf-8")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Facebook Story video upload failed: HTTP {exc.code}: {detail}") from exc
+    upload_data = json.loads(upload_text) if upload_text.strip() else {}
+    if upload_data.get("success") is False:
+        raise RuntimeError(f"Facebook Story video upload failed: {upload_data}")
+
+    finish_data = http_form_request(
+        stories_url,
+        {
+            "upload_phase": "finish",
+            "video_id": story_video_id,
+            "access_token": access_token,
+        },
+    )
+    if finish_data.get("success") is False:
+        raise RuntimeError(f"Facebook Story upload finish failed: {finish_data}")
+    story_post_id = str(finish_data.get("post_id") or finish_data.get("id") or "").strip()
+    story_url = str(finish_data.get("url") or finish_data.get("permalink_url") or "").strip()
+    return {
+        "ok": True,
+        "video_id": story_video_id,
+        "post_id": story_post_id,
+        "url": story_url,
+    }
+
+
 def facebook_caption_for_project(project: str, fallback_caption: str) -> tuple[str, str]:
     project_dir = require_project(project)
     script_path = project_dir / "script.txt"
@@ -456,6 +571,7 @@ def facebook_caption_for_project(project: str, fallback_caption: str) -> tuple[s
 
 
 def facebook_upload_video(payload: dict) -> dict:
+    payload = dict(payload or {})
     project = str(payload.get("project") or "").strip()
     video_path = final_video_path_for_project(project)
     project_brand = project_brand_from_topic(video_path.parent.parent)
@@ -478,6 +594,10 @@ def facebook_upload_video(payload: dict) -> dict:
     if not facebook_page_id(facebook, page) or not facebook_page_access_token(facebook, page):
         raise ValueError(facebook_config_hint())
     access_token = facebook_page_access_token(facebook, page)
+    internal_publish_now = bool(payload.get("_aurex_internal_publish_now"))
+    if internal_publish_now:
+        payload.pop("expectedMediaSha256", None)
+        payload.pop("expected_media_sha256", None)
     affiliate = prepare_affiliate_for_publish(
         payload,
         project,
@@ -491,26 +611,72 @@ def facebook_upload_video(payload: dict) -> dict:
     video_state = str(payload.get("facebookVideoState") or metadata.get("facebookVideoState") or facebook.get("video_state") or "PUBLISHED").strip().upper()
     if video_state not in {"DRAFT", "PUBLISHED", "SCHEDULED"}:
         raise ValueError("facebook.video_state must be DRAFT, PUBLISHED, or SCHEDULED.")
-    scheduled_publish_at = parse_scheduled_publish_at(payload)
+    scheduled_publish_at = None if internal_publish_now else parse_scheduled_publish_at(payload)
     if not scheduled_publish_at:
         try:
             stored = read_project_upload_metadata(project)
         except (FileNotFoundError, ValueError):
             stored = {}
-        scheduled_publish_at = parse_scheduled_publish_at(stored.get('facebook', {}) if isinstance(stored, dict) else {})
+        if not internal_publish_now:
+            scheduled_publish_at = parse_scheduled_publish_at(stored.get('facebook', {}) if isinstance(stored, dict) else {})
     if scheduled_publish_at:
-        # Facebook Graph API schedules Reels via video_state=SCHEDULED plus
-        # scheduled_publish_time; the window is 10 minutes to 75 days ahead.
         validate_schedule_window(
             scheduled_publish_at,
             timedelta(minutes=10),
-            max_ahead=timedelta(days=75),
             platform="Facebook",
         )
         video_state = "SCHEDULED"
     elif video_state == "SCHEDULED":
         raise ValueError("Hẹn giờ đăng Facebook cần thời gian đăng (scheduledPublishAt).")
+    share_to_story = should_share_facebook_story(payload)
+    if share_to_story and video_state != "PUBLISHED":
+        raise ValueError("Share Facebook Story chỉ hỗ trợ khi đăng Facebook Reels ngay.")
 
+    r2_asset = {}
+    if scheduled_publish_at or internal_publish_now:
+        r2 = r2_config(config)
+        if not r2_is_configured(r2):
+            raise ValueError(r2_config_hint())
+        r2_asset = upload_scheduled_video_asset(video_path, platform="facebook", brand=brand, project=project, r2=r2)
+    if scheduled_publish_at:
+        queued = schedule_on_vps(
+            "facebook",
+            r2_asset["r2_url"],
+            caption,
+            scheduled_publish_at,
+            project=project,
+            brand=brand,
+            account_id=facebook_page_id(facebook, page),
+            media_sha256=r2_asset["media_sha256"],
+            r2_key=r2_asset["r2_key"],
+        )
+        worker_id = str(queued.get("id") or queued.get("worker_id") or "").strip()
+        record_scheduled_social_upload(
+            video_path.parent.parent,
+            "facebook",
+            queued["scheduledPublishAt"],
+            brand=brand,
+            connection_id=str(page.get("id") or ""),
+            worker_id=worker_id,
+            media_sha256=r2_asset["media_sha256"],
+            r2_key=r2_asset["r2_key"],
+            r2_url=r2_asset["r2_url"],
+        )
+        return {
+            "ok": True,
+            "platform": "facebook",
+            "project": project,
+            "brand": brand,
+            "page_id": facebook_page_id(facebook, page),
+            "state": "SCHEDULED",
+            "scheduledPublishAt": queued["scheduledPublishAt"],
+            "schedule_id": worker_id or queued.get("id"),
+            "worker_id": worker_id,
+            "media_sha256": r2_asset["media_sha256"],
+            "r2_key": r2_asset["r2_key"],
+            "r2_url": r2_asset["r2_url"],
+            "message": "Đã upload video lên R2 và chuyển lịch Facebook lên VPS; Facebook chỉ được publish khi đến giờ.",
+        }
     reels_url = facebook_reels_url(facebook, page)
     start_data = http_form_request(
         reels_url,
@@ -573,6 +739,13 @@ def facebook_upload_video(payload: dict) -> dict:
     else:
         thumbnail_result = {"ok": False, "source": "video_frame", "error": "thumbnail extract failed"}
 
+    story_result = {"ok": False, "skipped": True}
+    if share_to_story:
+        try:
+            story_result = publish_facebook_video_story(facebook, page, video_bytes, access_token)
+        except Exception as exc:
+            story_result = {"ok": False, "error": str(exc)}
+
     affiliate_result = {}
     affiliate_comment_id = ""
     affiliate_comment_error = ""
@@ -619,6 +792,12 @@ def facebook_upload_video(payload: dict) -> dict:
             "brand": brand,
             "state": video_state,
             "scheduled_at": scheduled_publish_at or "",
+            "storyPostId": story_result.get("post_id") if story_result.get("ok") else "",
+            "storyVideoId": story_result.get("video_id") if story_result.get("ok") else "",
+            "storyUrl": story_result.get("url") if story_result.get("ok") else "",
+            "media_sha256": r2_asset.get("media_sha256", ""),
+            "r2_key": r2_asset.get("r2_key", ""),
+            "r2_url": r2_asset.get("r2_url", ""),
         },
     )
     if video_state == "SCHEDULED":
@@ -637,6 +816,11 @@ def facebook_upload_video(payload: dict) -> dict:
         message += " Thumbnail từ frame giây 1 đã được đặt."
     else:
         message += f" Thumbnail từ frame giây 1 chưa đặt được: {str(thumbnail_result.get('error') or '')[:240]}"
+    if share_to_story:
+        if story_result.get("ok"):
+            message += " Đã share video lên Facebook Story."
+        else:
+            message += f" Chưa share được Facebook Story: {str(story_result.get('error') or '')[:240]}"
     return {
         "ok": True,
         "platform": "facebook",
@@ -652,6 +836,8 @@ def facebook_upload_video(payload: dict) -> dict:
         "source_comment_error": "",
         "affiliate": affiliate_result,
         "thumbnail": thumbnail_result,
+        "story": story_result,
+        "share_to_story": share_to_story,
         "video_state": video_state,
         "scheduledPublishAt": scheduled_publish_at or "",
         "message": message,

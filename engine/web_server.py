@@ -54,6 +54,13 @@ from social_upload import (
     facebook_upload_video,
     finish_youtube_oauth,
     instagram_upload_video,
+    MetaGraphError,
+    diagnose_meta_connection,
+    diagnose_system_user_token,
+    list_meta_connections,
+    list_meta_pages,
+    save_meta_connection,
+    sync_meta_pages,
     r2_config,
     publish_instagram_facebook_threads,
     threads_upload_video,
@@ -71,6 +78,7 @@ from social_upload import (
     update_threads_config,
     disconnect_threads,
     update_youtube_oauth_config,
+    youtube_token_health,
     youtube_upload_video,
 )
 import social_upload.metadata as social_metadata
@@ -84,6 +92,16 @@ from social_upload.config import (
     write_social_config,
 )
 from social_upload.r2 import merge_r2_config_values, resolve_r2_config
+from social_upload.remote_worker import (
+    cancel_worker_job,
+    cleanup_worker_r2,
+    delete_worker_job_r2,
+    retry_worker_job,
+    sync_social_connections_to_vps,
+    update_worker_job,
+    worker_job_status,
+    worker_jobs,
+)
 from social_upload.scheduler import start_scheduler
 from social_upload.affiliate_poc import (
     CASES as AFFILIATE_POC_CASE_CODES,
@@ -824,11 +842,15 @@ def _strip_social_secrets(value: object) -> object:
         "masked_secret",
         "maskedsecret",
         "password",
+        "page_access_token",
+        "pageaccesstoken",
         "refresh_token",
         "refreshtoken",
         "secret",
         "secret_access_key",
         "secretaccesskey",
+        "system_user_access_token",
+        "systemuseraccesstoken",
         "token",
     }
     if isinstance(value, dict):
@@ -3812,6 +3834,12 @@ def ui_icon(name: str, class_name: str = "btn-icon") -> str:
             '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'
         ),
         "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+        "trash": (
+            '<path d="M3 6h18"/>'
+            '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
+            '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'
+            '<path d="M10 11v6"/><path d="M14 11v6"/>'
+        ),
         "arrow-up": '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
         "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
         "arrow-down-right": '<path d="m7 7 10 10"/><path d="M17 7v10H7"/>',
@@ -3888,6 +3916,7 @@ def render_workspace_header(active: str, actions_html: str = "") -> str:
         ("upload", "/upload", "Đăng tải"),
         ("affiliate", "/affiliate", "Affiliate"),
         ("social", "/social", "Social"),
+        ("monitor", "/monitor", "Monitor"),
     )
     nav_links = []
     for key, href, label in items:
@@ -7217,7 +7246,7 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
     window.setInterval(checkForAurexVideoUpdate, 6 * 60 * 60 * 1000);
     window.addEventListener('online', checkForAurexVideoUpdate);
   </script>
-      <script src="/web/render_page.js?v=20260907-affiliate-caption-pool-v1"></script>
+      <script src="/web/render_page.js?v=20260915-youtube-scheduled-public-v1"></script>
 """,
     )
 
@@ -7328,7 +7357,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
             </label>
             <div class="field upload-field compact schedule-row" id="youtubeScheduleRow" hidden>
               <input type="datetime-local" id="youtubeScheduleTime" />
-              <p class="form-note">YouTube giữ video riêng tư đến đúng giờ hẹn rồi tự động công khai.</p>
+              <p class="form-note">Video lưu trên R2; VPS sẽ upload và publish YouTube khi đến giờ.</p>
             </div>
             <div class="platform-actions">
               <button class="upload-btn youtube secondary" id="openYoutubeConfig" type="button">{ui_icon("key")}<span>Khoá OAuth</span></button>
@@ -7371,18 +7400,24 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
             </label>
             <div class="field upload-field compact schedule-row" id="facebookScheduleRow" hidden>
               <input type="datetime-local" id="facebookScheduleTime" />
-              <p class="form-note">Facebook cho hẹn từ 10 phút đến 75 ngày trước. Reels tự đăng đúng giờ.</p>
+              <p class="form-note">Video lưu trên R2; VPS sẽ publish Facebook Reels khi đến giờ.</p>
             </div>
+            <label class="field upload-field compact schedule-field field-facebook">
+              <span class="field-label schedule-toggle-label">
+                <input type="checkbox" id="facebookShareToStory" checked />
+                <span>Share lên Facebook Story sau khi đăng Reels</span>
+              </span>
+            </label>
             <div class="platform-actions">
               <button class="upload-btn facebook secondary" id="openFacebookConfig" type="button">{ui_icon("plus")}<span>Thêm Page</span></button>
-              <button class="upload-btn facebook" id="uploadFacebook" type="button">{ui_icon("upload")}<span>Upload Facebook Reels</span></button>
+              <button class="upload-btn facebook" id="uploadFacebookButton" type="button">{ui_icon("upload")}<span>Upload Facebook Reels</span></button>
             </div>
           </section>
           <section class="platform-card platform-tiktok">
             <div class="platform-card-head"><div class="platform-title"><span>♪</span><span>TikTok · Zernio</span></div><button class="small-link icon-btn" id="openTiktokConfig" type="button">{ui_icon("key")}<span>Cấu hình Zernio</span></button></div>
             <div class="field upload-field field-description"><span class="field-label field-label-between"><span class="field-label-main">{ui_icon("list", "field-icon")}<span>Caption TikTok</span></span><button class="copy-field-btn" data-copy-target="tiktokCaption" type="button" aria-label="Copy Caption TikTok" title="Copy Caption TikTok">{ui_icon("copy")}</button></span><textarea id="tiktokCaption" rows="7" maxlength="2200" placeholder="Caption TikTok, tối đa 2.200 ký tự"></textarea></div>
             <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="tiktokScheduleToggle" /><span>Hẹn giờ đăng</span></span></label>
-            <div class="field upload-field compact schedule-row" id="tiktokScheduleRow" hidden><input type="datetime-local" id="tiktokScheduleTime" /><p class="form-note">Zernio giữ lịch đăng; VPS theo dõi trạng thái và retry lỗi tạm thời sau 5 phút. Không cần giữ app mở sau khi tạo lịch.</p></div>
+            <div class="field upload-field compact schedule-row" id="tiktokScheduleRow" hidden><input type="datetime-local" id="tiktokScheduleTime" /><p class="form-note">VPS giữ lịch TikTok; đến giờ mới gọi Zernio đăng ngay và theo dõi trạng thái. Không cần giữ app mở sau khi tạo lịch.</p></div>
             <p class="form-note platform-config-note" id="tiktokConfigState">Cần cấu hình Zernio API key và TikTok account ID.</p>
             <div class="platform-actions"><button class="upload-btn tiktok" id="uploadTiktok" type="button">{ui_icon("upload")}<span>Đăng TikTok</span></button></div>
           </section>
@@ -7399,7 +7434,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
               <textarea id="instagramCaption" rows="7" maxlength="2200" placeholder="Caption Instagram, tối đa 2.200 ký tự"></textarea>
             </div>
             <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="instagramScheduleToggle" /><span>Hẹn giờ đăng qua VPS</span></span></label>
-            <div class="field upload-field compact schedule-row" id="instagramScheduleRow" hidden><input type="datetime-local" id="instagramScheduleTime" /><p class="form-note">Video sẽ được copy lên VPS và đăng đúng giờ, không cần giữ app mở.</p></div>
+            <div class="field upload-field compact schedule-row" id="instagramScheduleRow" hidden><input type="datetime-local" id="instagramScheduleTime" /><p class="form-note">Video lưu trên R2; VPS sẽ đăng đúng giờ, không cần giữ app mở.</p></div>
             <p class="form-note platform-config-note" id="instagramConfigState">Cần cấu hình Instagram API và Cloudflare R2.</p>
             <div class="platform-actions">
               <button class="upload-btn instagram secondary" id="openInstagramConfig" type="button">{ui_icon("key")}<span>Cấu hình Instagram + R2</span></button>
@@ -7419,7 +7454,7 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
               <textarea id="threadsText" rows="7" maxlength="500" placeholder="Nội dung Threads, tối đa 500 ký tự"></textarea>
             </div>
             <label class="field upload-field compact schedule-field"><span class="field-label schedule-toggle-label"><input type="checkbox" id="threadsScheduleToggle" /><span>Hẹn giờ đăng qua VPS</span></span></label>
-            <div class="field upload-field compact schedule-row" id="threadsScheduleRow" hidden><input type="datetime-local" id="threadsScheduleTime" /><p class="form-note">Video sẽ được copy lên VPS và đăng đúng giờ, không cần giữ app mở.</p></div>
+            <div class="field upload-field compact schedule-row" id="threadsScheduleRow" hidden><input type="datetime-local" id="threadsScheduleTime" /><p class="form-note">Video lưu trên R2; VPS sẽ đăng đúng giờ, không cần giữ app mở.</p></div>
             <p class="form-note platform-config-note" id="threadsConfigState">Cần cấu hình Threads API.</p>
             <div class="platform-actions">
               <button class="upload-btn threads secondary" id="openThreadsConfig" type="button">{ui_icon("key")}<span>Cấu hình Threads</span></button>
@@ -9290,13 +9325,845 @@ def render_upload_html(selected_project: str | None = None) -> bytes:
     window.__INITIAL_PROJECT__ = {json.dumps(selected_project, ensure_ascii=False)};
     window.__PROJECT_SOURCE_ROOT__ = {json.dumps(str(PROJECT_ROOT), ensure_ascii=False)};
   </script>
-      <script src="/web/render_page.js?v=20260907-affiliate-caption-pool-v1"></script>
+      <script src="/web/render_page.js?v=20260915-youtube-scheduled-public-v1"></script>
+""",
+    )
+
+
+def render_monitor_html() -> bytes:
+    workspace_header = render_workspace_header(
+        "monitor",
+        actions_html=(
+            f'<button class="aurex-app-button" id="cleanupWorkerR2" type="button">'
+            f'{ui_icon("trash")}<span>Dọn R2</span></button>'
+            f'<button class="aurex-app-button is-primary" id="refreshWorkerJobs" type="button">'
+            f'{ui_icon("refresh")}<span>Cập nhật</span></button>'
+        ),
+    )
+    return render_page_shell(
+        title="AurexVideo · VPS Monitor",
+        body=f"""
+  <main class="monitor-shell">
+    {workspace_header}
+    <section class="monitor-head">
+      <div>
+        <p class="kicker">VPS Monitor</p>
+        <h2>Theo dõi lịch đăng social</h2>
+        <p>Kiểm tra tiến trình publish trên Worker VPS cho YouTube, Facebook, Instagram, Threads và TikTok. Mỗi project được gom một dòng để dễ theo dõi.</p>
+      </div>
+      <div class="monitor-filters" aria-label="Bộ lọc Monitor">
+        <label><span>Nền tảng</span><select id="workerPlatformFilter"><option value="">Tất cả</option><option value="instagram">Instagram</option><option value="threads">Threads</option><option value="facebook">Facebook</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option></select></label>
+        <label><span>Trạng thái</span><select id="workerStatusFilter"><option value="">Tất cả</option><option value="queued">Đã lên lịch</option><option value="running">Đang đăng</option><option value="retry_wait">Chờ thử lại</option><option value="failed">Lỗi</option><option value="succeeded">Đã đăng</option><option value="published">Đã đăng</option><option value="monitoring">Đang theo dõi</option><option value="cancelled">Đã hủy</option></select></label>
+      </div>
+    </section>
+
+    <section class="monitor-summary" aria-label="Tổng quan VPS jobs">
+      <article><span>Đã lên lịch</span><strong id="summaryQueued">0</strong></article>
+      <article><span>Đang đăng</span><strong id="summaryRunning">0</strong></article>
+      <article><span>Lỗi</span><strong id="summaryFailed">0</strong></article>
+      <article><span>Đã đăng</span><strong id="summarySucceeded">0</strong></article>
+    </section>
+
+    <section class="monitor-panel">
+      <div class="monitor-panel-head">
+        <div>
+          <p class="kicker">Worker Jobs</p>
+          <h3>Lịch gần đây</h3>
+        </div>
+        <span id="workerLastRefresh">Chưa tải</span>
+      </div>
+      <div class="worker-job-list" id="workerJobList">
+        <p class="monitor-note">Đang tải lịch VPS...</p>
+      </div>
+    </section>
+    <div class="monitor-schedule-backdrop" id="workerScheduleModal" hidden>
+      <form class="monitor-schedule-card" id="workerScheduleForm" role="dialog" aria-modal="true" aria-labelledby="workerScheduleTitle">
+        <button class="monitor-schedule-close" id="workerScheduleClose" type="button" aria-label="Đóng">×</button>
+        <p class="kicker">Sửa Lịch</p>
+        <h3 id="workerScheduleTitle">Chọn giờ đăng mới</h3>
+        <p id="workerScheduleJobTitle" class="monitor-schedule-copy"></p>
+        <label class="monitor-schedule-field">
+          <span>Thời gian đăng</span>
+          <input id="workerScheduleInput" type="datetime-local" required />
+        </label>
+        <div class="monitor-schedule-actions">
+          <button class="small-link" id="workerScheduleCancel" type="button">Huỷ</button>
+          <button class="aurex-app-button is-primary" id="workerScheduleSave" type="submit">Lưu lịch</button>
+        </div>
+      </form>
+    </div>
+  </main>
+""",
+        extra_style="""
+    body {
+      --monitor-border: rgba(79, 57, 31, 0.16);
+      --monitor-soft: rgba(242, 178, 101, 0.10);
+      padding: 24px clamp(24px, 3vw, 56px);
+    }
+    html.tauri-macos body { padding-top: 54px; }
+    body:not(.theme-light) {
+      --body-bg: #181818;
+      --surface: transparent;
+      --surface-strong: rgba(255, 255, 255, 0.06);
+      --surface-panel: transparent;
+      --field-bg: rgba(255, 255, 255, 0.04);
+      --control-line: rgba(255, 255, 255, 0.14);
+      --control-line-soft: rgba(255, 255, 255, 0.12);
+      --status-text: rgba(246, 255, 249, 0.84);
+      --shadow: none;
+      --monitor-border: rgba(255, 255, 255, 0.14);
+      --monitor-soft: rgba(255, 255, 255, 0.05);
+    }
+    .monitor-shell {
+      display: grid;
+      gap: 18px;
+      width: min(100%, 1440px);
+      margin: 0 auto;
+    }
+    .monitor-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: end;
+      padding-top: 6px;
+    }
+    .monitor-head h2 {
+      margin: 0 0 7px;
+      color: var(--text);
+      font-size: clamp(30px, 3.4vw, 46px);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+    .monitor-head p:not(.kicker) {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+    .monitor-filters {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .monitor-filters label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .monitor-filters select {
+      min-width: 160px;
+      min-height: 42px;
+      border: 1px solid var(--control-line);
+      border-radius: 12px;
+      padding: 9px 12px;
+      color: var(--text);
+      background: var(--field-bg);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 850;
+    }
+    .monitor-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .monitor-summary article,
+    .monitor-panel {
+      border: 1px solid var(--monitor-border);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .monitor-summary article {
+      display: grid;
+      gap: 8px;
+      min-height: 96px;
+      padding: 16px;
+    }
+    .monitor-summary span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+    .monitor-summary strong {
+      color: var(--text);
+      font-size: 34px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+    .monitor-panel {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+    .monitor-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--control-line-soft);
+    }
+    .monitor-panel-head h3 {
+      margin: 0;
+      color: var(--text);
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+    #workerLastRefresh {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .worker-job-list {
+      display: grid;
+      gap: 10px;
+    }
+    .worker-project-row {
+      display: grid;
+      gap: 12px;
+      border: 1px solid var(--control-line-soft);
+      border-radius: 14px;
+      padding: 12px;
+      background: var(--monitor-soft);
+    }
+    .worker-project-row.failed {
+      border-color: rgba(255, 82, 82, 0.38);
+      background: rgba(255, 82, 82, 0.08);
+    }
+    .worker-project-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+      min-width: 0;
+    }
+    .worker-project-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .worker-project-main strong {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 950;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .worker-project-main span,
+    .worker-social-time,
+    .worker-social-error,
+    .monitor-note {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.4;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .worker-social-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .worker-social-chip {
+      display: grid;
+      gap: 7px;
+      min-width: 220px;
+      max-width: 360px;
+      flex: 1 1 240px;
+      border: 1px solid var(--control-line-soft);
+      border-radius: 12px;
+      padding: 10px;
+      background: var(--surface);
+    }
+    .worker-social-chip.failed {
+      border-color: rgba(255, 82, 82, 0.38);
+      background: rgba(255, 82, 82, 0.08);
+    }
+    .worker-social-chip.running {
+      border-color: rgba(255, 171, 64, 0.34);
+    }
+    .worker-social-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .worker-social-name {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 950;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .worker-job-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      border: 1px solid var(--control-line-soft);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--status-text);
+      background: var(--surface);
+      font-size: 10px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .worker-job-status.succeeded { color: var(--good-text); border-color: rgba(34, 197, 94, 0.34); }
+    .worker-job-status.failed { color: var(--danger-text); border-color: rgba(255, 82, 82, 0.40); }
+    .worker-job-status.running { color: var(--warn-text); border-color: rgba(255, 171, 64, 0.34); }
+    .worker-social-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-start;
+      flex-wrap: wrap;
+    }
+    .worker-social-actions .small-link {
+      min-height: 30px;
+      padding: 6px 9px;
+      font-size: 11px;
+    }
+    .monitor-error {
+      color: var(--danger-text);
+      white-space: normal;
+    }
+    .monitor-schedule-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(10px);
+    }
+    .monitor-schedule-card {
+      position: relative;
+      display: grid;
+      gap: 14px;
+      width: min(100%, 520px);
+      border: 1px solid var(--monitor-border);
+      border-radius: 18px;
+      padding: 22px;
+      background: var(--body-bg);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    }
+    .monitor-schedule-card h3 {
+      margin: 0;
+      color: var(--text);
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+    .monitor-schedule-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 780;
+      line-height: 1.45;
+    }
+    .monitor-schedule-field {
+      display: grid;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+    .monitor-schedule-field input {
+      min-height: 48px;
+      border: 1px solid var(--control-line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: var(--text);
+      background: var(--field-bg);
+      font: inherit;
+      font-size: 16px;
+      font-weight: 850;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .monitor-schedule-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      align-items: center;
+      padding-top: 4px;
+    }
+    .monitor-schedule-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--control-line-soft);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    [hidden] { display: none !important; }
+    @media (max-width: 920px) {
+      .monitor-head { grid-template-columns: 1fr; align-items: start; }
+      .monitor-filters { justify-content: flex-start; }
+      .monitor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .worker-project-head { display: grid; }
+    }
+    @media (max-width: 560px) {
+      body { padding: 20px 14px; }
+      html.tauri-macos body { padding-top: 54px; }
+      .monitor-summary { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .monitor-summary article { min-height: 82px; padding: 12px; }
+      .monitor-summary strong { font-size: 28px; }
+      .monitor-filters select { width: 100%; min-width: 0; }
+      .monitor-filters label { flex: 1 1 160px; }
+      .monitor-panel { padding: 12px; }
+      .monitor-schedule-card { padding: 18px; }
+      .monitor-schedule-actions { flex-direction: column-reverse; align-items: stretch; }
+      .monitor-schedule-actions > * { width: 100%; }
+    }
+""",
+        extra_script="""
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const platformFilter = $('#workerPlatformFilter');
+    const statusFilter = $('#workerStatusFilter');
+    const list = $('#workerJobList');
+    const refreshButton = $('#refreshWorkerJobs');
+    const cleanupButton = $('#cleanupWorkerR2');
+    const lastRefresh = $('#workerLastRefresh');
+    const scheduleModal = $('#workerScheduleModal');
+    const scheduleForm = $('#workerScheduleForm');
+    const scheduleInput = $('#workerScheduleInput');
+    const scheduleJobTitle = $('#workerScheduleJobTitle');
+    const scheduleClose = $('#workerScheduleClose');
+    const scheduleCancel = $('#workerScheduleCancel');
+    let editingWorkerId = '';
+
+    function formatTime(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return 'Chưa có giờ';
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return raw;
+      return new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+    }
+
+    function datetimeLocalValue(value) {
+      const date = new Date(value || Date.now() + 15 * 60 * 1000);
+      if (Number.isNaN(date.getTime())) return '';
+      const pad = (item) => String(item).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function platformLabel(platform) {
+      return { facebook: 'Facebook', instagram: 'Instagram', threads: 'Threads', youtube: 'YouTube', tiktok: 'TikTok' }[String(platform || '').toLowerCase()] || platform || 'Social';
+    }
+
+    function statusClass(status) {
+      const value = String(status || '').toLowerCase();
+      if (value === 'succeeded' || value === 'published') return 'succeeded';
+      if (value === 'failed' || value === 'cancelled') return 'failed';
+      if (value === 'running' || value === 'retry_wait' || value === 'monitoring') return 'running';
+      return '';
+    }
+
+    function statusLabel(status) {
+      const value = String(status || '').toLowerCase();
+      return {
+        queued: 'Đã lên lịch',
+        pending: 'Đã lên lịch',
+        scheduled: 'Đã lên lịch',
+        running: 'Đang đăng',
+        processing: 'Đang đăng',
+        retry_wait: 'Chờ thử lại',
+        failed: 'Lỗi',
+        error: 'Lỗi',
+        succeeded: 'Đã đăng',
+        published: 'Đã đăng',
+        done: 'Đã đăng',
+        monitoring: 'Đang theo dõi',
+        cancelled: 'Đã hủy',
+        canceled: 'Đã hủy',
+      }[value] || 'Không rõ';
+    }
+
+    function phaseLabel(phase) {
+      const value = String(phase || '').toLowerCase();
+      return {
+        queued: 'chờ tới giờ',
+        pending: 'chờ tới giờ',
+        scheduled: 'chờ tới giờ',
+        uploading: 'đang tải lên',
+        publishing: 'đang đăng',
+        running: 'đang đăng',
+        processing: 'đang xử lý',
+        retry_wait: 'chờ thử lại',
+        failed: 'lỗi',
+        error: 'lỗi',
+        succeeded: 'hoàn tất',
+        published: 'đã đăng',
+        done: 'hoàn tất',
+        monitoring: 'đang theo dõi',
+        cancelled: 'đã hủy',
+        canceled: 'đã hủy',
+      }[value] || value || 'chờ tới giờ';
+    }
+
+    function setText(id, value) {
+      const node = $(id);
+      if (node) node.textContent = String(value);
+    }
+
+    function updateSummary(jobs) {
+      const counts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+      jobs.forEach((job) => {
+        const status = String(job.status || '').toLowerCase();
+        if (status === 'retry_wait') counts.queued += 1;
+        else if (status === 'monitoring') counts.running += 1;
+        else if (status === 'published') counts.succeeded += 1;
+        else if (counts[status] !== undefined) counts[status] += 1;
+      });
+      setText('#summaryQueued', counts.queued);
+      setText('#summaryRunning', counts.running);
+      setText('#summaryFailed', counts.failed);
+      setText('#summarySucceeded', counts.succeeded);
+    }
+
+    function groupedJobs(jobs) {
+      const groups = new Map();
+      jobs.forEach((job) => {
+        const project = String(job.project || 'Project').trim() || 'Project';
+        const brand = String(job.brand || '').trim();
+        const key = `${project}\\n${brand}`;
+        if (!groups.has(key)) groups.set(key, { project, brand, jobs: [] });
+        groups.get(key).jobs.push(job);
+      });
+      const platformRank = { youtube: 1, facebook: 2, instagram: 3, threads: 4, tiktok: 5 };
+      return Array.from(groups.values()).map((group) => {
+        group.jobs.sort((a, b) => {
+          const at = Date.parse(a.scheduledPublishAt || '') || 0;
+          const bt = Date.parse(b.scheduledPublishAt || '') || 0;
+          if (at !== bt) return at - bt;
+          return (platformRank[String(a.platform || '').toLowerCase()] || 99) - (platformRank[String(b.platform || '').toLowerCase()] || 99);
+        });
+        return group;
+      });
+    }
+
+    function renderJobs(jobs) {
+      list.textContent = '';
+      updateSummary(jobs);
+      if (!jobs.length) {
+        const empty = document.createElement('p');
+        empty.className = 'monitor-note';
+        empty.textContent = 'Chưa có job phù hợp bộ lọc.';
+        list.appendChild(empty);
+        return;
+      }
+      groupedJobs(jobs).forEach((group) => {
+        const row = document.createElement('article');
+        const hasFailed = group.jobs.some((job) => ['failed', 'cancelled'].includes(String(job.status || '').toLowerCase()));
+        row.className = `worker-project-row ${hasFailed ? 'failed' : ''}`;
+
+        const head = document.createElement('div');
+        head.className = 'worker-project-head';
+        const main = document.createElement('div');
+        main.className = 'worker-project-main';
+        const title = document.createElement('strong');
+        title.textContent = group.project;
+        const brand = document.createElement('span');
+        brand.textContent = group.brand ? `Brand: ${group.brand}` : `${group.jobs.length} social job`;
+        main.append(title, brand);
+        const socialCount = document.createElement('span');
+        socialCount.className = 'monitor-note';
+        socialCount.textContent = `${group.jobs.length} kênh social`;
+        head.append(main, socialCount);
+
+        const strip = document.createElement('div');
+        strip.className = 'worker-social-strip';
+        group.jobs.forEach((job) => {
+          const status = String(job.status || '').toLowerCase();
+          const chip = document.createElement('section');
+          chip.className = `worker-social-chip ${statusClass(status)}`;
+
+          const top = document.createElement('div');
+          top.className = 'worker-social-top';
+          const name = document.createElement('strong');
+          name.className = 'worker-social-name';
+          name.textContent = platformLabel(job.platform);
+          const badge = document.createElement('strong');
+          badge.className = `worker-job-status ${statusClass(status)}`;
+          badge.textContent = statusLabel(status);
+          top.append(name, badge);
+
+          const timing = document.createElement('span');
+          timing.className = 'worker-social-time';
+          const nextAttempt = job.nextAttemptAt ? ` · thử lại ${formatTime(job.nextAttemptAt)}` : '';
+          timing.textContent = `${formatTime(job.scheduledPublishAt)} · ${phaseLabel(job.phase || status)} · lần ${job.attempts || 0}${nextAttempt}`;
+          chip.append(top, timing);
+
+          if (job.error) {
+            const error = document.createElement('span');
+            error.className = 'worker-social-error monitor-error';
+            error.textContent = job.error;
+            chip.appendChild(error);
+          }
+          if (job.r2DeletedAt || job.r2CleanupError) {
+            const r2Note = document.createElement('span');
+            r2Note.className = job.r2CleanupError ? 'worker-social-error monitor-error' : 'worker-social-time';
+            r2Note.textContent = job.r2CleanupError
+              ? `R2 lỗi: ${job.r2CleanupError}`
+              : `R2 đã xoá ${formatTime(job.r2DeletedAt)}`;
+            chip.appendChild(r2Note);
+          }
+
+          const actions = document.createElement('div');
+          actions.className = 'worker-social-actions';
+          if (status === 'failed' || status === 'retry_wait') {
+            const retry = document.createElement('button');
+            retry.className = 'small-link';
+            retry.type = 'button';
+            retry.dataset.workerAction = 'retry';
+            retry.dataset.workerId = job.id || '';
+            retry.textContent = 'Thử lại';
+            actions.appendChild(retry);
+          }
+          if (String(job.platform || '').toLowerCase() === 'youtube' && /invalid_grant|expired or revoked|refresh token/i.test(String(job.error || ''))) {
+            const reconnect = document.createElement('button');
+            reconnect.className = 'small-link';
+            reconnect.type = 'button';
+            reconnect.dataset.workerAction = 'reconnect-youtube';
+            reconnect.dataset.workerBrand = job.brand || '';
+            reconnect.dataset.workerChannelId = job.accountId || '';
+            reconnect.textContent = 'Kết nối lại';
+            actions.appendChild(reconnect);
+          }
+          if (['queued', 'retry_wait', 'failed'].includes(status)) {
+            const edit = document.createElement('button');
+            edit.className = 'small-link';
+            edit.type = 'button';
+            edit.dataset.workerAction = 'update-schedule';
+            edit.dataset.workerId = job.id || '';
+            edit.dataset.workerScheduledAt = job.scheduledPublishAt || '';
+            edit.dataset.workerTitle = `${platformLabel(job.platform)} · ${group.project}`;
+            edit.textContent = 'Sửa giờ';
+            actions.appendChild(edit);
+
+            const cancel = document.createElement('button');
+            cancel.className = 'small-link';
+            cancel.type = 'button';
+            cancel.dataset.workerAction = 'cancel';
+            cancel.dataset.workerId = job.id || '';
+            cancel.textContent = 'Hủy';
+            actions.appendChild(cancel);
+          }
+          if (job.r2Key && !job.r2DeletedAt && ['published', 'succeeded', 'failed', 'cancelled', 'canceled'].includes(status)) {
+            const deleteR2 = document.createElement('button');
+            deleteR2.className = 'small-link';
+            deleteR2.type = 'button';
+            deleteR2.dataset.workerAction = 'delete-r2';
+            deleteR2.dataset.workerId = job.id || '';
+            deleteR2.textContent = 'Xoá R2';
+            actions.appendChild(deleteR2);
+          }
+          if (actions.childElementCount) chip.appendChild(actions);
+          strip.appendChild(chip);
+        });
+
+        row.append(head, strip);
+        list.appendChild(row);
+      });
+    }
+
+    async function loadJobs({ quiet = false } = {}) {
+      if (refreshButton) refreshButton.disabled = true;
+      if (!quiet) {
+        list.textContent = '';
+        const loading = document.createElement('p');
+        loading.className = 'monitor-note';
+        loading.textContent = 'Đang tải lịch VPS...';
+        list.appendChild(loading);
+      }
+      const params = new URLSearchParams({ limit: '100' });
+      if (platformFilter?.value) params.set('platform', platformFilter.value);
+      if (statusFilter?.value) params.set('status', statusFilter.value);
+      try {
+        const response = await fetch(`/api/social/worker/jobs?${params.toString()}`, { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        renderJobs(Array.isArray(data.jobs) ? data.jobs : []);
+        if (lastRefresh) lastRefresh.textContent = `Cập nhật ${formatTime(new Date().toISOString())}`;
+      } catch (error) {
+        if (!quiet) {
+          list.textContent = '';
+          const message = document.createElement('p');
+          message.className = 'monitor-note monitor-error';
+          message.textContent = `Không tải được VPS Monitor: ${error.message || error}`;
+          list.appendChild(message);
+        }
+      } finally {
+        if (refreshButton) refreshButton.disabled = false;
+      }
+    }
+
+    async function runAction(id, action, body = {}) {
+      const response = await fetch(`/api/social/worker/jobs/${encodeURIComponent(id)}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      await loadJobs();
+    }
+
+    async function cleanupR2Now() {
+      if (!cleanupButton) return;
+      cleanupButton.disabled = true;
+      try {
+        const response = await fetch('/api/social/worker/r2-cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: 100 }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        await loadJobs();
+        alert(`Đã dọn ${data.deletedCount || 0} file R2.`);
+      } finally {
+        cleanupButton.disabled = false;
+      }
+    }
+
+    function scheduleMinValue() {
+      return datetimeLocalValue(Date.now() + 2 * 60 * 1000);
+    }
+
+    function closeScheduleModal() {
+      if (!scheduleModal) return;
+      scheduleModal.hidden = true;
+      editingWorkerId = '';
+    }
+
+    function openScheduleModal(button) {
+      if (!scheduleModal || !scheduleInput) return;
+      editingWorkerId = button.dataset.workerId || '';
+      scheduleInput.min = scheduleMinValue();
+      scheduleInput.value = datetimeLocalValue(button.dataset.workerScheduledAt || '');
+      if (scheduleJobTitle) scheduleJobTitle.textContent = button.dataset.workerTitle || editingWorkerId;
+      scheduleModal.hidden = false;
+      window.setTimeout(() => scheduleInput.focus(), 0);
+    }
+
+    async function updateScheduleFromModal() {
+      if (!editingWorkerId || !scheduleInput) return;
+      const value = scheduleInput.value;
+      const date = new Date(value);
+      if (!value || Number.isNaN(date.getTime())) throw new Error('Giờ đăng mới không hợp lệ.');
+      if (date.getTime() <= Date.now()) throw new Error('Giờ đăng mới phải ở tương lai.');
+      await runAction(editingWorkerId, 'update', { scheduledPublishAt: date.toISOString() });
+      closeScheduleModal();
+    }
+
+    async function updateSchedule(button) {
+      openScheduleModal(button);
+    }
+
+    async function reconnectYoutube(brand, channelId) {
+      const params = new URLSearchParams({ brand: brand || '' });
+      if (channelId) params.set('channelId', channelId);
+      const response = await fetch(`/api/social/youtube/reconnect-url?${params.toString()}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      window.open(data.url, '_blank', 'noreferrer');
+    }
+
+    refreshButton?.addEventListener('click', () => loadJobs());
+    cleanupButton?.addEventListener('click', async () => {
+      try {
+        await cleanupR2Now();
+      } catch (error) {
+        alert(error.message || String(error));
+      }
+    });
+    platformFilter?.addEventListener('change', () => loadJobs());
+    statusFilter?.addEventListener('change', () => loadJobs());
+    scheduleClose?.addEventListener('click', closeScheduleModal);
+    scheduleCancel?.addEventListener('click', closeScheduleModal);
+    scheduleModal?.addEventListener('click', (event) => {
+      if (event.target === scheduleModal) closeScheduleModal();
+    });
+    scheduleForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submit = $('#workerScheduleSave');
+      if (submit) submit.disabled = true;
+      try {
+        await updateScheduleFromModal();
+      } catch (error) {
+        alert(error.message || String(error));
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    });
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && scheduleModal && !scheduleModal.hidden) closeScheduleModal();
+    });
+    list?.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-worker-action]');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        if (button.dataset.workerAction === 'reconnect-youtube') {
+          await reconnectYoutube(button.dataset.workerBrand || '', button.dataset.workerChannelId || '');
+        } else if (button.dataset.workerAction === 'update-schedule') {
+          await updateSchedule(button);
+        } else if (button.dataset.workerAction === 'delete-r2') {
+          if (confirm('Xoá file video trên R2 cho job này?')) {
+            await runAction(button.dataset.workerId || '', 'delete-r2');
+          }
+        } else {
+          await runAction(button.dataset.workerId || '', button.dataset.workerAction || '');
+        }
+      } catch (error) {
+        alert(error.message || String(error));
+        await loadJobs({ quiet: true });
+      } finally {
+        button.disabled = false;
+      }
+    });
+    loadJobs();
+    const timer = window.setInterval(() => loadJobs({ quiet: true }), 30000);
+    window.addEventListener('beforeunload', () => window.clearInterval(timer));
+  </script>
 """,
     )
 
 
 def render_social_html() -> bytes:
-    """Render the Brand-aware Social management workspace."""
+    """Render the Brand-aware Social manager."""
     workspace_header = render_workspace_header(
         "social",
         actions_html=(
@@ -9311,22 +10178,15 @@ def render_social_html() -> bytes:
   <main class="social-page" aria-labelledby="socialTitle">
     {workspace_header}
 
-    <section class="social-hero">
-      <div class="social-hero-copy">
-        <div class="social-eyebrow"><span class="eyebrow-dot"></span> SOCIAL WORKSPACE</div>
-        <h1 id="socialTitle">Quản lý Social <em>theo Brand.</em></h1>
-        <p>Gom các kênh xuất bản vào đúng Brand, kiểm tra trạng thái kết nối và giữ workspace luôn sẵn sàng cho mỗi lần đăng video.</p>
-        <div class="social-hero-actions">
-          <button class="social-primary-button" id="addSocialButton" type="button"><span aria-hidden="true">+</span> Thêm social</button>
-          <button class="social-secondary-button" id="addBrandButton" type="button"><span aria-hidden="true">+</span> Tạo Brand mới</button>
-        </div>
+    <section class="social-manager-head">
+      <div class="social-manager-copy">
+        <div class="social-eyebrow"><span class="eyebrow-dot"></span> CONNECTION MANAGER</div>
+        <h1 id="socialTitle">Manager <em>Social</em></h1>
+        <p>Quản lý Brand và các kênh xuất bản trong một workspace. Thêm kết nối mới, kiểm tra trạng thái hoặc gỡ những Social không còn sử dụng.</p>
       </div>
-      <div class="social-hero-visual" aria-hidden="true">
-        <div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div>
-        <div class="hero-node node-center"><span>A</span></div>
-        <div class="hero-node node-youtube"><b>▶</b></div><div class="hero-node node-facebook"><b>f</b></div>
-        <div class="hero-node node-instagram"><b>◎</b></div><div class="hero-node node-tiktok"><b>♪</b></div>
-        <span class="hero-line line-one"></span><span class="hero-line line-two"></span><span class="hero-line line-three"></span><span class="hero-line line-four"></span>
+      <div class="social-manager-actions">
+        <button class="social-primary-button" id="addSocialButton" type="button"><span aria-hidden="true">+</span> Thêm Social</button>
+        <button class="social-secondary-button" id="addBrandButton" type="button"><span aria-hidden="true">+</span> Brand mới</button>
       </div>
     </section>
 
@@ -9337,9 +10197,47 @@ def render_social_html() -> bytes:
       <article class="social-summary-card summary-attention"><div class="summary-icon">!</div><div><span>Cần kiểm tra</span><strong id="attentionCount">—</strong><small id="attentionCountNote">Không có cảnh báo</small></div></article>
     </section>
 
+    <section class="social-panel meta-manager-panel" aria-labelledby="metaConnectionTitle">
+      <header class="meta-manager-heading">
+        <div class="meta-manager-title"><span class="meta-logo" aria-hidden="true">M</span><div><div class="social-kicker">META BUSINESS CONNECTION</div><h2 id="metaConnectionTitle">Đồng bộ Facebook Pages hàng loạt</h2><p>Một System User Token lấy toàn bộ Page đã được cấp quyền; mỗi Page vẫn dùng Page Access Token riêng khi đăng và comment.</p></div></div>
+        <div class="meta-connection-picker"><label for="metaConnectionSelect">Connection</label><select id="metaConnectionSelect" aria-label="Chọn Meta Connection"><option value="">Connection mới</option></select><button class="social-secondary-button compact" id="metaNewConnectionButton" type="button"><span aria-hidden="true">+</span> Mới</button></div>
+      </header>
+      <div class="meta-manager-body">
+        <form class="meta-connection-form" id="metaConnectionForm">
+          <div class="meta-form-grid">
+            <label class="dialog-field"><span>Tên Connection</span><input id="metaConnectionName" type="text" maxlength="160" placeholder="Ví dụ: Aurex Business" required /></label>
+            <label class="dialog-field"><span>Business ID <small>(tuỳ chọn)</small></span><input id="metaBusinessId" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Meta Business ID" /></label>
+            <label class="dialog-field meta-token-field"><span>System User Access Token</span><input id="metaSystemUserToken" type="password" autocomplete="new-password" placeholder="Dán token của Người dùng hệ thống" /></label>
+          </div>
+          <div class="meta-form-actions">
+            <button class="social-secondary-button" id="metaDiagnoseButton" type="button">Chẩn đoán Token</button>
+            <button class="social-secondary-button" id="metaSaveButton" type="submit">Lưu Connection</button>
+            <button class="social-primary-button" id="metaSyncButton" type="button">↻ Đồng bộ Pages</button>
+          </div>
+          <p class="dialog-note meta-form-note" id="metaFormNote">Token chỉ gửi đến backend, không xuất hiện lại trên giao diện hoặc API response.</p>
+        </form>
+        <div class="meta-diagnostic-grid" aria-label="Trạng thái Meta Connection">
+          <div><span>Token</span><strong id="metaTokenStatus">Chưa lưu</strong></div>
+          <div><span>System User</span><strong id="metaSystemUserId">—</strong></div>
+          <div><span>App</span><strong id="metaAppId">—</strong></div>
+          <div><span>Pages truy cập</span><strong id="metaAccessiblePages">0</strong></div>
+          <div><span>Hết hạn</span><strong id="metaTokenExpiry">—</strong></div>
+          <div><span>Scopes</span><strong id="metaScopes">—</strong></div>
+          <div><span>Kiểm tra gần nhất</span><strong id="metaLastChecked">—</strong></div>
+          <div><span>Đồng bộ gần nhất</span><strong id="metaLastSynced">—</strong></div>
+        </div>
+      </div>
+      <div class="meta-pages-heading">
+        <div><div class="social-kicker">FACEBOOK PAGE LIBRARY</div><h3>Pages đã đồng bộ</h3></div>
+        <label class="social-search-field meta-page-search"><span aria-hidden="true">⌕</span><input id="metaPageSearch" type="search" placeholder="Tìm theo tên hoặc Page ID..." autocomplete="off" /></label>
+      </div>
+      <div class="meta-sync-summary" id="metaSyncSummary" hidden></div>
+      <div class="meta-pages-list" id="metaPagesList"><div class="meta-pages-empty">Lưu Meta Connection và bấm “Đồng bộ Pages” để import Page.</div></div>
+    </section>
+
     <section class="social-workspace-grid">
       <aside class="social-panel social-brand-panel" aria-label="Danh sách Brand">
-        <div class="social-panel-heading"><div><div class="social-kicker">WORKSPACE</div><h2>Danh sách Brand</h2></div><button class="panel-add-button" id="sidebarAddBrand" type="button" aria-label="Tạo Brand mới">+</button></div>
+        <div class="social-panel-heading"><div><div class="social-kicker">PROFILES</div><h2>Brands</h2></div><button class="panel-add-button" id="sidebarAddBrand" type="button" aria-label="Tạo Brand mới">+</button></div>
         <label class="social-search-field"><span aria-hidden="true">⌕</span><input id="brandSearch" type="search" placeholder="Tìm Brand..." autocomplete="off" /></label>
         <div class="brand-list" id="brandList" role="listbox" aria-label="Chọn Brand"></div>
         <div class="social-panel-foot"><span class="live-dot"></span><span>Dữ liệu lưu trong workspace</span><span class="foot-lock" aria-hidden="true">⌁</span></div>
@@ -9355,9 +10253,9 @@ def render_social_html() -> bytes:
         <div id="brandDetail" hidden>
           <header class="social-detail-header">
             <div class="detail-brand-heading"><div class="detail-brand-avatar" id="detailBrandAvatar">A</div><div><div class="social-kicker">BRAND</div><h2 id="detailBrandName">—</h2><p><code id="detailBrandId">—</code><span class="detail-separator">•</span><span id="detailProjectCount">0 project</span></p></div></div>
-            <div class="detail-header-actions"><button class="social-primary-button compact" id="detailAddSocialButton" type="button"><span aria-hidden="true">+</span> Thêm social</button><button class="social-secondary-button compact" id="detailAddBrandButton" type="button">Brand mới</button></div>
+            <div class="detail-header-actions"><button class="social-primary-button compact" id="detailAddSocialButton" type="button"><span aria-hidden="true">+</span> Thêm Social</button><button class="social-danger-button compact" id="detailDeleteBrandButton" type="button">Xoá Brand</button></div>
           </header>
-          <div class="social-section-heading"><div><div class="social-kicker">DESTINATIONS</div><h3>Kênh xuất bản</h3></div><span class="route-count" id="detailLinkedCount">0/5 đã gán</span></div>
+          <div class="social-section-heading"><div><div class="social-kicker">SOCIAL CONNECTIONS</div><h3>Các Social</h3></div><span class="route-count" id="detailLinkedCount">0/5 đã gán</span></div>
           <div class="platform-grid" id="platformGrid"></div>
           <div class="social-detail-note"><span class="note-icon">i</span><p>Thay đổi được lưu ngay vào cấu hình Social. Nếu YouTube báo “Cần kiểm tra”, bấm “Kết nối lại” để cấp lại quyền Google; Instagram, TikTok và Threads lưu theo đúng Brand.</p></div>
         </div>
@@ -9393,10 +10291,20 @@ def render_social_html() -> bytes:
       <div class="dialog-footer"><button class="social-secondary-button" type="button" data-close-dialog>Giữ lại</button><button class="social-danger-button" type="submit">Gỡ liên kết</button></div>
     </form>
   </dialog>
+
+  <dialog class="social-dialog compact-dialog" id="deleteBrandDialog" aria-labelledby="deleteBrandTitle">
+    <form id="deleteBrandForm" method="dialog">
+      <div class="dialog-header"><div><div class="social-kicker danger-kicker">DELETE BRAND</div><h2 id="deleteBrandTitle">Xoá Brand?</h2></div><button class="dialog-close" type="button" data-close-dialog aria-label="Đóng">×</button></div>
+      <p class="dialog-intro" id="deleteBrandCopy">Brand và dữ liệu liên quan sẽ bị xoá.</p>
+      <div class="delete-warning"><span>!</span><p id="deleteBrandImpact">Toàn bộ project và Social route thuộc Brand này sẽ bị xoá. Thao tác không thể hoàn tác.</p></div>
+      <div class="dialog-footer"><button class="social-secondary-button" type="button" data-close-dialog>Giữ lại</button><button class="social-danger-button" id="deleteBrandConfirmButton" type="submit">Xoá Brand và dữ liệu</button></div>
+    </form>
+  </dialog>
   <div class="social-toast" id="socialToast" role="status" aria-live="polite"></div>
 """
     extra_style = r"""
-    .social-page {
+    .social-page,
+    .social-dialog {
       --social-card: rgba(255, 251, 244, .78);
       --social-card-strong: #fffaf3;
       --social-border: rgba(74, 51, 25, .13);
@@ -9408,11 +10316,14 @@ def render_social_html() -> bytes:
       --social-orange: #ef762b;
       --social-orange-soft: rgba(239, 118, 43, .12);
       --social-purple: #8064e9;
+    }
+    .social-page {
       max-width: 1380px;
       margin: 0 auto;
     }
     .social-page [hidden] { display: none !important; }
-    body:not(.theme-light) .social-page {
+    body:not(.theme-light) .social-page,
+    body:not(.theme-light) .social-dialog {
       --social-card: rgba(255, 255, 255, .055);
       --social-card-strong: #242424;
       --social-border: rgba(242, 178, 101, .18);
@@ -9445,32 +10356,27 @@ def render_social_html() -> bytes:
     .theme-symbol, .refresh-symbol { color: var(--social-orange); font-size: 18px; line-height: 1; }.social-refresh-button[aria-busy=\"true\"] .refresh-symbol { display: inline-block; animation: social-spin 800ms linear infinite; }@keyframes social-spin { to { transform: rotate(360deg); } }
     .social-primary-button { border: 1px solid var(--accent); color: var(--accent-contrast); background: var(--accent); box-shadow: 0 9px 23px var(--accent-glow); }
     .social-primary-button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px var(--accent-glow); }
-    .social-primary-button.compact, .social-secondary-button.compact { min-height: 38px; padding: 8px 12px; }
+    .social-primary-button.compact, .social-secondary-button.compact, .social-danger-button.compact { min-height: 38px; padding: 8px 12px; }
     .social-secondary-button { border: 1px solid var(--social-border-strong); color: var(--text); background: var(--social-card); }
     .social-secondary-button:hover { transform: translateY(-1px); border-color: var(--accent); background: var(--social-soft); }
-    .social-hero { position: relative; min-height: 286px; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(310px, .85fr); align-items: center; gap: 22px; padding: 38px 44px; border: 1px solid rgba(67, 48, 27, .12); border-radius: 30px; background: linear-gradient(118deg, rgba(255, 252, 247, .96), rgba(253, 240, 219, .78)); box-shadow: var(--social-shadow); }
-    body:not(.theme-light) .social-hero { border-color: var(--social-border); background: radial-gradient(circle at 82% 42%, rgba(242, 178, 101, .14), transparent 22rem), linear-gradient(118deg, rgba(255,255,255,.06), rgba(255,255,255,.025)); }
-    .social-hero::after { content: ""; position: absolute; width: 300px; height: 300px; right: -100px; bottom: -175px; border-radius: 50%; border: 1px solid rgba(239, 118, 43, .15); box-shadow: 0 0 0 26px rgba(239,118,43,.035), 0 0 0 52px rgba(239,118,43,.025); }
-    .social-hero-copy { position: relative; z-index: 1; max-width: 670px; }
+    .social-manager-head { position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; padding: 30px 34px; border: 1px solid rgba(67, 48, 27, .12); border-radius: 26px; background: linear-gradient(118deg, rgba(255, 252, 247, .97), rgba(253, 240, 219, .76)); box-shadow: var(--social-shadow); }
+    .social-manager-head::after { content: ""; position: absolute; width: 240px; height: 240px; right: -95px; bottom: -165px; border-radius: 50%; border: 1px solid rgba(239, 118, 43, .16); box-shadow: 0 0 0 24px rgba(239,118,43,.035), 0 0 0 48px rgba(239,118,43,.025); }
+    body:not(.theme-light) .social-manager-head { border-color: var(--social-border); background: radial-gradient(circle at 88% 42%, rgba(242, 178, 101, .14), transparent 20rem), linear-gradient(118deg, rgba(255,255,255,.06), rgba(255,255,255,.025)); }
+    .social-manager-copy { position: relative; z-index: 1; max-width: 730px; }
     .social-eyebrow, .social-kicker { color: var(--social-orange); font-size: 10px; font-weight: 900; letter-spacing: .14em; line-height: 1.2; text-transform: uppercase; }
     .social-eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
     .eyebrow-dot, .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--social-green); box-shadow: 0 0 0 4px var(--social-green-soft); }
-    .social-hero h1 { margin: 0 0 15px; max-width: 650px; color: var(--text); font-size: clamp(38px, 5vw, 70px); font-weight: 900; line-height: .98; letter-spacing: -.075em; }
-    .social-hero h1 em { color: var(--social-orange); font-style: normal; }
-    .social-hero p { max-width: 610px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
-    .social-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 25px; }
-    .social-hero-visual { position: relative; z-index: 1; width: min(100%, 430px); height: 220px; justify-self: end; }
-    .hero-orbit { position: absolute; left: 50%; top: 50%; border: 1px dashed rgba(239, 118, 43, .22); border-radius: 50%; transform: translate(-50%, -50%); }
-    .orbit-one { width: 168px; height: 168px; }.orbit-two { width: 310px; height: 150px; transform: translate(-50%, -50%) rotate(-25deg); }
-    .hero-node { position: absolute; display: grid; place-items: center; width: 44px; height: 44px; border: 5px solid rgba(255, 252, 247, .88); border-radius: 15px; color: #fff; box-shadow: 0 10px 22px rgba(50, 30, 15, .16); }.hero-node b { font-size: 18px; }
-    body:not(.theme-light) .hero-node { border-color: #292929; }
-    .node-center { left: calc(50% - 29px); top: calc(50% - 29px); width: 58px; height: 58px; border-radius: 19px; background: linear-gradient(145deg, #f68b3a, #e7532d); font-size: 21px; font-weight: 900; }
-    .node-youtube { left: 4%; top: 12%; background: #f0443e; }.node-facebook { right: 8%; top: 7%; background: #2b82ed; }.node-instagram { right: 1%; bottom: 8%; background: linear-gradient(145deg, #8a54df, #dc3e70, #f39b33); }.node-tiktok { left: 11%; bottom: 4%; background: #17212d; }
-    .hero-line { position: absolute; height: 1px; transform-origin: left center; background: linear-gradient(90deg, rgba(239,118,43,.42), transparent); }.line-one { left: 15%; top: 28%; width: 105px; transform: rotate(22deg); }.line-two { left: 62%; top: 28%; width: 90px; transform: rotate(-25deg); }.line-three { left: 62%; top: 66%; width: 102px; transform: rotate(25deg); }.line-four { left: 22%; top: 70%; width: 90px; transform: rotate(-24deg); }
+    .social-manager-head h1 { margin: 0 0 11px; color: var(--text); font-size: clamp(36px, 4vw, 54px); font-weight: 900; line-height: 1; letter-spacing: -.07em; }
+    .social-manager-head h1 em { color: var(--social-orange); font-style: normal; }
+    .social-manager-head p { max-width: 650px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .social-manager-actions { position: relative; z-index: 1; display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
     .social-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 15px 0; }
     .social-summary-card { display: flex; align-items: center; gap: 13px; min-height: 105px; padding: 18px; border: 1px solid var(--social-border); border-radius: 20px; background: var(--social-card); box-shadow: var(--social-shadow); }
     .summary-icon { display: grid; place-items: center; flex: 0 0 39px; width: 39px; height: 39px; border-radius: 13px; color: var(--social-orange); background: var(--social-orange-soft); font-size: 21px; font-weight: 900; }.summary-linked .summary-icon { color: var(--social-purple); background: rgba(128,100,233,.12); }.summary-ready .summary-icon { color: var(--social-green); background: var(--social-green-soft); }.summary-attention .summary-icon { color: #bb7910; background: rgba(227,171,48,.16); }
     .social-summary-card > div:last-child { display: grid; gap: 2px; min-width: 0; }.social-summary-card span { color: var(--muted); font-size: 11px; font-weight: 750; }.social-summary-card strong { color: var(--text); font-size: 27px; letter-spacing: -.06em; line-height: 1; }.social-summary-card small { color: var(--muted); font-size: 10px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meta-manager-panel { margin-bottom: 15px; overflow: hidden; padding: 0; }.meta-manager-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: none; margin-bottom: 0; padding: 22px 24px; border-bottom: 1px solid var(--social-border); background: linear-gradient(120deg, rgba(43,130,237,.08), rgba(239,118,43,.04)); }.meta-manager-title { display: flex; align-items: center; gap: 14px; min-width: 0; }.meta-logo { display: grid; place-items: center; flex: 0 0 48px; width: 48px; height: 48px; border-radius: 15px; color: #fff; background: linear-gradient(145deg, #2b82ed, #655be8); font-size: 22px; font-weight: 950; box-shadow: 0 10px 24px rgba(43,130,237,.22); }.meta-manager-heading h2 { margin: 5px 0 4px; color: var(--text); font-size: 20px; letter-spacing: -.045em; }.meta-manager-heading p { max-width: 690px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }.meta-connection-picker { display: grid; grid-template-columns: auto minmax(170px, 230px) auto; align-items: center; gap: 8px; flex: 0 0 auto; }.meta-connection-picker label { color: var(--muted); font-size: 10px; font-weight: 850; }.meta-connection-picker select { min-height: 38px; border: 1px solid var(--social-border); border-radius: 11px; outline: 0; padding: 0 11px; color: var(--text); background: var(--social-card-strong); font-size: 11px; font-weight: 750; }
+    .meta-manager-body { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(430px, .7fr); gap: 20px; padding: 22px 24px; }.meta-connection-form { min-width: 0; }.meta-form-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, .6fr); gap: 10px; }.meta-form-grid .dialog-field { margin-top: 0; }.meta-token-field { grid-column: 1 / -1; }.meta-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }.meta-form-actions button[aria-busy="true"] { cursor: progress; opacity: .7; }.meta-form-note { margin-bottom: 0; }.meta-diagnostic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }.meta-diagnostic-grid > div { display: grid; align-content: center; gap: 5px; min-height: 62px; padding: 11px 12px; border: 1px solid var(--social-border); border-radius: 12px; background: var(--social-soft); }.meta-diagnostic-grid span { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }.meta-diagnostic-grid strong { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.meta-diagnostic-grid strong.is-valid { color: var(--social-green); }.meta-diagnostic-grid strong.is-invalid { color: #b94a46; }.meta-diagnostic-grid strong.is-warning { color: #a9750d; }
+    .meta-pages-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 19px 24px 13px; border-top: 1px solid var(--social-border); }.meta-pages-heading h3 { margin: 5px 0 0; color: var(--text); font-size: 17px; letter-spacing: -.04em; }.meta-page-search { width: min(330px, 100%); margin: 0; }.meta-sync-summary { margin: 0 24px 12px; padding: 10px 12px; border: 1px solid rgba(47,153,89,.23); border-radius: 11px; color: var(--social-green); background: var(--social-green-soft); font-size: 11px; font-weight: 800; }.meta-sync-summary.has-errors { border-color: rgba(218,157,35,.3); color: #a9750d; background: rgba(225,171,47,.1); }.meta-pages-list { display: grid; gap: 7px; max-height: 470px; overflow: auto; padding: 0 24px 22px; }.meta-pages-empty { padding: 28px 18px; border: 1px dashed var(--social-border-strong); border-radius: 14px; color: var(--muted); background: var(--social-soft); font-size: 11px; text-align: center; }.meta-page-row { display: grid; grid-template-columns: 24px 38px minmax(150px, 1.25fr) minmax(170px, 1fr) 105px minmax(205px, .9fr); align-items: center; gap: 10px; min-height: 76px; padding: 11px 12px; border: 1px solid var(--social-border); border-radius: 14px; background: var(--social-card-strong); }.meta-page-row.is-inaccessible { opacity: .72; }.meta-page-check { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 7px; color: var(--social-green); background: var(--social-green-soft); font-size: 11px; font-weight: 900; }.meta-page-row.is-inaccessible .meta-page-check { color: #a9750d; background: rgba(225,171,47,.15); }.meta-page-logo { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; object-fit: cover; color: #fff; background: #2b82ed; font-size: 17px; font-weight: 900; }.meta-page-copy { display: grid; gap: 4px; min-width: 0; }.meta-page-copy strong, .meta-page-copy code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.meta-page-copy strong { color: var(--text); font-size: 12px; }.meta-page-copy code { color: var(--muted); font-family: var(--font-ui); font-size: 9px; }.meta-task-list { display: flex; flex-wrap: wrap; gap: 4px; }.meta-task-chip { max-width: 100%; overflow: hidden; padding: 3px 6px; border-radius: 999px; color: var(--muted); background: var(--social-soft); font-size: 8px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }.meta-page-token { display: grid; gap: 4px; }.meta-page-token span { color: var(--muted); font-size: 9px; font-weight: 750; }.meta-page-token strong { color: var(--social-green); font-size: 10px; }.meta-page-token small { color: var(--muted); font-size: 8px; font-weight: 700; }.meta-page-token strong.is-inaccessible { color: #a9750d; }.meta-brand-map { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }.meta-brand-map select { min-width: 0; min-height: 34px; border: 1px solid var(--social-border); border-radius: 9px; outline: 0; padding: 0 8px; color: var(--text); background: var(--social-soft); font-size: 10px; }.meta-brand-map button { min-height: 34px; padding: 0 10px; border: 1px solid var(--social-border); border-radius: 9px; color: var(--social-orange); background: var(--social-soft); font-size: 10px; font-weight: 850; }.meta-brand-map button:hover { border-color: var(--accent); }.meta-brand-map button:disabled, .meta-brand-map select:disabled { cursor: default; opacity: .5; }
     .social-workspace-grid { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 15px; align-items: stretch; }.social-panel { border: 1px solid var(--social-border); border-radius: 24px; background: var(--social-card); box-shadow: var(--social-shadow); }
     .social-brand-panel { display: flex; flex-direction: column; min-height: 538px; padding: 21px 15px 13px; }.social-panel-heading, .social-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }.social-panel-heading { padding: 0 5px 17px; }.social-panel h2, .social-detail-panel h2 { margin: 5px 0 0; color: var(--text); font-size: 20px; letter-spacing: -.055em; }
     .panel-add-button { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid var(--social-border-strong); border-radius: 10px; color: var(--social-orange); background: var(--social-soft); font-size: 22px; line-height: 1; }.panel-add-button:hover { border-color: var(--accent); background: var(--social-orange-soft); }
@@ -9490,18 +10396,18 @@ def render_social_html() -> bytes:
     .platform-actions { display: flex; align-items: center; gap: 5px; }.platform-action { display: grid; place-items: center; min-width: 29px; height: 29px; padding: 0 8px; border: 1px solid var(--social-border); border-radius: 9px; color: var(--social-orange); background: var(--social-soft); font-size: 11px; font-weight: 850; }.platform-action:hover { border-color: var(--accent); }.platform-action.reconnect { border-color: var(--accent); color: var(--accent-contrast); background: var(--accent); box-shadow: 0 5px 13px var(--accent-glow); }.platform-action.reconnect:hover { transform: translateY(-1px); }.platform-action.delete { color: #b94a46; }.platform-action:disabled { cursor: default; opacity: .45; }
     .social-detail-note { display: flex; gap: 10px; margin-top: 20px; padding: 12px 13px; border: 1px solid var(--social-border); border-radius: 13px; color: var(--muted); background: var(--social-soft); }.social-detail-note p { margin: 0; font-size: 10px; line-height: 1.55; }.note-icon { display: grid; place-items: center; flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; color: var(--social-orange); background: var(--social-orange-soft); font-size: 11px; font-weight: 900; }
     .social-dialog { width: min(640px, calc(100vw - 30px)); padding: 0; border: 1px solid var(--social-border-strong); border-radius: 24px; color: var(--text); background: var(--social-card-strong); box-shadow: 0 28px 80px rgba(17, 11, 5, .28); }.social-dialog::backdrop { background: rgba(24, 17, 10, .5); backdrop-filter: blur(4px); }.social-dialog form { padding: 26px; }.compact-dialog { width: min(500px, calc(100vw - 30px)); }.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }.dialog-header h2 { margin: 6px 0 0; color: var(--text); font-size: 25px; letter-spacing: -.06em; }.dialog-close { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--social-border); border-radius: 10px; color: var(--muted); background: var(--social-soft); font-size: 22px; line-height: 1; }.dialog-close:hover { color: var(--text); border-color: var(--accent); }
-    .dialog-intro { margin: 12px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.6; }.dialog-grid { display: grid; gap: 12px; }.dialog-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }.dialog-field { display: grid; gap: 7px; margin-top: 12px; color: var(--text); font-size: 11px; font-weight: 850; }.dialog-grid .dialog-field { margin-top: 0; }.dialog-field small { color: var(--muted); font-size: 10px; font-weight: 650; }.dialog-field input, .dialog-field select { width: 100%; min-height: 42px; border: 1px solid var(--social-border); border-radius: 11px; outline: 0; padding: 0 12px; color: var(--text); background: var(--social-soft); font-size: 12px; }.dialog-field input:focus, .dialog-field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }.dialog-field select option { color: #20170f; background: #fffaf3; }.field-help { margin-top: -2px; line-height: 1.4; }.dialog-note { min-height: 18px; margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }.dialog-note.is-warning { color: #a9750d; }.dialog-note.is-error { color: #bb4b46; }.dialog-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 23px; padding-top: 17px; border-top: 1px solid var(--social-border); }
+    .dialog-intro { margin: 12px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.6; }.dialog-grid { display: grid; gap: 12px; }.dialog-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }.dialog-field { display: grid; gap: 7px; margin-top: 12px; color: var(--text); font-size: 11px; font-weight: 850; }.dialog-grid .dialog-field { margin-top: 0; }.dialog-field small { color: var(--muted); font-size: 10px; font-weight: 650; }.dialog-field input, .dialog-field select { width: 100%; min-height: 42px; border: 1px solid var(--social-border); border-radius: 11px; outline: 0; padding: 0 12px; color: var(--text); background: var(--social-soft); font-size: 12px; }.dialog-field input:focus, .dialog-field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }.dialog-field select option { color: #20170f; background: #fffaf3; }.field-help { margin-top: -2px; line-height: 1.4; }.social-connect-action { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 12px; border: 1px dashed var(--social-border-strong); border-radius: 13px; background: var(--social-orange-soft); }.social-connect-action small { color: var(--muted); font-size: 10px; line-height: 1.45; }.dialog-note { min-height: 18px; margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }.dialog-note.is-warning { color: #a9750d; }.dialog-note.is-error { color: #bb4b46; }.dialog-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 23px; padding-top: 17px; border-top: 1px solid var(--social-border); }
     .social-danger-button { border: 1px solid rgba(185,74,70,.3); color: #a7433f; background: rgba(185,74,70,.1); }.social-danger-button:hover { border-color: #b94a46; background: rgba(185,74,70,.16); }.danger-kicker { color: #b94a46; }.delete-warning { display: flex; gap: 10px; padding: 13px; border: 1px solid rgba(218,157,35,.28); border-radius: 13px; background: rgba(225,171,47,.09); }.delete-warning > span { display: grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; border-radius: 50%; color: #a9750d; background: rgba(225,171,47,.16); font-size: 12px; font-weight: 900; }.delete-warning p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
     .social-toast { position: fixed; z-index: 11000; right: 28px; bottom: 27px; max-width: min(360px, calc(100vw - 40px)); padding: 13px 16px; border: 1px solid var(--social-border-strong); border-radius: 13px; color: var(--text); background: var(--social-card-strong); box-shadow: 0 16px 40px rgba(29, 16, 5, .2); font-size: 12px; font-weight: 800; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity 180ms ease, transform 180ms ease; }.social-toast.is-visible { opacity: 1; transform: translateY(0); }.social-toast.is-error { border-color: rgba(185,74,70,.42); color: #b94a46; }
-    @media (max-width: 1120px) { .social-header { grid-template-columns: auto 1fr; }.social-header-actions { justify-self: end; }.social-nav { grid-column: 1 / -1; grid-row: 2; justify-self: start; }.social-hero { grid-template-columns: minmax(0, 1fr) 300px; padding: 32px; }.social-hero-visual { transform: scale(.86); transform-origin: right center; margin-right: -25px; } }
-    @media (max-width: 860px) { body { padding: 25px 18px; }.social-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.social-workspace-grid { grid-template-columns: 1fr; }.social-brand-panel { min-height: 260px; max-height: 380px; }.social-detail-panel { min-height: 500px; }.brand-list { max-height: 245px; }.social-hero { grid-template-columns: 1fr; }.social-hero-visual { position: absolute; right: -40px; bottom: -14px; width: 360px; opacity: .48; }.social-hero-copy { max-width: 100%; }.social-detail-header { align-items: flex-start; flex-direction: column; }.detail-header-actions { justify-content: flex-start; } }
-    @media (max-width: 560px) { .social-header { display: flex; flex-wrap: wrap; gap: 16px; }.social-nav { order: 3; width: 100%; overflow-x: auto; justify-content: flex-start; }.social-nav a { white-space: nowrap; }.social-header-actions { margin-left: auto; }.social-header-actions .social-primary-button { display: none; }.social-header-actions .social-refresh-button { width: 42px; padding: 8px; }.social-refresh-button > span:last-child { display: none; }.social-hero { min-height: 360px; padding: 28px 22px; border-radius: 23px; }.social-hero h1 { font-size: 43px; }.social-summary-grid { gap: 8px; }.social-summary-card { min-height: 97px; padding: 13px 11px; gap: 9px; }.summary-icon { flex-basis: 31px; width: 31px; height: 31px; border-radius: 10px; font-size: 16px; }.social-summary-card strong { font-size: 22px; }.social-summary-card span { font-size: 10px; }.social-summary-card small { font-size: 9px; }.social-detail-panel { padding: 21px 15px; }.platform-grid { grid-template-columns: 1fr; }.social-detail-header { padding-bottom: 18px; }.detail-brand-heading h2 { font-size: 24px; }.dialog-grid-two { grid-template-columns: 1fr; gap: 0; }.social-dialog form { padding: 21px 18px; }.dialog-header h2 { font-size: 22px; } }
+    @media (max-width: 1120px) { .social-header { grid-template-columns: auto 1fr; }.social-header-actions { justify-self: end; }.social-nav { grid-column: 1 / -1; grid-row: 2; justify-self: start; }.meta-manager-heading { align-items: flex-start; flex-direction: column; }.meta-connection-picker { width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; }.meta-manager-body { grid-template-columns: 1fr; }.meta-page-row { grid-template-columns: 24px 38px minmax(150px, 1fr) minmax(160px, .8fr) 100px; }.meta-brand-map { grid-column: 3 / -1; width: min(330px, 100%); } }
+    @media (max-width: 860px) { body { padding: 25px 18px; }.social-manager-head { align-items: flex-start; flex-direction: column; padding: 28px; }.social-manager-actions { justify-content: flex-start; }.social-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.meta-pages-heading { align-items: flex-start; flex-direction: column; }.meta-page-search { width: 100%; }.meta-page-row { grid-template-columns: 24px 38px minmax(0, 1fr) auto; }.meta-task-list { grid-column: 3 / -1; }.meta-page-token { grid-column: 3; }.meta-brand-map { grid-column: 3 / -1; width: 100%; }.social-workspace-grid { grid-template-columns: 1fr; }.social-brand-panel { min-height: 260px; max-height: 380px; }.social-detail-panel { min-height: 500px; }.brand-list { max-height: 245px; }.social-detail-header { align-items: flex-start; flex-direction: column; }.detail-header-actions { justify-content: flex-start; } }
+    @media (max-width: 560px) { .social-header { display: flex; flex-wrap: wrap; gap: 16px; }.social-nav { order: 3; width: 100%; overflow-x: auto; justify-content: flex-start; }.social-nav a { white-space: nowrap; }.social-header-actions { margin-left: auto; }.social-header-actions .social-primary-button { display: none; }.social-header-actions .social-refresh-button { width: 42px; padding: 8px; }.social-refresh-button > span:last-child { display: none; }.social-manager-head { padding: 24px 20px; border-radius: 22px; }.social-manager-head h1 { font-size: 38px; }.social-manager-actions { width: 100%; }.social-manager-actions button { flex: 1 1 auto; }.social-summary-grid { gap: 8px; }.social-summary-card { min-height: 97px; padding: 13px 11px; gap: 9px; }.summary-icon { flex-basis: 31px; width: 31px; height: 31px; border-radius: 10px; font-size: 16px; }.social-summary-card strong { font-size: 22px; }.social-summary-card span { font-size: 10px; }.social-summary-card small { font-size: 9px; }.meta-manager-heading, .meta-manager-body, .meta-pages-heading { padding-left: 16px; padding-right: 16px; }.meta-manager-title { align-items: flex-start; }.meta-logo { flex-basis: 40px; width: 40px; height: 40px; }.meta-connection-picker { grid-template-columns: 1fr auto; }.meta-connection-picker label { grid-column: 1 / -1; }.meta-form-grid { grid-template-columns: 1fr; }.meta-token-field { grid-column: auto; }.meta-form-actions button { flex: 1 1 135px; }.meta-diagnostic-grid { grid-template-columns: 1fr 1fr; }.meta-sync-summary { margin-left: 16px; margin-right: 16px; }.meta-pages-list { padding-left: 16px; padding-right: 16px; }.meta-page-row { grid-template-columns: 24px 34px minmax(0, 1fr); padding: 12px 10px; }.meta-page-logo { width: 34px; height: 34px; }.meta-task-list, .meta-page-token, .meta-brand-map { grid-column: 2 / -1; }.social-detail-panel { padding: 21px 15px; }.platform-grid { grid-template-columns: 1fr; }.social-detail-header { padding-bottom: 18px; }.detail-brand-heading h2 { font-size: 24px; }.dialog-grid-two { grid-template-columns: 1fr; gap: 0; }.social-dialog form { padding: 21px 18px; }.dialog-header h2 { font-size: 22px; } }
 """
     return render_page_shell(
-        title="AurexVideo Social",
+        title="AurexVideo · Manager Social",
         body=body,
         extra_style=extra_style,
-        extra_script='<script src="/web/social.js?v=20260909-social-v1"></script>',
+        extra_script='<script src="/web/social.js?v=20260914-youtube-new-channel-v1"></script>',
     )
 
 
@@ -9877,7 +10783,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         print(f"ℹ️  {color_text(timestamp, 'dim')}  {format % args}", file=sys.stderr)
 
     def _social_route_origin_allowed(self) -> bool:
-        """Allow Social mutations only from this local app's origin."""
+        """Allow credential and Social mutations only from this local app's origin."""
         origin = str(self.headers.get("Origin") or "").strip()
         if not origin:
             # Command-line and native local callers do not send Origin.
@@ -9897,9 +10803,13 @@ class WebHandler(SimpleHTTPRequestHandler):
             and parsed_origin.netloc.casefold() == request_host.casefold()
         )
 
+    @staticmethod
+    def _sensitive_social_api_path(path: str) -> bool:
+        return path in {"/api/social/brand-route", "/api/social/brand-connection"} or path.startswith("/api/meta/")
+
     def end_headers(self) -> None:
         parsed_path = urlparse(self.path).path
-        if parsed_path in {"/api/social/brand-route", "/api/social/brand-connection"}:
+        if self._sensitive_social_api_path(parsed_path):
             origin = str(self.headers.get("Origin") or "").strip()
             if origin and self._social_route_origin_allowed():
                 self.send_header("Access-Control-Allow-Origin", origin)
@@ -9915,7 +10825,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
-        if urlparse(self.path).path in {"/api/social/brand-route", "/api/social/brand-connection"} and not self._social_route_origin_allowed():
+        if self._sensitive_social_api_path(urlparse(self.path).path) and not self._social_route_origin_allowed():
             self.send_response(403)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -10063,6 +10973,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.send_html(200, render_social_html())
             return
 
+        if path in {"/monitor", "/monitor/", "/social-monitor", "/social-monitor/"}:
+            self.send_html(200, render_monitor_html())
+            return
+
         if path in {"/upload-guide/youtube", "/upload-guide/youtube/"}:
             self.send_html(200, render_social_upload_guide_html("youtube"))
             return
@@ -10142,6 +11056,24 @@ class WebHandler(SimpleHTTPRequestHandler):
                 if project:
                     require_project(project)
                 self.send_json(200, upload_brand_context(project))
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/meta/connections":
+            try:
+                self.send_json(200, {"connections": list_meta_connections()})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        meta_pages_match = re.fullmatch(r"/api/meta/connections/([^/]+)/pages", path)
+        if meta_pages_match:
+            try:
+                connection_id = unquote(meta_pages_match.group(1))
+                self.send_json(200, {"connection_id": connection_id, "pages": list_meta_pages(connection_id)})
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
             except Exception as exc:
@@ -10267,6 +11199,27 @@ class WebHandler(SimpleHTTPRequestHandler):
         if path == "/api/social/status":
             try:
                 self.send_json(200, social_status())
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if path == "/api/social/worker/jobs":
+            values = parse_qs(parsed.query)
+            try:
+                payload = worker_jobs(
+                    limit=int((values.get("limit") or ["100"])[0] or 100),
+                    status=(values.get("status") or [""])[0],
+                    platform=(values.get("platform") or [""])[0],
+                )
+                self.send_json(200, payload)
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        worker_job_match = re.fullmatch(r"/api/social/worker/jobs/([^/]+)", path)
+        if worker_job_match:
+            try:
+                self.send_json(200, worker_job_status(unquote(worker_job_match.group(1))))
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -10406,10 +11359,25 @@ class WebHandler(SimpleHTTPRequestHandler):
             return
 
         if path == "/api/social/youtube/connect-url":
-            project = (parse_qs(parsed.query).get("project") or [""])[0]
+            query_values = parse_qs(parsed.query)
+            project = (query_values.get("project") or [""])[0]
+            brand = canonical_brand((query_values.get("brand") or [""])[0])
             try:
-                require_project(project)
-                self.send_json(200, {"url": start_youtube_oauth(project)})
+                if project:
+                    require_project(project)
+                    oauth_url = start_youtube_oauth(project)
+                elif brand:
+                    config = read_social_config()
+                    brand_routes = config.get("brand_routes") if isinstance(config, dict) else {}
+                    brand_routes = brand_routes if isinstance(brand_routes, dict) else {}
+                    routes = brand_routes.get(brand) if isinstance(brand_routes.get(brand), dict) else {}
+                    youtube_route = routes.get("youtube") if isinstance(routes.get("youtube"), dict) else {}
+                    if str(youtube_route.get("channel_id") or "").strip():
+                        raise ValueError("Brand đã có YouTube route. Hãy dùng chức năng Kết nối lại.")
+                    oauth_url = start_youtube_oauth("", brand=brand)
+                else:
+                    raise ValueError("Cần chọn project hoặc Brand để kết nối YouTube.")
+                self.send_json(200, {"url": oauth_url})
             except FileNotFoundError as exc:
                 self.send_json(404, {"error": str(exc)})
             except Exception as exc:
@@ -10437,10 +11405,19 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if path == "/api/social/youtube/token-health":
+            query_values = parse_qs(parsed.query)
+            channel_id = str((query_values.get("channelId") or query_values.get("channel_id") or [""])[0] or "").strip()
+            try:
+                self.send_json(200, youtube_token_health(channel_id))
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
         if path == "/api/social/youtube/callback":
             try:
                 project = finish_youtube_oauth(parse_qs(parsed.query))
-                message = f"YouTube đã kết nối cho project {project}." if project else "YouTube đã kết nối lại và cập nhật route trong trang Social."
+                message = f"YouTube đã kết nối cho project {project}." if project else "YouTube đã kết nối và cập nhật route trong trang Social."
                 self.send_html(200, social_callback_html("Đã kết nối YouTube", message))
             except Exception as exc:
                 self.send_html(400, social_callback_html("Kết nối YouTube thất bại", str(exc), ok=False))
@@ -10493,7 +11470,7 @@ class WebHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
 
-        if parsed.path in {"/api/social/brand-route", "/api/social/brand-connection"} and not self._social_route_origin_allowed():
+        if self._sensitive_social_api_path(parsed.path) and not self._social_route_origin_allowed():
             self.send_json(403, {"error": "Origin không hợp lệ cho thao tác Social."})
             return
 
@@ -10501,6 +11478,51 @@ class WebHandler(SimpleHTTPRequestHandler):
             try:
                 language = save_ui_language(self.read_json_body().get("language"))
                 self.send_json(200, {"ok": True, "language": language})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/meta/diagnose":
+            try:
+                payload = self.read_json_body()
+                result = diagnose_system_user_token(
+                    str(payload.get("systemUserAccessToken") or payload.get("system_user_access_token") or "")
+                )
+                self.send_json(200, result)
+            except MetaGraphError as exc:
+                self.send_json(exc.http_status, {"error": str(exc), "kind": exc.kind, "code": exc.code})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/meta/connections":
+            try:
+                payload = self.read_json_body()
+                connection_id = str(payload.get("id") or payload.get("connectionId") or "").strip()
+                result = save_meta_connection(
+                    str(payload.get("name") or ""),
+                    str(payload.get("systemUserAccessToken") or payload.get("system_user_access_token") or ""),
+                    connection_id=connection_id,
+                    business_id=str(payload.get("businessId") or payload.get("business_id") or ""),
+                )
+                self.send_json(200 if connection_id else 201, {"ok": True, "connection": result})
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        meta_action_match = re.fullmatch(r"/api/meta/connections/([^/]+)/(diagnose|sync-pages)", parsed.path)
+        if meta_action_match:
+            connection_id = unquote(meta_action_match.group(1))
+            action = meta_action_match.group(2)
+            try:
+                result = diagnose_meta_connection(connection_id) if action == "diagnose" else sync_meta_pages(connection_id)
+                self.send_json(200, result)
+            except FileNotFoundError as exc:
+                self.send_json(404, {"error": str(exc)})
+            except MetaGraphError as exc:
+                self.send_json(exc.http_status, {"error": str(exc), "kind": exc.kind, "code": exc.code})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
@@ -11511,6 +12533,38 @@ class WebHandler(SimpleHTTPRequestHandler):
                 except RuntimeError as exc:
                     self.send_json(409, {"error": str(exc)})
                     return
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            if parsed.path == "/api/social/worker/r2-cleanup":
+                try:
+                    cleanup_payload = self.read_json_body()
+                    result = cleanup_worker_r2(int(cleanup_payload.get("limit") or 50))
+                except Exception as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                self.send_json(200, result)
+                return
+
+            worker_job_action = re.fullmatch(r"/api/social/worker/jobs/([^/]+)/(cancel|retry|update|delete-r2)", parsed.path)
+            if worker_job_action:
+                try:
+                    job_id = unquote(worker_job_action.group(1))
+                    action = worker_job_action.group(2)
+                    if action == "cancel":
+                        result = cancel_worker_job(job_id)
+                    elif action == "retry":
+                        job = worker_job_status(job_id)
+                        if str(job.get("platform") or "").strip().lower() == "youtube":
+                            sync_social_connections_to_vps(read_social_config())
+                        result = retry_worker_job(job_id)
+                    elif action == "delete-r2":
+                        result = delete_worker_job_r2(job_id)
+                    else:
+                        result = update_worker_job(job_id, self.read_json_body())
                 except Exception as exc:
                     self.send_json(400, {"error": str(exc)})
                     return

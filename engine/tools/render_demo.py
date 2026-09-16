@@ -46,9 +46,9 @@ QUIZ_V2_TRANSITION_SECONDS = 1.0
 def quiz_countdown_starts(topic: dict) -> list[float]:
     """Return countdown start times that match the browser Quiz timeline.
 
-    Quiz V2 uses five narration segments per item: question, A, B, C, answer.
-    The configured countdown starts after option C and ends exactly when the
-    answer segment begins. No-narration Quiz V2 exports have no segment markers,
+    Quiz V2 uses one question, options, then answer per item.
+    The configured countdown starts after the final option and ends exactly when
+    the answer segment begins. No-narration Quiz V2 exports have no segment markers,
     so fall back to the browser's configured scene cadence.
     """
     if str(topic.get("projectType") or "").strip().lower() != "quiz":
@@ -59,26 +59,27 @@ def quiz_countdown_starts(topic: dict) -> list[float]:
         delay = QUIZ_V2_THINKING_SECONDS
     segments = topic.get("segments") if isinstance(topic.get("segments"), list) else []
     items = topic.get("quizItems") if isinstance(topic.get("quizItems"), list) else []
-    quiz_narration_count = len(items) * 5
+    quiz_lines_per_item = 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    quiz_narration_count = len(items) * quiz_lines_per_item
     try:
         hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
     except (TypeError, ValueError):
         hook_count = 0
-    if len(items) == 3 and len(segments) >= hook_count + quiz_narration_count:
+    if len(items) > 0 and len(segments) >= hook_count + quiz_narration_count:
         starts: list[float] = []
-        for base in range(hook_count, hook_count + quiz_narration_count, 5):
-            option_c = segments[base + 3]
-            answer = segments[base + 4]
-            if not isinstance(option_c, dict) or not isinstance(answer, dict):
+        for base in range(hook_count, hook_count + quiz_narration_count, quiz_lines_per_item):
+            final_option = segments[base + quiz_lines_per_item - 2]
+            answer = segments[base + quiz_lines_per_item - 1]
+            if not isinstance(final_option, dict) or not isinstance(answer, dict):
                 continue
             try:
-                option_end = max(0.0, float(option_c.get("end") or option_c.get("start") or 0.0))
+                option_end = max(0.0, float(final_option.get("end") or final_option.get("start") or 0.0))
                 answer_start = max(option_end, float(answer.get("start") or option_end + delay))
             except (TypeError, ValueError):
                 continue
             starts.append(max(option_end, answer_start - delay))
         return starts
-    if len(items) == 3 and not segments:
+    if len(items) > 0 and not segments:
         scene_duration = delay + QUIZ_V2_REVEAL_HOLD_SECONDS + QUIZ_V2_TRANSITION_SECONDS
         return [round(index * scene_duration, 3) for index in range(len(items))]
 

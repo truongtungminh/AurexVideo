@@ -56,12 +56,32 @@ class CustomProjectSchemaTests(unittest.TestCase):
             self.assertEqual(logo["kind"], "introLogo")
             self.assertTrue((root / "demo" / logo["path"]).is_file())
 
+    def test_custom_slide_upload_accepts_video_and_normalizes_media_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "demo").mkdir()
+            (root / "demo" / "topic.json").write_text("{}", encoding="utf-8")
+            encoded = base64.b64encode(b"test-video").decode("ascii")
+            with patch.object(m3, "PROJECTS_ROOT", root):
+                uploaded = m3.decode_upload("demo", {
+                    "kind": "slideMedia", "name": "slide.mp4", "data": encoded,
+                })
+
+            slides = m3.normalize_custom_slides([{
+                "layers": [{"type": "image", "src": uploaded["path"]}],
+            }], 1)
+            media = next(layer for layer in slides[0]["layers"] if layer["type"] == "image")
+            self.assertEqual(uploaded["mediaType"], "video")
+            self.assertEqual(media["mediaType"], "video")
+            self.assertTrue((root / "demo" / uploaded["path"]).is_file())
+
     def test_default_custom_slide_uses_vertical_stage_layout(self) -> None:
         slide = m3.default_custom_slide()
         text = next(layer for layer in slide["layers"] if layer["type"] == "text")
         media = next(layer for layer in slide["layers"] if layer["type"] == "image")
         self.assertEqual((text["x"], text["y"], text["w"], text["h"]), (0, 20, 100, 12))
         self.assertEqual((media["x"], media["y"], media["w"], media["h"]), (0, 0, 100, 100))
+        self.assertEqual(media["mediaType"], "image")
 
     def test_legacy_custom_media_layout_migrates_to_full_vertical_frame(self) -> None:
         slides = m3.normalize_custom_slides([
