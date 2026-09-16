@@ -27,6 +27,22 @@ B. Trái Đất.
 C. Sao Thủy.
 Đáp án chính xác là C. Sao Thủy."""
 
+PICTURE_QUIZ_SCRIPT = """What is this?
+Parrot
+Owl
+Penguin
+Correct answer: Parrot
+What is this?
+Chair
+Lamp
+Table
+Correct answer: Lamp
+What is this?
+Hat
+Shoe
+Bag
+Correct answer: Hat"""
+
 import m3_backend as m3  # noqa: E402
 from tools.render_project import (  # noqa: E402
     create_quiz_segment_voiceover,
@@ -295,6 +311,44 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             self.assertEqual(topic["quizCountdownSound"], "audio/quiz-countdown.wav")
             self.assertTrue((projects_root / "quiz-demo" / "audio" / "quiz-countdown.wav").is_file())
             self.assertEqual(topic["poseSfx"], {pose: "" for pose in topic["poseAssets"]})
+
+    def test_create_picture_quiz_reads_only_question_and_correct_answer(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-picture-quiz-project-") as tmp:
+            root = Path(tmp)
+            projects_root = root / "projects"
+            config_root = root / "config"
+            with (
+                patch.object(m3, "PROJECTS_ROOT", projects_root),
+                patch.object(m3, "OUTPUT_ROOT", root / "output"),
+                patch.object(m3, "CONFIG_ROOT", config_root),
+                patch.object(m3, "PROJECT_DEFAULTS_PATH", config_root / "project-defaults.json"),
+                patch.object(m3, "character_manifest", side_effect=FileNotFoundError),
+                patch.object(m3, "list_brands", return_value=[{"id": "suvietky", "name": "Sử Việt Ký"}]),
+            ):
+                m3.create_project({
+                    "id": "picture-quiz-demo",
+                    "projectType": "quiz",
+                    "quizTemplate": "picture",
+                    "brand": "suvietky",
+                    "language": "en",
+                    "quizScript": PICTURE_QUIZ_SCRIPT,
+                })
+                topic = json.loads((projects_root / "picture-quiz-demo" / "topic.json").read_text(encoding="utf-8"))
+                script = (projects_root / "picture-quiz-demo" / "script.txt").read_text(encoding="utf-8")
+
+            self.assertEqual(topic["quizTemplate"], "picture")
+            self.assertEqual(len(topic["quizItems"]), 3)
+            self.assertEqual(len(topic["quizScriptLines"]), 15)
+            self.assertEqual([segment["text"] for segment in topic["segments"]], [
+                "What is this?",
+                "Correct answer: Parrot.",
+                "What is this?",
+                "Correct answer: Lamp.",
+                "What is this?",
+                "Correct answer: Hat.",
+            ])
+            self.assertIn("Penguin", script)
+            self.assertNotIn("A. Parrot", script)
 
     def test_quizz_default_pose_sequence_and_no_sound_contract(self) -> None:
         self.assertEqual(

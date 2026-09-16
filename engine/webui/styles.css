@@ -655,6 +655,36 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .quiz-setting-grid select, .quiz-setting-grid input[type="color"] { width: 100%; min-height: 34px; }
 .quiz-setting-grid input[type="range"] { width: 100%; }
 .quiz-setting-grid output { color: var(--ink); font-size: 12px; font-weight: 800; }
+.picture-quiz-image-panel { display: grid; gap: 12px; }
+.picture-quiz-image-panel[hidden] { display: none !important; }
+.picture-quiz-image-list { display: grid; gap: 10px; }
+.picture-quiz-image-card {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+.picture-quiz-image-card img {
+  width: 78px;
+  height: 60px;
+  object-fit: contain;
+  border: 1px solid rgba(43, 35, 25, .12);
+  border-radius: 8px;
+  background: #fff;
+}
+.picture-quiz-image-card div { min-width: 0; }
+.picture-quiz-image-card strong,
+.picture-quiz-image-card span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picture-quiz-image-card strong { color: var(--ink); font-size: 12px; font-weight: 900; }
+.picture-quiz-image-card span { color: var(--muted); font-size: 11px; }
+.picture-quiz-image-card .image-actions {
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr 1fr;
+}
 .background-style,
 .subtitle-style,
 .music-style,

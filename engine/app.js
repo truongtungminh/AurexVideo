@@ -23,6 +23,7 @@ const elements = {
   quizProgress: document.querySelector("#quizProgress"),
   quizProgressValue: document.querySelector("#quizProgressValue"),
   quizQuestion: document.querySelector("#quizQuestion"),
+  quizPictureImage: document.querySelector("#quizPictureImage"),
   quizOptions: document.querySelector("#quizOptions"),
   quizCountdownWrap: document.querySelector("#quizCountdownWrap"),
   quizCountdown: document.querySelector("#quizCountdown"),
@@ -1576,6 +1577,10 @@ function isQuizProject(nextTopic = topic) {
   return String(nextTopic?.projectType || "").toLowerCase() === "quiz";
 }
 
+function isPictureQuiz(nextTopic = topic) {
+  return isQuizProject(nextTopic) && String(nextTopic?.quizTemplate || "").toLowerCase() === "picture";
+}
+
 const QUIZ_ANSWER_HOLD_SECONDS = 1;
 const QUIZ_HOOK_QUESTION_DELAY_SECONDS = 1;
 const QUIZ_V2_DEFAULT_THINKING_SECONDS = 3;
@@ -1598,7 +1603,7 @@ function quizHookQuestionDelay(nextTopic = topic) {
 
 function quizItems() {
   const brand = String(topic?.brand || "").toLowerCase();
-  const expectedCount = ["suvietky", "thegioidoday"].includes(brand) ? 5 : 3;
+  const expectedCount = isPictureQuiz() ? 3 : ["suvietky", "thegioidoday"].includes(brand) ? 5 : 3;
   const expectedOptions = brand === "thegioidoday" ? 4 : 3;
   if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== expectedCount) return [];
   const valid = topic.quizItems.every((item) => item && String(item.question || '').trim()
@@ -1610,6 +1615,7 @@ function quizItems() {
 }
 
 function quizLinesPerItem() {
+  if (isPictureQuiz()) return 2;
   return String(topic?.brand || "").toLowerCase() === "thegioidoday" ? 6 : 5;
 }
 
@@ -1903,6 +1909,7 @@ function renderQuizCta() {
   // Explicitly clear every dynamic Quiz layer so seeking directly from an
   // answer/reveal frame cannot leave stale UI or the chinhxac artwork visible.
   elements.quizText.hidden = true;
+  elements.quizText.classList.remove("quiz-picture");
   elements.quizText.classList.remove("quiz-v2-enter");
   if (elements.quizProgress) elements.quizProgress.hidden = true;
   if (elements.quizOptions) elements.quizOptions.hidden = true;
@@ -1910,10 +1917,12 @@ function renderQuizCta() {
   if (elements.quizCountdown) elements.quizCountdown.textContent = "";
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (elements.quizCtaArt) elements.quizCtaArt.hidden = false;
+  if (elements.quizPictureImage) elements.quizPictureImage.hidden = true;
 }
 
 function renderQuizV2(scene) {
   const { item, index, elapsed } = scene;
+  const pictureQuiz = isPictureQuiz();
   const thinkingSeconds = quizThinkingSeconds();
   const countdownStartAt = Math.max(0, Number(scene.countdownStartAt) || 0);
   const countdownElapsed = elapsed - countdownStartAt;
@@ -1931,6 +1940,7 @@ function renderQuizV2(scene) {
   if (elements.quizCtaArt) elements.quizCtaArt.hidden = true;
   elements.quizText.hidden = false;
   elements.quizText.classList.toggle("quiz-v2", true);
+  elements.quizText.classList.toggle("quiz-picture", pictureQuiz);
   if (elements.quizProgress) elements.quizProgress.hidden = false;
   if (elements.quizProgressValue) elements.quizProgressValue.textContent = `${index + 1}/${quizItems().length || 3}`;
   elements.quizText.style.setProperty("--quiz-question-font", style("quizQuestionFontFamily", '"Arial Black", Arial, sans-serif'));
@@ -1940,6 +1950,17 @@ function renderQuizV2(scene) {
   elements.quizQuestion.style.color = "var(--quiz-question-color)";
   elements.quizQuestion.style.fontSize = `${Number(topic?.quizQuestionSize) || 7.2}cqw`;
   fitSuvietkyQuestion();
+  if (elements.quizPictureImage) {
+    const imagePath = String(item.image || "").trim();
+    if (pictureQuiz && imagePath) {
+      const src = resolveTopicAsset(imagePath);
+      if (elements.quizPictureImage.getAttribute("src") !== src) elements.quizPictureImage.src = src;
+      elements.quizPictureImage.hidden = false;
+    } else {
+      elements.quizPictureImage.hidden = true;
+      elements.quizPictureImage.removeAttribute("src");
+    }
+  }
   if (elements.quizOptions) {
     elements.quizOptions.hidden = false;
     Array.from(elements.quizOptions.querySelectorAll(".quiz-option")).forEach((option, optionIndex) => {
@@ -1948,6 +1969,7 @@ function renderQuizV2(scene) {
       option.classList.toggle("is-empty", !hasOption);
       const isCorrect = hasOption && reveal && optionIndex === correctIndex;
       option.classList.toggle("is-correct", isCorrect);
+      option.classList.toggle("correct", isCorrect);
       option.classList.toggle("is-wrong", hasOption && reveal && optionIndex !== correctIndex);
       const rawOptionText = hasOption ? String(item.options[optionIndex] || "").trim() : "";
       option.querySelector(".quiz-option-text").textContent = rawOptionText;
@@ -1990,12 +2012,17 @@ function renderAt(time, allowPoseSfx = false) {
 
 function offlineImagePaths() {
   const paths = [topic.leftImage, topic.rightImage];
-  if (isQuizProject(topic) && String(topic.backgroundType || "default").toLowerCase() === "default") {
+  if (isQuizProject(topic) && !isPictureQuiz(topic) && String(topic.backgroundType || "default").toLowerCase() === "default") {
     paths.push("assets/background-default.png");
   }
   if (isQuizProject(topic)) paths.push("/assets/chinhxac.webp");
   if (isQuizProject(topic)) paths.push(topic.quizCtaArt || "/assets/quiz-cta-like.webp");
   if (isQuizProject(topic) && topic.quizHookArt) paths.push(topic.quizHookArt);
+  if (isPictureQuiz(topic) && Array.isArray(topic.quizItems)) {
+    topic.quizItems.forEach((item) => {
+      if (item?.image) paths.push(item.image);
+    });
+  }
   if (String(topic.backgroundType || "").toLowerCase() === "image" && topic.backgroundImage) {
     paths.push(topic.backgroundImage);
   }
@@ -2456,6 +2483,15 @@ function applyStageBackground(nextTopic = topic) {
     return;
   }
 
+  if (type === "default" && isPictureQuiz(nextTopic)) {
+    elements.stage.style.background = "linear-gradient(180deg, #1ea7ff 0%, #8bdcff 44%, #eaffff 100%)";
+    if (bgImage) {
+      bgImage.hidden = true;
+      bgImage.removeAttribute("src");
+    }
+    return;
+  }
+
   if (type === "default" && isQuizProject(nextTopic) && bgImage) {
     elements.stage.style.background = "#fbd617";
     const src = resolveTopicAsset("assets/background-default.png");
@@ -2519,6 +2555,7 @@ async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false
   teacherClasses.remove(...Array.from(teacherClasses).filter((cls) => cls.startsWith("character-")));
   stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("character-")));
   stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("brand-")));
+  stageClasses.remove(...Array.from(stageClasses).filter((cls) => cls.startsWith("quiz-template-")));
   if (isCustomCharacter && topic.characterId) {
     teacherClasses.add(`character-${topic.characterId}`);
     stageClasses.add(`character-${topic.characterId}`);
@@ -2527,6 +2564,8 @@ async function applyTopicToView(nextTopic, { preserveAudio = true, blank = false
   // character `quizz`, while only one may use artwork-specific overlay CSS.
   const topicBrand = String(topic.brand || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
   if (topicBrand) stageClasses.add(`brand-${topicBrand}`);
+  const quizTemplate = String(topic.quizTemplate || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  if (quizTemplate) stageClasses.add(`quiz-template-${quizTemplate}`);
   // Tải manifest nhân vật để lấy màu nhãn mặc định (fallback theo character - Phương án A).
   await loadCharacterMeta(isCustomCharacter ? topic.characterId : null);
   if (!isCustomCharacter) clearImportedPresenterLayout();

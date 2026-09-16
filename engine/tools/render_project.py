@@ -769,7 +769,8 @@ def quiz_segment_timeline(topic: dict, segment_durations: list[float]) -> tuple[
     result: list[dict] = []
     cursor = 0.0
     quiz_items = topic.get("quizItems")
-    quiz_lines_per_item = 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    quiz_template = str(topic.get("quizTemplate") or "").strip().lower()
+    quiz_lines_per_item = 2 if quiz_template == "picture" else 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
     quiz_narration_count = len(quiz_items) * quiz_lines_per_item if isinstance(quiz_items, list) else 0
     try:
         hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
@@ -840,7 +841,8 @@ def build_quiz_segment_audio(
     sequence: list[str] = []
     input_index = 0
     quiz_items = topic.get("quizItems")
-    quiz_lines_per_item = 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    quiz_template = str(topic.get("quizTemplate") or "").strip().lower()
+    quiz_lines_per_item = 2 if quiz_template == "picture" else 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
     quiz_narration_count = len(quiz_items) * quiz_lines_per_item if isinstance(quiz_items, list) else 0
     try:
         hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))

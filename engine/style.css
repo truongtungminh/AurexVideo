@@ -611,6 +611,166 @@ body {
 }
 .quiz-v2 .quiz-answer-card { display: none !important; }
 
+.stage.quiz-template-picture.quiz-text-only .media-slot { display: none !important; }
+.stage.quiz-template-picture .quiz-text.quiz-v2 {
+  top: 4.5%;
+  height: 91%;
+  justify-content: start;
+  gap: 1.5cqw;
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-progress {
+  width: auto;
+  min-height: 6.8cqw;
+  margin-bottom: .7cqw;
+  padding: .7cqw 3.2cqw .9cqw;
+  color: #07245a;
+  background: rgba(255,255,255,.92);
+  border-color: #07245a;
+  box-shadow: 0 .55cqw 0 rgba(7,36,90,.75), inset 0 0 0 .22cqw rgba(255,255,255,.95);
+  font-size: 4.2cqw;
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-question-card {
+  width: 76cqw;
+  min-height: 44cqw;
+  margin: 0 0 2cqw;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: visible;
+  background: linear-gradient(180deg, #fffefa 0%, #fff7e4 100%);
+  border: .55cqw solid #0d2b6b;
+  border-radius: 2.6cqw;
+  box-shadow: 0 .8cqw 0 rgba(13,43,107,.85), 0 1.6cqw 2.4cqw rgba(0,0,0,.14);
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-question-card::after { content: none; }
+.stage.quiz-template-picture .quiz-v2 .quiz-question {
+  justify-self: center;
+  margin-top: -3.5cqw;
+  padding: 1.3cqw 5.8cqw 1.5cqw;
+  color: #ffffff !important;
+  background: linear-gradient(180deg, #ff4f5b, #df111d);
+  border: .42cqw solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 .48cqw 0 #9f0915, 0 .8cqw 1.4cqw rgba(0,0,0,.22);
+  font-size: 5.4cqw !important;
+  line-height: 1;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 .18cqw 0 rgba(0,0,0,.22);
+}
+.stage.quiz-template-picture .quiz-picture-image {
+  align-self: center;
+  justify-self: center;
+  width: 84%;
+  height: 82%;
+  min-height: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 .75cqw 1.2cqw rgba(0,0,0,.18));
+}
+.stage.quiz-template-picture .quiz-picture-image[hidden] { display: none !important; }
+.stage.quiz-template-picture .quiz-v2 .quiz-options {
+  width: 78cqw;
+  height: auto;
+  grid-template-rows: repeat(3, 14.2cqw);
+  gap: 2.2cqw;
+  margin: 0;
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-option {
+  gap: 3.4cqw;
+  min-height: 14.2cqw;
+  padding: 1.25cqw 8.6cqw 1.25cqw 1.4cqw;
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
+  border: .55cqw solid #0d2b6b;
+  box-shadow: 0 .65cqw 0 #0a2560, inset 0 0 0 .2cqw rgba(255,255,255,.92);
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-option-label {
+  flex-basis: 11.4cqw;
+  width: 11.4cqw;
+  height: 11.4cqw;
+  border-width: .42cqw;
+  font-size: 6.1cqw;
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-option-text {
+  color: #07194d;
+  font-size: 5.2cqw;
+  letter-spacing: 0;
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-option.is-wrong { opacity: 1; }
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap {
+  position: absolute;
+  right: 7.2cqw;
+  top: 44.5cqw;
+  width: 20cqw;
+  height: 20cqw;
+  margin: 0;
+  z-index: 5;
+}
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown {
+  font-size: 7.2cqw;
+}
+
+/* Picture Quiz correct answer reveal */
+.stage.quiz-template-picture .quiz-option.correct {
+  position: relative;
+  z-index: 10;
+  background: linear-gradient(180deg, #efffe9 0%, #caffb8 50%, #9bf47c 100%);
+  border-color: #12a52c;
+  box-shadow:
+    0 0 0 .56cqw #dfff32,
+    0 0 2.6cqw rgba(177, 255, 34, 0.9),
+    0 0 5.5cqw rgba(45, 230, 70, 0.55),
+    0 .9cqw 0 #087d20;
+  animation: correctReveal 600ms cubic-bezier(.2, 1.5, .4, 1) forwards;
+}
+.stage.quiz-template-picture .quiz-option.correct .quiz-option-label {
+  background: linear-gradient(180deg, #67f15b, #10bd31 60%, #078b20);
+  border-color: #075f18;
+  color: #fff;
+  box-shadow:
+    inset 0 .45cqw .45cqw rgba(255,255,255,.55),
+    0 0 1.8cqw rgba(64,255,70,.7);
+}
+.stage.quiz-template-picture .quiz-option.correct .quiz-option-text {
+  color: #087c1d;
+  font-weight: 900;
+  text-shadow: none;
+}
+.stage.quiz-template-picture .quiz-option.correct .quiz-option-check { display: none; }
+.stage.quiz-template-picture .quiz-option.correct::after {
+  content: "✓";
+  position: absolute;
+  right: 2.6cqw;
+  top: 50%;
+  width: 7.6cqw;
+  height: 7.6cqw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #16b83b;
+  border: .5cqw solid #fff;
+  color: #fff;
+  font-size: 5.2cqw;
+  font-weight: 900;
+  box-shadow:
+    0 .35cqw 0 #08721b,
+    0 0 1.8cqw rgba(41,255,62,.8);
+  transform: translateY(-50%) scale(0);
+  animation: checkPop 350ms 180ms cubic-bezier(.2,1.8,.4,1) forwards;
+}
+
+@keyframes correctReveal {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.06); }
+  60% { transform: scale(.99); }
+  100% { transform: scale(1.025); }
+}
+
+@keyframes checkPop {
+  0% { transform: translateY(-50%) scale(0); }
+  70% { transform: translateY(-50%) scale(1.18); }
+  100% { transform: translateY(-50%) scale(1); }
+}
+
 /* The Gioi Do Day: artwork already contains progress board, clock, question frame,
    four answer pills, and A/B/C/D badges. Render dynamic text only. */
 .stage.brand-thegioidoday .quiz-text.quiz-v2 {

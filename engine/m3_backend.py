@@ -1999,6 +1999,11 @@ def normalize_topic(slug: str, payload: dict) -> dict:
     topic = dict(current)
     topic["id"] = slug
     topic["projectType"] = normalize_project_type(payload.get("projectType", current.get("projectType")))
+    quiz_template = str(payload.get("quizTemplate", current.get("quizTemplate", "")) or "").strip().lower()
+    if topic["projectType"] == "quiz" and quiz_template == PICTURE_QUIZ_TEMPLATE:
+        topic["quizTemplate"] = PICTURE_QUIZ_TEMPLATE
+    else:
+        topic.pop("quizTemplate", None)
     for field in ("brand", "leftLabel", "rightLabel"):
         text = normalize_display_text(payload.get(field, current.get(field, "")), "", 100)
         if not text and not (topic["projectType"] == "quiz" and field == "rightLabel"):
@@ -2081,11 +2086,31 @@ def normalize_topic(slug: str, payload: dict) -> dict:
             brand_id = str(payload.get("brand", current.get("brand", "")) or "").strip().lower()
             raw_quiz_items = payload.get("quizItems", payload.get("quiz_items"))
             legacy_three_item_payload = isinstance(raw_quiz_items, list) and len(raw_quiz_items) == QUIZ_ITEM_COUNT
-            item_count = QUIZ_ITEM_COUNT if legacy_three_item_payload else SUVietKY_ITEM_COUNT if brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
-            options_count = THEGIOIDODAY_OPTIONS_COUNT if brand_id == "thegioidoday" else 3
+            is_picture_quiz = topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE
+            item_count = PICTURE_QUIZ_ITEM_COUNT if is_picture_quiz else QUIZ_ITEM_COUNT if legacy_three_item_payload else SUVietKY_ITEM_COUNT if brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
+            options_count = 3 if is_picture_quiz else THEGIOIDODAY_OPTIONS_COUNT if brand_id == "thegioidoday" else 3
             topic["quizItems"] = normalize_quiz_items(
                 raw_quiz_items, item_count, options_count
             )
+        if topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE:
+            raw_script_lines = payload.get("quizScriptLines", current.get("quizScriptLines", []))
+            script_lines = _quiz_script_lines(raw_script_lines)
+            if script_lines:
+                topic["quizScriptLines"] = script_lines[:PICTURE_QUIZ_ITEM_COUNT * QUIZ_LINES_PER_ITEM]
+            elif isinstance(topic.get("quizItems"), list):
+                reconstructed: list[str] = []
+                for item in topic["quizItems"]:
+                    options = item.get("options") if isinstance(item, dict) else []
+                    correct_index = int(item.get("correct_index", item.get("correctIndex", 0))) if isinstance(item, dict) else 0
+                    correct_text = options[correct_index] if isinstance(options, list) and 0 <= correct_index < len(options) else ""
+                    reconstructed.extend([
+                        str(item.get("question") or "").strip(),
+                        *[str(option or "").strip() for option in (options or [])[:3]],
+                        f"Correct answer: {correct_text}",
+                    ])
+                topic["quizScriptLines"] = reconstructed
+        else:
+            topic.pop("quizScriptLines", None)
         raw_answer = normalize_display_text(payload.get("quizAnswer", current.get("quizAnswer", "")), "", 300)
         if not raw_answer and len(cleaned_segments) > 1:
             raw_answer = cleaned_segments[1]["text"]
@@ -2163,6 +2188,8 @@ def normalize_topic(slug: str, payload: dict) -> dict:
             topic[key] = round(max(4.0, min(12.0, value)), 1)
     else:
         topic.pop("quizItems", None)
+        topic.pop("quizTemplate", None)
+        topic.pop("quizScriptLines", None)
         topic.pop("quizAnswer", None)
         topic.pop("quizAnswerDelay", None)
         topic.pop("quizCountdownSound", None)
@@ -2485,7 +2512,8 @@ def save_topic(slug: str, payload: dict) -> dict:
     topic = normalize_topic(slug, payload)
     directory = project_dir(slug)
     atomic_write_json(directory / "topic.json", topic)
-    script = "\n".join(segment["text"] for segment in topic["segments"]) + "\n"
+    script_source = topic.get("quizScriptLines") if topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE else None
+    script = "\n".join(script_source or [segment["text"] for segment in topic["segments"]]) + "\n"
     (directory / "script.txt").write_text(script, encoding="utf-8")
     remember_project_defaults(slug, topic)
     return topic
@@ -2584,8 +2612,14 @@ SUVietKY_ITEM_COUNT = 5
 THEGIOIDODAY_ANSWER_RE = re.compile(r"đáp án(?: chính xác)? là\s*([ABCD])\s*[.)]?\s*(.*?)(?=\s+Đáp án(?: chính xác)? là\s+[ABCD]\b|\s+Bạn đúng|$)", re.IGNORECASE)
 QUIZ_DEFAULT_CTA_VI = "Bạn trả lời đúng được mấy câu? Comment kết quả bên dưới và Follow mình để thử thách tiếp nhé!"
 QUIZ_DEFAULT_CTA_EN = "How many questions did you get right? Comment your score below and follow for the next challenge!"
+PICTURE_QUIZ_TEMPLATE = "picture"
+PICTURE_QUIZ_ITEM_COUNT = 3
 QUIZ_ANSWER_LINE_RE = re.compile(
     r"(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$",
+    re.IGNORECASE,
+)
+PICTURE_QUIZ_ANSWER_RE = re.compile(
+    r"(?:đáp án chính xác là|đáp án đúng là|correct answer is|correct answer)\s*[:：]?\s*(?:([ABC])\s*[.)]\s*)?(.+)$",
     re.IGNORECASE,
 )
 
@@ -2640,7 +2674,57 @@ def parse_quiz_script(value: object, language: object = "vi", item_count: int = 
     return [*quiz_lines, trailing or quiz_default_cta(language)], items
 
 
-def quiz_preview_segments(lines: list[str]) -> tuple[list[dict[str, object]], float]:
+def _clean_picture_option(line: str, index: int) -> str:
+    expected = chr(ord("A") + index)
+    match = re.match(r"^([A-C])\s*[.)]\s*(.+)$", line, re.IGNORECASE)
+    if match:
+        if match.group(1).upper() != expected:
+            raise ValueError(f"Câu Picture Quiz: lựa chọn {expected} đang sai thứ tự.")
+        return match.group(2).strip()
+    return line.strip()
+
+
+def parse_picture_quiz_script(value: object, language: object = "en", item_count: int = PICTURE_QUIZ_ITEM_COUNT) -> tuple[list[str], list[dict[str, object]], list[str]]:
+    """Parse image vocabulary quiz: question + 3 display options + spoken answer."""
+    lines = _quiz_script_lines(value)
+    narration_line_count = item_count * QUIZ_LINES_PER_ITEM
+    if len(lines) < narration_line_count:
+        raise ValueError(f"Picture Quiz cần đủ {item_count} câu × 5 dòng.")
+    display_lines = lines[:narration_line_count]
+    spoken_lines: list[str] = []
+    raw_items: list[dict[str, object]] = []
+    for item_index in range(item_count):
+        offset = item_index * QUIZ_LINES_PER_ITEM
+        question = display_lines[offset]
+        options = [_clean_picture_option(display_lines[offset + 1 + option_index], option_index) for option_index in range(3)]
+        answer_line = display_lines[offset + 4]
+        answer_match = PICTURE_QUIZ_ANSWER_RE.search(answer_line)
+        if not question or any(not option for option in options) or not answer_match:
+            raise ValueError(f"Câu Picture Quiz {item_index + 1}: kịch bản không hợp lệ.")
+        answer_letter = (answer_match.group(1) or "").upper()
+        answer_text = answer_match.group(2).strip().rstrip(".")
+        if answer_letter:
+            correct_index = ord(answer_letter) - ord("A")
+            if correct_index not in {0, 1, 2}:
+                raise ValueError(f"Câu Picture Quiz {item_index + 1}: đáp án phải là A, B hoặc C.")
+        else:
+            normalized_answer = answer_text.casefold()
+            matches = [index for index, option in enumerate(options) if option.casefold().rstrip(".") == normalized_answer]
+            if not matches:
+                raise ValueError(f"Câu Picture Quiz {item_index + 1}: đáp án đúng phải khớp một lựa chọn.")
+            correct_index = matches[0]
+        correct_text = options[correct_index]
+        display_lines[offset + 1:offset + 4] = options
+        display_lines[offset + 4] = f"Correct answer: {correct_text}"
+        spoken_lines.extend([question, f"Correct answer: {correct_text}."])
+        raw_items.append({"question": question, "options": options, "correct_index": correct_index})
+    trailing = " ".join(lines[narration_line_count:]).strip()
+    if trailing:
+        spoken_lines.append(trailing)
+    return spoken_lines, normalize_quiz_items(raw_items, item_count=item_count, options_count=3), display_lines
+
+
+def quiz_preview_segments(lines: list[str], lines_per_item: int = QUIZ_LINES_PER_ITEM) -> tuple[list[dict[str, object]], float]:
     """Build a readable silent-preview timeline that mirrors Quiz render order."""
     cursor = 0.0
     segments: list[dict[str, object]] = []
@@ -2657,7 +2741,11 @@ def quiz_preview_segments(lines: list[str]) -> tuple[list[dict[str, object]], fl
             "speaker": "voice_a" if index == 0 or index == len(lines) - 1 else "voice_b",
         })
         cursor = end
-        if index in {3, 8, 13, 18, 23}:
+        if lines_per_item == 2 and index % 2 == 0 and index < len(lines) - 1:
+            cursor += 5.0
+        elif lines_per_item == 2 and index % 2 == 1 and index < len(lines) - 1:
+            cursor += 1.0
+        elif index in {3, 8, 13, 18, 23}:
             cursor += 5.0
         elif index in {4, 9, 14, 19, 24}:
             cursor += 1.0
@@ -2705,19 +2793,26 @@ def create_project(payload: dict) -> dict:
     language = normalize_ui_language(payload.get("language") or payload.get("locale"))
     is_en = language == "en"
     project_type = normalize_project_type(payload.get("projectType") or payload.get("type"))
+    quiz_template = str(payload.get("quizTemplate") or payload.get("template") or "").strip().lower()
+    if project_type != "quiz" or quiz_template != PICTURE_QUIZ_TEMPLATE:
+        quiz_template = ""
     quiz_script = payload.get("quizScript", payload.get("script", ""))
     quiz_lines: list[str] | None = None
+    quiz_script_lines: list[str] | None = None
     quiz_items: list[dict[str, object]] | None = None
     quiz_segments: list[dict[str, object]] | None = None
     quiz_duration = 1.0
     requested_brand_id = str(payload.get("brand", payload.get("brandId", "")) or "").strip().lower()
-    quiz_item_count = SUVietKY_ITEM_COUNT if requested_brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
-    quiz_options_count = THEGIOIDODAY_OPTIONS_COUNT if requested_brand_id == "thegioidoday" else 3
+    quiz_item_count = PICTURE_QUIZ_ITEM_COUNT if quiz_template == PICTURE_QUIZ_TEMPLATE else SUVietKY_ITEM_COUNT if requested_brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
+    quiz_options_count = 3 if quiz_template == PICTURE_QUIZ_TEMPLATE else THEGIOIDODAY_OPTIONS_COUNT if requested_brand_id == "thegioidoday" else 3
     if project_type == "quiz" and _quiz_script_lines(quiz_script):
         # Validate before creating any project directory so malformed scripts
         # never leave a half-created project behind.
-        quiz_lines, quiz_items = parse_quiz_script(quiz_script, language, quiz_item_count, quiz_options_count)
-        quiz_segments, quiz_duration = quiz_preview_segments(quiz_lines)
+        if quiz_template == PICTURE_QUIZ_TEMPLATE:
+            quiz_lines, quiz_items, quiz_script_lines = parse_picture_quiz_script(quiz_script, language, quiz_item_count)
+        else:
+            quiz_lines, quiz_items = parse_quiz_script(quiz_script, language, quiz_item_count, quiz_options_count)
+        quiz_segments, quiz_duration = quiz_preview_segments(quiz_lines, 2 if quiz_template == PICTURE_QUIZ_TEMPLATE else QUIZ_LINES_PER_ITEM)
     defaults = read_project_defaults()
     custom_editor_defaults = _read_custom_editor_defaults(defaults.get("customEditorDefaults")) if project_type == "custom" else None
     # Quiz and Custom render without a presenter. Keep a neutral internal pose
@@ -3018,6 +3113,10 @@ def create_project(payload: dict) -> dict:
         "karaokeSize": karaoke_size,
         "karaokeY": 66.0 if project_type == "custom" else 46.2,
     }
+    if quiz_template:
+        topic["quizTemplate"] = quiz_template
+    if quiz_script_lines is not None:
+        topic["quizScriptLines"] = quiz_script_lines
     if quiz_items is not None:
         topic["quizItems"] = quiz_items
     atomic_write_json(destination / "topic.json", topic)
@@ -3030,7 +3129,7 @@ def create_project(payload: dict) -> dict:
             topic["comparisons"][0]["leftImage"] = topic["leftImage"]
         atomic_write_json(destination / "topic.json", topic)
         (destination / "script.txt").write_text(
-            "\n".join(segment["text"] for segment in topic["segments"]) + "\n",
+            "\n".join(topic.get("quizScriptLines") or [segment["text"] for segment in topic["segments"]]) + "\n",
             encoding="utf-8",
         )
     return project_summary(destination)

@@ -166,6 +166,7 @@ const elements = Object.fromEntries([
   "labelFontFamily",
   "quizQuestionFont", "quizQuestionColor", "quizQuestionSize", "quizQuestionSizeText", "quizCountdownColor",
   "quizAnswerFont", "quizAnswerColor", "quizAnswerSize", "quizAnswerSizeText",
+  "pictureQuizImagePanel", "pictureQuizImageList",
   "primarySubLabelRow",
   "comparisonList", "addComparisonButton", "addSingleImageButton", "deleteBaseComparison", "primaryComparisonTitle",
   "backgroundType", "backgroundColor", "backgroundColorField", "backgroundImagePanel",
@@ -660,14 +661,22 @@ function isQuizProject() {
   return String(state.topic?.projectType || "").toLowerCase() === "quiz";
 }
 
+function isPictureQuizProject() {
+  return isQuizProject() && String(state.topic?.quizTemplate || "").toLowerCase() === "picture";
+}
+
 function syncQuizEditorMode() {
   const quiz = isQuizProject();
+  const pictureQuiz = isPictureQuizProject();
   document.body.classList.toggle("editor-mode-quiz", quiz);
+  document.body.classList.toggle("editor-mode-picture-quiz", pictureQuiz);
   if (elements.addComparisonButton) elements.addComparisonButton.hidden = quiz;
   if (elements.addSingleImageButton) elements.addSingleImageButton.hidden = quiz;
   if (elements.deleteBaseComparison) elements.deleteBaseComparison.hidden = quiz;
-  if (elements.primaryComparisonTitle) elements.primaryComparisonTitle.textContent = quiz ? tr("Ảnh Quiz", "Quiz image") : tr("So sánh 1", "Comparison 1");
+  if (elements.primaryComparisonTitle) elements.primaryComparisonTitle.textContent = pictureQuiz ? tr("Ảnh mặc định Picture Quiz", "Picture Quiz default image") : quiz ? tr("Ảnh Quiz", "Quiz image") : tr("So sánh 1", "Comparison 1");
   document.querySelector(".comparison-block-primary")?.classList.toggle("quiz-image-only", quiz);
+  if (elements.pictureQuizImagePanel) elements.pictureQuizImagePanel.hidden = !pictureQuiz;
+  renderPictureQuizImagePanel();
 }
 
 function baseComparisonEnabled() {
@@ -837,6 +846,44 @@ function comparisonThumbUrl(comparison, side) {
   return assetUrl(comparison[`${side}Image`]);
 }
 
+function pictureQuizPlaceholderDataUrl(index) {
+  const label = `Image ${index + 1}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="360" viewBox="0 0 520 360"><rect width="520" height="360" rx="26" fill="#fff"/><rect x="20" y="20" width="480" height="320" rx="24" fill="none" stroke="#1d8fe8" stroke-width="10" stroke-dasharray="20 14"/><circle cx="260" cy="150" r="48" fill="#1d8fe8" opacity=".14"/><path d="M210 224h100M260 174v100" stroke="#1d8fe8" stroke-width="16" stroke-linecap="round"/><text x="260" y="310" text-anchor="middle" fill="#07194d" font-family="Arial,sans-serif" font-size="30" font-weight="900">${label}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function pictureQuizImageSrc(index) {
+  const pending = state.pendingUploads[`pictureQuizImage:${index}`];
+  if (pending) return URL.createObjectURL(pending);
+  const item = Array.isArray(state.topic?.quizItems) ? state.topic.quizItems[index] : null;
+  const image = String(item?.image || "").trim();
+  return image ? assetUrl(image) : pictureQuizPlaceholderDataUrl(index);
+}
+
+function renderPictureQuizImagePanel() {
+  if (!elements.pictureQuizImagePanel || !elements.pictureQuizImageList) return;
+  if (!isPictureQuizProject()) {
+    elements.pictureQuizImagePanel.hidden = true;
+    elements.pictureQuizImageList.replaceChildren();
+    return;
+  }
+  elements.pictureQuizImagePanel.hidden = false;
+  const items = quizItemsFromScript(scriptLines()) || state.topic.quizItems || [];
+  elements.pictureQuizImageList.innerHTML = Array.from({ length: quizItemCount() }, (_, index) => {
+    const item = items[index] || {};
+    const question = String(item.question || `Question ${index + 1}`).trim();
+    const hasImage = Boolean(String(item.image || "").trim() || state.pendingUploads[`pictureQuizImage:${index}`]);
+    return `<article class="picture-quiz-image-card" data-picture-quiz-index="${index}">
+      <img src="${pictureQuizImageSrc(index)}" alt="" />
+      <div><strong>Câu ${index + 1}</strong><span>${escapeHtml(question)}</span></div>
+      <div class="image-actions">
+        <label class="replace-image">Thay ảnh<input data-picture-quiz-image-file="${index}" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+        <button class="delete-image" data-action="clear-picture-quiz-image" data-picture-quiz-index="${index}" type="button" ${hasImage ? "" : "disabled"}>Xoá ảnh</button>
+      </div>
+    </article>`;
+  }).join("");
+}
+
 function setBaseImageFile(side, file, frame = null) {
   const input = elements[side === "left" ? "leftImageFile" : "rightImageFile"];
   const thumb = elements[side === "left" ? "leftThumb" : "rightThumb"];
@@ -896,6 +943,14 @@ function clearComparisonImage(comparison, side) {
 }
 
 function nextEmptyImageSlot() {
+  if (isPictureQuizProject()) {
+    const items = quizItemsFromScript(scriptLines()) || state.topic.quizItems || [];
+    for (let index = 0; index < Math.min(quizItemCount(), items.length); index += 1) {
+      if (!String(items[index]?.image || "").trim() && !state.pendingUploads[`pictureQuizImage:${index}`]) {
+        return { type: "pictureQuiz", index };
+      }
+    }
+  }
   const firstEmptyComparisonSlot = (comparison) => {
     if (!comparison) return null;
     for (const side of comparisonSides(comparison)) {
@@ -997,6 +1052,7 @@ function scriptLines() {
 
 const QUIZ_LINES_PER_ITEM = 5;
 function quizItemCount() {
+  if (isPictureQuizProject()) return 3;
   return String(state.topic?.brand || "").toLowerCase() === "suvietky" ? 5 : 3;
 }
 function quizNarrationLineCount() {
@@ -1020,18 +1076,31 @@ function quizItemsFromScript(lines = scriptLines()) {
     const options = quizLines.slice(offset + 1, offset + 4).map((line, index) => {
       const expected = String.fromCharCode(65 + index);
       const match = line.match(new RegExp(`^${expected}\\s*[.)]\\s*(.+)$`, "i"));
-      return match?.[1]?.trim() || "";
+      return isPictureQuizProject() ? (match?.[1]?.trim() || line.trim()) : (match?.[1]?.trim() || "");
     });
     const answerLine = quizLines[offset + 4];
-    const answerMatch = answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$/iu);
+    const answerMatch = isPictureQuizProject()
+      ? answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is|correct answer)\s*[:：]?\s*(?:([ABC])\s*[.)]\s*)?(.+)$/iu)
+      : answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$/iu);
     if (!question || options.some((option) => !option) || !answerMatch) return null;
+    const answerLetter = String(answerMatch[1] || "").toUpperCase();
+    const answerText = String(answerMatch[2] || "").trim().replace(/\.$/, "");
+    const correctIndex = answerLetter
+      ? answerLetter.charCodeAt(0) - 65
+      : options.findIndex((option) => option.toLowerCase().replace(/\.$/, "") === answerText.toLowerCase());
+    if (correctIndex < 0 || correctIndex > 2) return null;
     items.push({
       question,
       options,
-      correct_index: answerMatch[1].toUpperCase().charCodeAt(0) - 65,
+      correct_index: correctIndex,
     });
   }
-  return items;
+  if (!isPictureQuizProject()) return items;
+  const currentItems = Array.isArray(state.topic?.quizItems) ? state.topic.quizItems : [];
+  return items.map((item, index) => {
+    const image = String(currentItems[index]?.image || "").trim();
+    return image ? { ...item, image } : item;
+  });
 }
 
 function quizScriptLinesWithCta(lines = scriptLines()) {
@@ -1042,9 +1111,24 @@ function quizScriptLinesWithCta(lines = scriptLines()) {
   items.forEach((item, index) => {
     const correctIndex = Number(item.correct_index);
     const letter = String.fromCharCode(65 + correctIndex);
-    const prefix = tr("Đáp án chính xác là", "Correct answer is");
-    quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `${prefix} ${letter}. ${item.options[correctIndex]}`;
+    if (isPictureQuizProject()) {
+      quizLines[index * QUIZ_LINES_PER_ITEM + 1] = item.options[0];
+      quizLines[index * QUIZ_LINES_PER_ITEM + 2] = item.options[1];
+      quizLines[index * QUIZ_LINES_PER_ITEM + 3] = item.options[2];
+      quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `Correct answer: ${item.options[correctIndex]}`;
+    } else {
+      const prefix = tr("Đáp án chính xác là", "Correct answer is");
+      quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `${prefix} ${letter}. ${item.options[correctIndex]}`;
+    }
   });
+  if (isPictureQuizProject()) {
+    const spokenLines = [];
+    items.forEach((item) => {
+      spokenLines.push(item.question, `Correct answer: ${item.options[Number(item.correct_index)]}.`);
+    });
+    const trailing = lines.slice(quizNarrationLineCount()).join(" ").trim();
+    return trailing ? [...spokenLines, trailing] : spokenLines;
+  }
   const trailingCta = lines.slice(quizNarrationLineCount()).join(" ").trim();
   return [
     ...quizLines,
@@ -1421,6 +1505,8 @@ function draftTopic(forceRetime = false) {
   }
   return {
     ...state.topic,
+    quizTemplate: isPictureQuizProject() ? "picture" : undefined,
+    quizScriptLines: isPictureQuizProject() ? scriptLines().slice(0, quizNarrationLineCount()) : undefined,
     pasteImageMode: normalizePasteImageMode(state.topic.pasteImageMode),
     brand: state.topic.brand || "Aurex",
     leftLabel: elements.leftLabelInput.value.trim(),
@@ -2163,7 +2249,13 @@ async function saveEditor(event, quiet = false) {
   try {
     let uploadedVoice = false;
     for (const [kind, file] of Object.entries(state.pendingUploads)) {
-      if (kind.startsWith("comparison:")) {
+      if (kind.startsWith("pictureQuizImage:")) {
+        const index = Number(kind.split(":")[1]);
+        if (Number.isInteger(index) && Array.isArray(state.topic.quizItems) && state.topic.quizItems[index]) {
+          const result = await uploadFile("comparisonImage", file, false);
+          state.topic.quizItems[index].image = result.path;
+        }
+      } else if (kind.startsWith("comparison:")) {
         const [, comparisonId, side] = kind.split(":");
         const comparison = comparisonById(comparisonId);
         if (comparison && (side === "left" || side === "right")) {
@@ -2193,6 +2285,7 @@ async function saveEditor(event, quiet = false) {
     renderPoseSfxMap();
     renderPoseList();
     renderComparisonList();
+    renderPictureQuizImagePanel();
     if (elements.rightLabelInput) elements.rightLabelInput.disabled = isQuizProject();
     applyImageFrameToThumb("left");
     applyImageFrameToThumb("right");
@@ -2289,7 +2382,9 @@ async function loadProject() {
       scheduleAutoSave(120);
     }
     configurePoseOptions(state.topic);
-    const initialLines = state.topic.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean);
+    const initialLines = isPictureQuizProject() && Array.isArray(state.topic.quizScriptLines)
+      ? state.topic.quizScriptLines.map((line) => String(line || "").trim()).filter(Boolean)
+      : state.topic.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean);
     const suggestedPreviewDuration = previewDurationFor(initialLines);
     if (hasPlaceholderVoiceover() && Number(state.topic.duration) + 0.01 < suggestedPreviewDuration) {
       state.topic.duration = suggestedPreviewDuration;
@@ -2344,9 +2439,12 @@ async function loadProject() {
     elements.karaokeSizeText.textContent = `${Math.round((state.topic.karaokeSize ?? 1.2) * 100)}%`;
     syncBackgroundControls();
     syncBackgroundMusicControls();
-    elements.scriptInput.value = state.topic.segments.map((segment) => segment.text).join("\n");
+    elements.scriptInput.value = isPictureQuizProject() && Array.isArray(state.topic.quizScriptLines)
+      ? state.topic.quizScriptLines.join("\n")
+      : state.topic.segments.map((segment) => segment.text).join("\n");
     renderCharacterPicker();
     renderComparisonList();
+    renderPictureQuizImagePanel();
     elements.sfxVolumeInput.value = state.topic.sfxVolume ?? 0.3;
     elements.sfxVolumeText.textContent = `${Math.round((state.topic.sfxVolume ?? 0.3) * 100)}%`;
     hydratePoses();
@@ -2504,7 +2602,7 @@ function handleEditorInput(event) {
     "backgroundMusicVolume",
   ].includes(event.target.id)) sendDraftToPreview();
  if (event.target.id === "sfxVolumeInput") elements.sfxVolumeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
-  if (event.target.id === "scriptInput") schedulePoseListRender();
+  if (event.target.id === "scriptInput") { schedulePoseListRender(); renderPictureQuizImagePanel(); }
  if (event.target.id === "karaokeSize") elements.karaokeSizeText.textContent = `${Math.round(Number(event.target.value) * 100)}%`;
   if (event.target.id === "quizQuestionSize") elements.quizQuestionSizeText.textContent = `${event.target.value}cqw`;
   if (event.target.id === "quizAnswerSize") elements.quizAnswerSizeText.textContent = `${event.target.value}cqw`;
@@ -2545,6 +2643,32 @@ elements.backgroundImageFile?.addEventListener("change", () => {
   setBackgroundImageFile(file);
 });
 elements.deleteBackgroundImage?.addEventListener("click", () => clearBackgroundImage());
+elements.pictureQuizImageList?.addEventListener("change", (event) => {
+  const input = event.target.closest("[data-picture-quiz-image-file]");
+  if (!input) return;
+  const index = Number(input.dataset.pictureQuizImageFile);
+  const file = input.files?.[0];
+  if (!Number.isInteger(index) || !file || !state.topic) return;
+  state.topic.quizItems = quizItemsFromScript(scriptLines()) || state.topic.quizItems || [];
+  state.pendingUploads[`pictureQuizImage:${index}`] = file;
+  input.value = "";
+  renderPictureQuizImagePanel();
+  markDirty();
+  sendDraftToPreview();
+  scheduleAutoSave(80);
+});
+elements.pictureQuizImageList?.addEventListener("click", (event) => {
+  const button = event.target.closest('[data-action="clear-picture-quiz-image"]');
+  if (!button || !state.topic) return;
+  const index = Number(button.dataset.pictureQuizIndex);
+  if (!Number.isInteger(index) || !Array.isArray(state.topic.quizItems) || !state.topic.quizItems[index]) return;
+  delete state.pendingUploads[`pictureQuizImage:${index}`];
+  delete state.topic.quizItems[index].image;
+  renderPictureQuizImagePanel();
+  markDirty();
+  sendDraftToPreview();
+  scheduleAutoSave(120);
+});
 elements.backgroundMusicFile?.addEventListener("change", () => {
   const file = elements.backgroundMusicFile.files[0];
   if (!file) return;
@@ -2807,14 +2931,25 @@ window.addEventListener("paste", async (event) => {
       showToast(error.message, true);
       return;
     }
-    if (slot.type === "base") setBaseImageFile(slot.side, file, frame);
+    if (slot.type === "pictureQuiz") {
+      state.topic.quizItems = quizItemsFromScript(scriptLines()) || state.topic.quizItems || [];
+      state.pendingUploads[`pictureQuizImage:${slot.index}`] = file;
+      renderPictureQuizImagePanel();
+      markDirty();
+      sendDraftToPreview();
+      scheduleAutoSave(80);
+    } else if (slot.type === "base") setBaseImageFile(slot.side, file, frame);
     else setComparisonImageFile(slot.comparison, slot.side, file, frame);
     if (cropMode) usedAspects.add(frameAspect === 1 ? "1:1" : "16:9");
     placed += 1;
-    const comparisonName = slot.type === "base"
+    const comparisonName = slot.type === "pictureQuiz"
+      ? `Picture Quiz câu ${slot.index + 1}`
+      : slot.type === "base"
       ? (slot.side === "left" ? "Ảnh bên trái" : "Ảnh bên phải")
       : comparisonSceneName(slot.comparison);
-    destinations.push(slot.type === "comparison" && comparisonLayout(slot.comparison) === "single"
+    destinations.push(slot.type === "pictureQuiz"
+      ? comparisonName
+      : slot.type === "comparison" && comparisonLayout(slot.comparison) === "single"
       ? comparisonName
       : `${comparisonName} · bên ${slot.side === "left" ? "trái" : "phải"}`);
   }
