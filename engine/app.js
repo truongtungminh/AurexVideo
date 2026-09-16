@@ -1941,7 +1941,7 @@ function renderQuizV2(scene) {
   elements.quizText.hidden = false;
   elements.quizText.classList.toggle("quiz-v2", true);
   elements.quizText.classList.toggle("quiz-picture", pictureQuiz);
-  if (elements.quizProgress) elements.quizProgress.hidden = false;
+  if (elements.quizProgress) elements.quizProgress.hidden = pictureQuiz;
   if (elements.quizProgressValue) elements.quizProgressValue.textContent = `${index + 1}/${quizItems().length || 3}`;
   elements.quizText.style.setProperty("--quiz-question-font", style("quizQuestionFontFamily", '"Arial Black", Arial, sans-serif'));
   elements.quizText.style.setProperty("--quiz-question-color", style("quizQuestionColor", "#ffd21c"));
