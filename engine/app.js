@@ -24,6 +24,7 @@ const elements = {
   quizProgressValue: document.querySelector("#quizProgressValue"),
   quizQuestion: document.querySelector("#quizQuestion"),
   quizPictureImage: document.querySelector("#quizPictureImage"),
+  quizPictureUnderlay: document.querySelector("#quizPictureUnderlay"),
   quizOptions: document.querySelector("#quizOptions"),
   quizCountdownWrap: document.querySelector("#quizCountdownWrap"),
   quizCountdown: document.querySelector("#quizCountdown"),
@@ -1581,6 +1582,10 @@ function isPictureQuiz(nextTopic = topic) {
   return isQuizProject(nextTopic) && String(nextTopic?.quizTemplate || "").toLowerCase() === "picture";
 }
 
+function isQuizzyPictureQuiz(nextTopic = topic) {
+  return isPictureQuiz(nextTopic) && String(nextTopic?.brand || "").toLowerCase() === "quizzy";
+}
+
 const QUIZ_ANSWER_HOLD_SECONDS = 1;
 const QUIZ_HOOK_QUESTION_DELAY_SECONDS = 1;
 const QUIZ_V2_DEFAULT_THINKING_SECONDS = 3;
@@ -1853,6 +1858,7 @@ function renderQuizText(time) {
   }
   elements.quizText.classList.toggle("quiz-v2", false);
   if (elements.quizProgress) elements.quizProgress.hidden = true;
+  if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = true;
   const pairs = quizPairs();
   const delay = quizAnswerStartTime();
   let pair = pairs[0];
@@ -1918,11 +1924,13 @@ function renderQuizCta() {
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (elements.quizCtaArt) elements.quizCtaArt.hidden = false;
   if (elements.quizPictureImage) elements.quizPictureImage.hidden = true;
+  if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = true;
 }
 
 function renderQuizV2(scene) {
   const { item, index, elapsed } = scene;
   const pictureQuiz = isPictureQuiz();
+  const quizzyPictureQuiz = isQuizzyPictureQuiz();
   const thinkingSeconds = quizThinkingSeconds();
   const countdownStartAt = Math.max(0, Number(scene.countdownStartAt) || 0);
   const countdownElapsed = elapsed - countdownStartAt;
@@ -1941,7 +1949,7 @@ function renderQuizV2(scene) {
   elements.quizText.hidden = false;
   elements.quizText.classList.toggle("quiz-v2", true);
   elements.quizText.classList.toggle("quiz-picture", pictureQuiz);
-  if (elements.quizProgress) elements.quizProgress.hidden = pictureQuiz;
+  if (elements.quizProgress) elements.quizProgress.hidden = quizzyPictureQuiz;
   if (elements.quizProgressValue) elements.quizProgressValue.textContent = `${index + 1}/${quizItems().length || 3}`;
   elements.quizText.style.setProperty("--quiz-question-font", style("quizQuestionFontFamily", '"Arial Black", Arial, sans-serif'));
   elements.quizText.style.setProperty("--quiz-question-color", style("quizQuestionColor", "#ffd21c"));
@@ -1950,15 +1958,23 @@ function renderQuizV2(scene) {
   elements.quizQuestion.style.color = "var(--quiz-question-color)";
   elements.quizQuestion.style.fontSize = `${Number(topic?.quizQuestionSize) || 7.2}cqw`;
   fitSuvietkyQuestion();
-  if (elements.quizPictureImage) {
+  if (elements.quizPictureImage || elements.quizPictureUnderlay) {
     const imagePath = String(item.image || "").trim();
     if (pictureQuiz && imagePath) {
       const src = resolveTopicAsset(imagePath);
-      if (elements.quizPictureImage.getAttribute("src") !== src) elements.quizPictureImage.src = src;
-      elements.quizPictureImage.hidden = false;
+      if (elements.quizPictureImage && elements.quizPictureImage.getAttribute("src") !== src) elements.quizPictureImage.src = src;
+      if (elements.quizPictureUnderlay && elements.quizPictureUnderlay.getAttribute("src") !== src) elements.quizPictureUnderlay.src = src;
+      if (elements.quizPictureImage) elements.quizPictureImage.hidden = quizzyPictureQuiz;
+      if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = !quizzyPictureQuiz;
     } else {
-      elements.quizPictureImage.hidden = true;
-      elements.quizPictureImage.removeAttribute("src");
+      if (elements.quizPictureImage) {
+        elements.quizPictureImage.hidden = true;
+        elements.quizPictureImage.removeAttribute("src");
+      }
+      if (elements.quizPictureUnderlay) {
+        elements.quizPictureUnderlay.hidden = true;
+        elements.quizPictureUnderlay.removeAttribute("src");
+      }
     }
   }
   if (elements.quizOptions) {
