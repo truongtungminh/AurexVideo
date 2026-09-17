@@ -698,8 +698,31 @@ body {
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-options {
   position: absolute;
   left: 50%;
-  top: 73cqw;
+  top: 100cqw;
+  width: 51cqw;
+  height: auto;
+  grid-template-rows: repeat(3, 9.4cqw);
+  gap: 1.35cqw;
+  margin: 0;
   transform: translateX(-50%);
+}
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-option {
+  gap: 1.8cqw;
+  min-height: 9.4cqw;
+  padding: 0 4.2cqw 0 1cqw;
+  border-width: .42cqw;
+  box-shadow: 0 .5cqw 0 #0a2560, inset 0 0 0 .18cqw rgba(255,255,255,.92);
+}
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-option-label {
+  flex-basis: 8.2cqw;
+  width: 8.2cqw;
+  height: 8.2cqw;
+  border-width: .36cqw;
+  font-size: 4.7cqw;
+}
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-option-text {
+  font-size: 4.15cqw;
+  letter-spacing: 0;
 }
 .stage.quiz-template-picture .quiz-v2 .quiz-option {
   gap: 3.4cqw;
@@ -733,6 +756,26 @@ body {
 }
 .stage.quiz-template-picture .quiz-v2 .quiz-countdown {
   font-size: 7.2cqw;
+}
+
+/* Quizzy already has the clock baked into its background artwork. Keep only
+   the live number and place it over that clock face. */
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap {
+  left: 60cqw;
+  top: 66.5cqw;
+  right: auto;
+  width: 18cqw;
+  height: 18cqw;
+  margin: 0;
+  background: none !important;
+  animation: none;
+}
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown {
+  left: 50%;
+  top: 50%;
+  color: #ff2943 !important;
+  font-size: 7.2cqw;
+  transform: translate(-50%, -50%);
 }
 
 /* Picture Quiz correct answer reveal */
