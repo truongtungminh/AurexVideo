@@ -1998,9 +1998,11 @@ function renderQuizV2(scene) {
     fitSuvietkyOptions();
     document.fonts?.ready.then(fitSuvietkyOptions);
   }
-  elements.quizCountdown.textContent = countdownActive
-    ? String(Math.max(0, Math.ceil(thinkingSeconds - countdownElapsed)))
-    : reveal ? "0" : "3";
+  elements.quizCountdown.textContent = quizzyPictureQuiz
+    ? "5"
+    : countdownActive
+      ? String(Math.max(0, Math.ceil(thinkingSeconds - countdownElapsed)))
+      : reveal ? "0" : "3";
   if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = !countdownVisible;
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (index !== lastQuizItemIndex) {
