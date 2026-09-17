@@ -761,8 +761,8 @@ body {
 /* Quizzy already has the clock baked into its background artwork. Keep only
    the live number and place it over that clock face. */
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap {
-  left: 60cqw;
-  top: 66.5cqw;
+  left: 59.7cqw;
+  top: 67.5cqw;
   right: auto;
   width: 18cqw;
   height: 18cqw;
