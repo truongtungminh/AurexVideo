@@ -1076,7 +1076,8 @@ function quizItemsFromScript(lines = scriptLines()) {
     const options = quizLines.slice(offset + 1, offset + 4).map((line, index) => {
       const expected = String.fromCharCode(65 + index);
       const match = line.match(new RegExp(`^${expected}\\s*[.)]\\s*(.+)$`, "i"));
-      return isPictureQuizProject() ? (match?.[1]?.trim() || line.trim()) : (match?.[1]?.trim() || "");
+      const value = match?.[1]?.trim() || line.trim();
+      return isPictureQuizProject() ? value.replace(/[.!?。！？]+$/u, "").trim() : value;
     });
     const answerLine = quizLines[offset + 4];
     const answerMatch = isPictureQuizProject()
@@ -1563,6 +1564,9 @@ function draftTopic(forceRetime = false) {
     },
     segments,
     poseTimeline: timelineFromPoses(segments),
+    quizCtaText: isPictureQuizProject()
+      ? effectiveLines.slice(quizItemCount() * 2).join(" ").trim()
+      : undefined,
   };
 }
 
@@ -2383,7 +2387,10 @@ async function loadProject() {
     }
     configurePoseOptions(state.topic);
     const initialLines = isPictureQuizProject() && Array.isArray(state.topic.quizScriptLines)
-      ? state.topic.quizScriptLines.map((line) => String(line || "").trim()).filter(Boolean)
+      ? [
+        ...state.topic.quizScriptLines.map((line) => String(line || "").trim()).filter(Boolean),
+        ...(String(state.topic.quizCtaText || "").trim() ? [String(state.topic.quizCtaText).trim()] : []),
+      ]
       : state.topic.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean);
     const suggestedPreviewDuration = previewDurationFor(initialLines);
     if (hasPlaceholderVoiceover() && Number(state.topic.duration) + 0.01 < suggestedPreviewDuration) {
@@ -2440,7 +2447,10 @@ async function loadProject() {
     syncBackgroundControls();
     syncBackgroundMusicControls();
     elements.scriptInput.value = isPictureQuizProject() && Array.isArray(state.topic.quizScriptLines)
-      ? state.topic.quizScriptLines.join("\n")
+      ? [
+        ...state.topic.quizScriptLines,
+        ...(String(state.topic.quizCtaText || "").trim() ? [String(state.topic.quizCtaText).trim()] : []),
+      ].join("\n")
       : state.topic.segments.map((segment) => segment.text).join("\n");
     renderCharacterPicker();
     renderComparisonList();

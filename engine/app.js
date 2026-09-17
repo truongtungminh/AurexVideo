@@ -1813,6 +1813,11 @@ function quizAnswerText() {
   return /^(?:đáp án(?: chính xác)? là|answer is)\s*/iu.test(raw) ? raw : `Đáp án là ${raw}`;
 }
 
+function quizCtaFallback(nextTopic = topic) {
+  const brand = String(nextTopic?.brand || "").trim().toLowerCase();
+  return brand === "quizzy" ? "/assets/cta-quizzy.png" : "/assets/quiz-cta-like.webp";
+}
+
 function applyQuizCtaArt(nextTopic = topic) {
   if (!elements.quizCtaArt) return;
   const quizCtaSource = String(nextTopic?.quizCtaArt || "").trim();
@@ -1823,7 +1828,7 @@ function applyQuizCtaArt(nextTopic = topic) {
     }
     return;
   }
-  const fallback = "/assets/quiz-cta-like.webp";
+  const fallback = quizCtaFallback(nextTopic);
   if (elements.quizCtaArt.getAttribute("src") !== new URL(fallback, window.location.href).href) {
     elements.quizCtaArt.src = fallback;
   }
@@ -2032,7 +2037,7 @@ function offlineImagePaths() {
     paths.push("assets/background-default.png");
   }
   if (isQuizProject(topic)) paths.push("/assets/chinhxac.webp");
-  if (isQuizProject(topic)) paths.push(topic.quizCtaArt || "/assets/quiz-cta-like.webp");
+  if (isQuizProject(topic)) paths.push(topic.quizCtaArt || quizCtaFallback(topic));
   if (isQuizProject(topic) && topic.quizHookArt) paths.push(topic.quizHookArt);
   if (isPictureQuiz(topic) && Array.isArray(topic.quizItems)) {
     topic.quizItems.forEach((item) => {

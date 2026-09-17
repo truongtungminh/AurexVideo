@@ -2109,8 +2109,18 @@ def normalize_topic(slug: str, payload: dict) -> dict:
                         f"Correct answer: {correct_text}",
                     ])
                 topic["quizScriptLines"] = reconstructed
+            cta_text = normalize_display_text(
+                payload.get("quizCtaText", current.get("quizCtaText", "")),
+                "",
+                500,
+            )
+            if cta_text:
+                topic["quizCtaText"] = cta_text
+            else:
+                topic.pop("quizCtaText", None)
         else:
             topic.pop("quizScriptLines", None)
+            topic.pop("quizCtaText", None)
         raw_answer = normalize_display_text(payload.get("quizAnswer", current.get("quizAnswer", "")), "", 300)
         if not raw_answer and len(cleaned_segments) > 1:
             raw_answer = cleaned_segments[1]["text"]
@@ -2194,6 +2204,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
         topic.pop("quizAnswerDelay", None)
         topic.pop("quizCountdownSound", None)
         topic.pop("quizCtaArt", None)
+        topic.pop("quizCtaText", None)
         for key in ("quizQuestionFontFamily", "quizAnswerFontFamily", "quizQuestionColor", "quizCountdownColor", "quizAnswerColor", "quizQuestionSize", "quizAnswerSize"):
             topic.pop(key, None)
     if topic["projectType"] == "custom":
@@ -2513,6 +2524,8 @@ def save_topic(slug: str, payload: dict) -> dict:
     directory = project_dir(slug)
     atomic_write_json(directory / "topic.json", topic)
     script_source = topic.get("quizScriptLines") if topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE else None
+    if script_source and topic.get("quizCtaText"):
+        script_source = [*script_source, topic["quizCtaText"]]
     script = "\n".join(script_source or [segment["text"] for segment in topic["segments"]]) + "\n"
     (directory / "script.txt").write_text(script, encoding="utf-8")
     remember_project_defaults(slug, topic)
@@ -2680,8 +2693,10 @@ def _clean_picture_option(line: str, index: int) -> str:
     if match:
         if match.group(1).upper() != expected:
             raise ValueError(f"Câu Picture Quiz: lựa chọn {expected} đang sai thứ tự.")
-        return match.group(2).strip()
-    return line.strip()
+        value = match.group(2).strip()
+    else:
+        value = line.strip()
+    return re.sub(r"[.!?。！？]+$", "", value).strip()
 
 
 def parse_picture_quiz_script(value: object, language: object = "en", item_count: int = PICTURE_QUIZ_ITEM_COUNT) -> tuple[list[str], list[dict[str, object]], list[str]]:
