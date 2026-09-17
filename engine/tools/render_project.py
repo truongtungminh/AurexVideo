@@ -504,7 +504,13 @@ def resolve_project_asset(project: Path, value: object) -> Path:
 
 
 def write_script(project: Path, topic: dict) -> None:
-    lines = [str(item.get("text") or "").strip() for item in topic.get("segments", [])]
+    if topic.get("quizTemplate") == "picture" and isinstance(topic.get("quizScriptLines"), list):
+        lines = [str(line or "").strip() for line in topic["quizScriptLines"]]
+        cta = str(topic.get("quizCtaText") or "").strip()
+        if cta:
+            lines.append(cta)
+    else:
+        lines = [str(item.get("text") or "").strip() for item in topic.get("segments", [])]
     content = "\n".join(line for line in lines if line) + "\n"
     (project / "script.txt").write_text(content, encoding="utf-8")
 
