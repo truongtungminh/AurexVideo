@@ -2845,10 +2845,13 @@ def create_project(payload: dict) -> dict:
     else:
         character_id = str(payload.get("characterId") or defaults.get("characterId") or "human-presenter").strip()
     requested_brand = payload.get("brand", payload.get("brandId", ""))
+    available_brands = list_brands()
+    if quiz_template == PICTURE_QUIZ_TEMPLATE and any(item["id"] == "quizzy" for item in available_brands):
+        requested_brand = "quizzy"
     project_brand = character_id
     if str(requested_brand or "").strip():
         brand_id = normalize_brand_id(requested_brand)
-        if not any(item["id"] == brand_id for item in list_brands()):
+        if not any(item["id"] == brand_id for item in available_brands):
             raise ValueError(f"Brand '{brand_id}' không tồn tại. Hãy tạo Brand trước.")
         project_brand = brand_id
     try:

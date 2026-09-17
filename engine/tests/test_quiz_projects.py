@@ -364,13 +364,13 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 patch.object(m3, "CONFIG_ROOT", config_root),
                 patch.object(m3, "PROJECT_DEFAULTS_PATH", config_root / "project-defaults.json"),
                 patch.object(m3, "character_manifest", side_effect=FileNotFoundError),
-                patch.object(m3, "list_brands", return_value=[{"id": "quizzy", "name": "Quizzy"}]),
+                patch.object(m3, "list_brands", return_value=[{"id": "bietchichomet", "name": "bietchichomet"}, {"id": "quizzy", "name": "Quizzy"}]),
             ):
                 m3.create_project({
                     "id": "picture-quiz-cta-demo",
                     "projectType": "quiz",
                     "quizTemplate": "picture",
-                    "brand": "quizzy",
+                    "brand": "bietchichomet",
                     "language": "en",
                     "quizScript": PICTURE_QUIZ_SCRIPT_WITH_CTA,
                 })
@@ -379,6 +379,7 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 script_lines = (project / "script.txt").read_text(encoding="utf-8").splitlines()
 
             cta = "How many did you get right? Comment your score and follow Quizzy for more!"
+            self.assertEqual(topic["brand"], "quizzy")
             self.assertEqual(len(topic["quizScriptLines"]), 15)
             self.assertEqual(topic["quizCtaText"], cta)
             self.assertEqual(script_lines[-1], cta)
