@@ -697,9 +697,9 @@ body {
 }
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-options {
   position: absolute;
-  left: 50%;
-  top: 100cqw;
-  width: 51cqw;
+  left: 48.5%;
+  top: 102.5cqw;
+  width: 49cqw;
   height: auto;
   grid-template-rows: repeat(3, 9.4cqw);
   gap: 1.35cqw;
