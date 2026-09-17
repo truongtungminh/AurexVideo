@@ -2817,6 +2817,7 @@ def create_project(payload: dict) -> dict:
     quiz_script = payload.get("quizScript", payload.get("script", ""))
     quiz_lines: list[str] | None = None
     quiz_script_lines: list[str] | None = None
+    quiz_cta_text = ""
     quiz_items: list[dict[str, object]] | None = None
     quiz_segments: list[dict[str, object]] | None = None
     quiz_duration = 1.0
@@ -2828,6 +2829,8 @@ def create_project(payload: dict) -> dict:
         # never leave a half-created project behind.
         if quiz_template == PICTURE_QUIZ_TEMPLATE:
             quiz_lines, quiz_items, quiz_script_lines = parse_picture_quiz_script(quiz_script, language, quiz_item_count)
+            raw_picture_lines = _quiz_script_lines(quiz_script)
+            quiz_cta_text = " ".join(raw_picture_lines[quiz_item_count * QUIZ_LINES_PER_ITEM:]).strip()
         else:
             quiz_lines, quiz_items = parse_quiz_script(quiz_script, language, quiz_item_count, quiz_options_count)
         quiz_segments, quiz_duration = quiz_preview_segments(quiz_lines, 2 if quiz_template == PICTURE_QUIZ_TEMPLATE else QUIZ_LINES_PER_ITEM)
@@ -3135,6 +3138,8 @@ def create_project(payload: dict) -> dict:
         topic["quizTemplate"] = quiz_template
     if quiz_script_lines is not None:
         topic["quizScriptLines"] = quiz_script_lines
+    if quiz_cta_text:
+        topic["quizCtaText"] = quiz_cta_text
     if quiz_items is not None:
         topic["quizItems"] = quiz_items
     atomic_write_json(destination / "topic.json", topic)
@@ -3146,8 +3151,12 @@ def create_project(payload: dict) -> dict:
             topic["comparisons"][0]["leftLabel"] = topic["leftLabel"]
             topic["comparisons"][0]["leftImage"] = topic["leftImage"]
         atomic_write_json(destination / "topic.json", topic)
+        script_lines = [str(line or "").strip() for line in topic.get("quizScriptLines") or [segment["text"] for segment in topic["segments"]]]
+        cta_text = str(topic.get("quizCtaText") or "").strip()
+        if cta_text and topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE:
+            script_lines.append(cta_text)
         (destination / "script.txt").write_text(
-            "\n".join(topic.get("quizScriptLines") or [segment["text"] for segment in topic["segments"]]) + "\n",
+            "\n".join(line for line in script_lines if line) + "\n",
             encoding="utf-8",
         )
     return project_summary(destination)

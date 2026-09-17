@@ -43,6 +43,9 @@ Shoe
 Bag
 Correct answer: Hat"""
 
+PICTURE_QUIZ_SCRIPT_WITH_CTA = f"""{PICTURE_QUIZ_SCRIPT}
+How many did you get right? Comment your score and follow Quizzy for more!"""
+
 import m3_backend as m3  # noqa: E402
 from tools.render_project import (  # noqa: E402
     create_quiz_segment_voiceover,
@@ -349,6 +352,38 @@ class NewProjectPageRegressionTests(unittest.TestCase):
             ])
             self.assertIn("Penguin", script)
             self.assertNotIn("A. Parrot", script)
+
+    def test_create_picture_quiz_preserves_trailing_cta(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aurex-picture-quiz-cta-") as tmp:
+            root = Path(tmp)
+            projects_root = root / "projects"
+            config_root = root / "config"
+            with (
+                patch.object(m3, "PROJECTS_ROOT", projects_root),
+                patch.object(m3, "OUTPUT_ROOT", root / "output"),
+                patch.object(m3, "CONFIG_ROOT", config_root),
+                patch.object(m3, "PROJECT_DEFAULTS_PATH", config_root / "project-defaults.json"),
+                patch.object(m3, "character_manifest", side_effect=FileNotFoundError),
+                patch.object(m3, "list_brands", return_value=[{"id": "quizzy", "name": "Quizzy"}]),
+            ):
+                m3.create_project({
+                    "id": "picture-quiz-cta-demo",
+                    "projectType": "quiz",
+                    "quizTemplate": "picture",
+                    "brand": "quizzy",
+                    "language": "en",
+                    "quizScript": PICTURE_QUIZ_SCRIPT_WITH_CTA,
+                })
+                project = projects_root / "picture-quiz-cta-demo"
+                topic = json.loads((project / "topic.json").read_text(encoding="utf-8"))
+                script_lines = (project / "script.txt").read_text(encoding="utf-8").splitlines()
+
+            cta = "How many did you get right? Comment your score and follow Quizzy for more!"
+            self.assertEqual(len(topic["quizScriptLines"]), 15)
+            self.assertEqual(topic["quizCtaText"], cta)
+            self.assertEqual(script_lines[-1], cta)
+            self.assertEqual(len(script_lines), 16)
+            self.assertEqual(topic["segments"][-1]["text"], cta)
 
     def test_quizz_default_pose_sequence_and_no_sound_contract(self) -> None:
         self.assertEqual(

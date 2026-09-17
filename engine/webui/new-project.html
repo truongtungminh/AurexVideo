@@ -223,7 +223,7 @@
       <section class="quiz-script-panel" id="quizScriptPanel" hidden>
         <label for="quizScript"><span id="quizScriptLabel">Kịch bản Quiz · 5 câu</span>
           <textarea id="quizScript" name="quizScript" rows="26" disabled spellcheck="false" placeholder="Con vật nào thường ngủ khi đang đứng?&#10;A. Con ngựa.&#10;B. Con mèo.&#10;C. Con cá.&#10;Đáp án chính xác là A. Con ngựa.&#10;&#10;Thủ đô của Việt Nam là gì?&#10;A. Đà Nẵng.&#10;B. Hà Nội.&#10;C. TP.HCM.&#10;Đáp án chính xác là B. Hà Nội.&#10;&#10;Hành tinh nào gần Mặt Trời nhất?&#10;A. Sao Hỏa.&#10;B. Trái Đất.&#10;C. Sao Thủy.&#10;Đáp án chính xác là C. Sao Thủy."></textarea>
-          <small id="quizScriptHint">Mỗi câu đúng 5 dòng: Câu hỏi → A → B → C → “Đáp án chính xác là X…”. Không cần nhập CTA; AurexVideo tự thêm CTA cuối.</small>
+          <small id="quizScriptHint">Mỗi câu đúng 5 dòng: Câu hỏi → A → B → C → “Đáp án chính xác là X…”. Có thể thêm CTA ở dòng cuối.</small>
         </label>
         <div class="quiz-contract" aria-hidden="true"><span>5 câu</span><span>3 đáp án/câu</span><span>A=0 · B=1 · C=2</span><span>Countdown 3s sau C</span><span>CTA tự động</span></div>
       </section>
@@ -388,7 +388,7 @@ Transparent background only. Do not mirror poses. No text, logo, watermark, bord
     const syncQuizProjectType=()=>{const quiz=quizProjectType(),brandProject=brandProjectType();
       quizScriptPanel.hidden=!quiz;quizScriptInput.disabled=!quiz;quizScriptInput.required=quiz;
       $('#quizScriptLabel').textContent=pictureQuizType()?tr('Kịch bản Picture Quiz · 3 câu','Picture Quiz script · 3 questions'):tr('Kịch bản Quiz · 5 câu','Quiz script · 5 questions');
-      quizScriptHint.textContent=pictureQuizType()?tr('Mỗi câu 5 dòng: What is this? → Parrot → Owl → Penguin → Correct answer: Parrot. Khi render chỉ đọc câu hỏi và đáp án đúng.','Each question has 5 lines: What is this? → Parrot → Owl → Penguin → Correct answer: Parrot. Render reads only the question and correct answer.'):tr('Mỗi câu đúng 5 dòng: Câu hỏi → A → B → C → “Đáp án chính xác là X…”. Không cần nhập CTA; AurexVideo tự thêm CTA cuối.','Each question needs 5 lines: question → A → B → C → “Correct answer is X…”. AurexVideo appends the final CTA.');
+      quizScriptHint.textContent=pictureQuizType()?tr('Mỗi câu 5 dòng; dòng sau 15 dòng chuẩn sẽ được giữ làm CTA cuối và có audio riêng.','Each question has 5 lines; any line after the 15 required lines is kept as the final CTA with its own audio.'):tr('Mỗi câu đúng 5 dòng: Câu hỏi → A → B → C → “Đáp án chính xác là X…”. Có thể thêm CTA ở dòng cuối.','Each question needs 5 lines: question → A → B → C → “Correct answer is X…”. You can add a final CTA line.');
       characterPanel.hidden=brandProject;brandPanel.hidden=!brandProject;
       if(brandProject){characterSelect.disabled=true;characterSelect.removeAttribute('required');brandSelect.disabled=!brands.length;brandSelect.setAttribute('required','required');characterMeta.textContent=tr('Template này không cần nhân vật','This template does not need a character');}
       else{characterSelect.disabled=false;characterSelect.setAttribute('required','required');brandSelect.disabled=true;brandSelect.removeAttribute('required');characterMeta.textContent=selectedCharacter()?tr(`${selectedCharacter().poseCount} dáng pose · mã ${selectedCharacter().id}`,`${selectedCharacter().poseCount} poses · id ${selectedCharacter().id}`):tr('Chưa có nhân vật','No character yet');}
