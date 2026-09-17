@@ -244,6 +244,39 @@ def threads_scheduled_object_key(project: str, media_sha256: str) -> str:
     return f"threads/{safe_project}/scheduled-{digest}.mp4"
 
 
+def _media_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _scheduled_r2_asset_from_payload(payload: dict, video_path: Path) -> dict | None:
+    public_url = str(
+        payload.get("r2_url")
+        or payload.get("r2Url")
+        or payload.get("videoUrl")
+        or payload.get("video_url")
+        or payload.get("publicUrl")
+        or payload.get("public_url")
+        or ""
+    ).strip()
+    if not public_url:
+        return None
+    return {
+        "r2_url": public_url,
+        "r2_key": str(payload.get("r2_key") or payload.get("r2Key") or "").strip(),
+        "media_sha256": str(
+            payload.get("media_sha256")
+            or payload.get("mediaSha256")
+            or payload.get("expectedMediaSha256")
+            or payload.get("expected_media_sha256")
+            or ""
+        ).strip().lower() or _media_sha256(video_path),
+    }
+
+
 def _validated_public_url(value: object) -> str:
     public_url = str(value or "").strip()
     if not public_url:
@@ -381,7 +414,7 @@ def threads_upload_video(payload: dict) -> dict:
         r2 = r2_config(config)
         if not r2_is_configured(r2):
             raise ValueError(r2_config_hint())
-        r2_asset = upload_scheduled_video_asset(video_path, platform="threads", brand=brand, project=project, r2=r2)
+        r2_asset = _scheduled_r2_asset_from_payload(payload, video_path) or upload_scheduled_video_asset(video_path, platform="threads", brand=brand, project=project, r2=r2)
         media_sha256 = r2_asset["media_sha256"]
         object_key = r2_asset["r2_key"]
         public_url = r2_asset["r2_url"]

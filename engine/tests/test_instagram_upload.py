@@ -153,7 +153,11 @@ class InstagramUploadTests(unittest.TestCase):
                 ), patch.object(instagram, "final_video_path_for_project", return_value=video_path), \
                 patch.object(instagram, "validate_upload_video", return_value={}), \
                 patch.object(instagram, "instagram_caption_for_project", return_value="Caption"), \
-                patch.object(instagram, "upload_file", return_value="https://media.example.com/instagram/scheduled.mp4") as upload, \
+                patch.object(instagram, "upload_scheduled_video_asset", return_value={
+                    "media_sha256": hashlib.sha256(b"fake video").hexdigest(),
+                    "r2_key": f"instagram/demo/scheduled-{hashlib.sha256(b'fake video').hexdigest()}.mp4",
+                    "r2_url": "https://media.example.com/instagram/scheduled.mp4",
+                }) as upload, \
                 patch.object(instagram, "schedule_on_vps", return_value=queued) as schedule, \
                 patch.object(instagram, "record_scheduled_social_upload") as record:
                 result = instagram.instagram_upload_video(
@@ -175,12 +179,7 @@ class InstagramUploadTests(unittest.TestCase):
             media_sha256=hashlib.sha256(b"fake video").hexdigest(),
             r2_key=f"instagram/demo/scheduled-{hashlib.sha256(b'fake video').hexdigest()}.mp4",
         )
-        upload.assert_called_once_with(
-            video_path,
-            f"instagram/demo/scheduled-{hashlib.sha256(b'fake video').hexdigest()}.mp4",
-            "video/mp4",
-            r2_config,
-        )
+        upload.assert_called_once_with(video_path, platform="instagram", brand="popsy", project="demo", r2=r2_config)
         record.assert_called_once_with(
             project_dir,
             "instagram",
@@ -195,6 +194,64 @@ class InstagramUploadTests(unittest.TestCase):
         self.assertEqual(result["state"], "SCHEDULED")
         self.assertEqual(result["worker_id"], "vps-job-1")
         self.assertEqual(result["r2_url"], "https://media.example.com/instagram/scheduled.mp4")
+
+    def test_scheduled_instagram_reuses_payload_r2_url_on_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            video_path = project_dir / "final_video.mp4"
+            video_path.write_bytes(b"fake video")
+            scheduled_at = "2099-01-01T00:00:00Z"
+            digest = hashlib.sha256(b"fake video").hexdigest()
+            r2_config = {
+                "account_id": "account",
+                "bucket": "media",
+                "access_key_id": "key",
+                "secret_access_key": "secret",
+                "public_base_url": "https://media.example.com",
+                "object_prefix": "instagram",
+            }
+            instagram_config = {
+                "ig_user_id": "1784",
+                "access_token": "x" * 30,
+                "_brand_connection": True,
+            }
+            queued = {
+                "id": "vps-job-1",
+                "scheduledPublishAt": scheduled_at,
+                "worker_id": "vps-job-1",
+            }
+            with patch.object(instagram, "read_social_config", return_value={"instagram": instagram_config, "r2": r2_config}), \
+                patch.object(instagram, "require_project", return_value=project_dir), \
+                patch.object(instagram, "resolve_social_brand_connection", return_value=("connection-1", instagram_config)), \
+                patch.object(instagram, "final_video_path_for_project", return_value=video_path), \
+                patch.object(instagram, "validate_upload_video", return_value={}), \
+                patch.object(instagram, "instagram_caption_for_project", return_value="Caption"), \
+                patch.object(instagram, "upload_scheduled_video_asset") as upload, \
+                patch.object(instagram, "schedule_on_vps", return_value=queued) as schedule, \
+                patch.object(instagram, "record_scheduled_social_upload"):
+                instagram.instagram_upload_video(
+                    {
+                        "project": "demo",
+                        "brand": "popsy",
+                        "scheduledPublishAt": scheduled_at,
+                        "r2Url": "https://media.example.com/instagram/retry.mp4",
+                        "r2Key": "instagram/demo/retry.mp4",
+                        "mediaSha256": digest,
+                    }
+                )
+
+        upload.assert_not_called()
+        schedule.assert_called_once_with(
+            "instagram",
+            "https://media.example.com/instagram/retry.mp4",
+            "Caption",
+            scheduled_at,
+            project="demo",
+            brand="popsy",
+            account_id="1784",
+            media_sha256=digest,
+            r2_key="instagram/demo/retry.mp4",
+        )
 
 
 if __name__ == "__main__":
