@@ -2799,6 +2799,16 @@ def normalize_quiz_items(value: object, item_count: int = QUIZ_ITEM_COUNT, optio
         image = str(raw.get("image") or raw.get("art") or "").strip()
         if image:
             item["image"] = safe_relative_asset(image, f"quizItems[{index}].image")
+        for field, default, lower, upper in (
+            ("imageZoom", 1.0, 1.0, 3.0),
+            ("imageX", 0.0, -50.0, 50.0),
+            ("imageY", 0.0, -50.0, 50.0),
+        ):
+            if field in raw:
+                try:
+                    item[field] = round(max(lower, min(upper, float(raw.get(field, default)))), 2)
+                except (TypeError, ValueError):
+                    item[field] = default
         result.append(item)
     return result
 

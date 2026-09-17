@@ -860,6 +860,73 @@ function pictureQuizImageSrc(index) {
   return image ? assetUrl(image) : pictureQuizPlaceholderDataUrl(index);
 }
 
+function ensurePictureQuizItems() {
+  state.topic.quizItems = quizItemsFromScript(scriptLines()) || state.topic.quizItems || [];
+  return state.topic.quizItems;
+}
+
+function pictureQuizItem(index) {
+  return Array.isArray(state.topic?.quizItems) ? state.topic.quizItems[index] : null;
+}
+
+function pictureQuizFrame(index) {
+  const item = pictureQuizItem(index) || {};
+  return {
+    zoom: clamp(Number(item.imageZoom) || 1, 1, 3),
+    x: clamp(Number(item.imageX) || 0, -50, 50),
+    y: clamp(Number(item.imageY) || 0, -50, 50),
+  };
+}
+
+function writePictureQuizFrame(index, frame) {
+  const items = ensurePictureQuizItems();
+  if (!items[index]) return;
+  items[index].imageZoom = Math.round(clamp(Number(frame.zoom) || 1, 1, 3) * 100) / 100;
+  items[index].imageX = Math.round(clamp(Number(frame.x) || 0, -50, 50) * 10) / 10;
+  items[index].imageY = Math.round(clamp(Number(frame.y) || 0, -50, 50) * 10) / 10;
+}
+
+function applyPictureQuizThumb(index) {
+  const card = elements.pictureQuizImageList?.querySelector(`[data-picture-quiz-index="${index}"]`);
+  const thumb = card?.querySelector("[data-picture-quiz-thumb]");
+  const viewport = card?.querySelector("[data-picture-quiz-viewport]");
+  const zoomInput = card?.querySelector("[data-picture-quiz-zoom]");
+  const zoomText = card?.querySelector("[data-picture-quiz-zoom-text]");
+  if (!thumb || !viewport) return;
+  const frame = pictureQuizFrame(index);
+  const layout = imageFrameLayout(thumb.naturalWidth, thumb.naturalHeight, viewport.clientWidth, viewport.clientHeight, frame.zoom, frame.x, frame.y);
+  thumb.style.width = `${layout.width}px`;
+  thumb.style.height = `${layout.height}px`;
+  thumb.style.transform = `translate(${layout.left}px, ${layout.top}px)`;
+  if (zoomInput) zoomInput.value = String(layout.zoom);
+  if (zoomText) zoomText.textContent = `${Math.round(layout.zoom * 100)}%`;
+}
+
+function setPictureQuizImageFile(index, file, frame = null) {
+  const items = ensurePictureQuizItems();
+  if (!items[index]) return;
+  state.pendingUploads[`pictureQuizImage:${index}`] = file;
+  writePictureQuizFrame(index, frame || { zoom: 1, x: 0, y: 0 });
+  renderPictureQuizImagePanel();
+  markDirty();
+  sendDraftToPreview();
+  scheduleAutoSave(80);
+}
+
+function clearPictureQuizImage(index) {
+  const items = ensurePictureQuizItems();
+  if (!items[index]) return;
+  delete state.pendingUploads[`pictureQuizImage:${index}`];
+  delete items[index].image;
+  delete items[index].imageZoom;
+  delete items[index].imageX;
+  delete items[index].imageY;
+  renderPictureQuizImagePanel();
+  markDirty();
+  sendDraftToPreview();
+  scheduleAutoSave(120);
+}
+
 function renderPictureQuizImagePanel() {
   if (!elements.pictureQuizImagePanel || !elements.pictureQuizImageList) return;
   if (!isPictureQuizProject()) {
@@ -873,15 +940,29 @@ function renderPictureQuizImagePanel() {
     const item = items[index] || {};
     const question = String(item.question || `Question ${index + 1}`).trim();
     const hasImage = Boolean(String(item.image || "").trim() || state.pendingUploads[`pictureQuizImage:${index}`]);
+    const frame = pictureQuizFrame(index);
     return `<article class="picture-quiz-image-card" data-picture-quiz-index="${index}">
-      <img src="${pictureQuizImageSrc(index)}" alt="" />
+      <div class="image-viewport picture-quiz-image-viewport" data-picture-quiz-viewport title="Kéo để di chuyển vị trí hiển thị">
+        <img src="${pictureQuizImageSrc(index)}" alt="" draggable="false" data-picture-quiz-thumb />
+      </div>
       <div><strong>Câu ${index + 1}</strong><span>${escapeHtml(question)}</span></div>
+      <label class="image-zoom picture-quiz-image-zoom">
+        <span>Zoom <output data-picture-quiz-zoom-text>${Math.round(frame.zoom * 100)}%</output></span>
+        <input data-picture-quiz-zoom="${index}" type="range" min="1" max="3" step="0.01" value="${frame.zoom}" />
+      </label>
       <div class="image-actions">
         <label class="replace-image">Thay ảnh<input data-picture-quiz-image-file="${index}" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+        <button class="crop-image" data-action="crop-picture-quiz-image" data-picture-quiz-index="${index}" type="button" ${hasImage ? "" : "disabled"}>Crop/xoay</button>
+        <button class="remove-bg-image" data-action="remove-bg-picture-quiz-image" data-picture-quiz-index="${index}" type="button" ${hasImage ? "" : "disabled"}>Xóa nền</button>
         <button class="delete-image" data-action="clear-picture-quiz-image" data-picture-quiz-index="${index}" type="button" ${hasImage ? "" : "disabled"}>Xoá ảnh</button>
       </div>
     </article>`;
   }).join("");
+  elements.pictureQuizImageList.querySelectorAll("[data-picture-quiz-thumb]").forEach((thumb) => {
+    const index = Number(thumb.closest("[data-picture-quiz-index]")?.dataset.pictureQuizIndex);
+    thumb.addEventListener("load", () => applyPictureQuizThumb(index));
+    if (thumb.complete) requestAnimationFrame(() => applyPictureQuizThumb(index));
+  });
 }
 
 function setBaseImageFile(side, file, frame = null) {
@@ -1099,8 +1180,15 @@ function quizItemsFromScript(lines = scriptLines()) {
   if (!isPictureQuizProject()) return items;
   const currentItems = Array.isArray(state.topic?.quizItems) ? state.topic.quizItems : [];
   return items.map((item, index) => {
-    const image = String(currentItems[index]?.image || "").trim();
-    return image ? { ...item, image } : item;
+    const current = currentItems[index] || {};
+    const image = String(current.image || "").trim();
+    const framed = {
+      imageZoom: current.imageZoom,
+      imageX: current.imageX,
+      imageY: current.imageY,
+    };
+    const frame = Object.fromEntries(Object.entries(framed).filter(([, value]) => Number.isFinite(Number(value))));
+    return image ? { ...item, image, ...frame } : { ...item, ...frame };
   });
 }
 
@@ -2083,7 +2171,9 @@ async function applyCrop() {
   const sh = Math.max(1, Math.round(selection.height * image.naturalHeight));
   const preservedFrame = target.type === "base"
     ? readImageFrame(target.side)
-    : comparisonFrame(comparisonById(target.comparisonId), target.side);
+    : target.type === "pictureQuiz"
+      ? pictureQuizFrame(target.index)
+      : comparisonFrame(comparisonById(target.comparisonId), target.side);
   const canvas = document.createElement("canvas");
   canvas.width = sw;
   canvas.height = sh;
@@ -2094,6 +2184,8 @@ async function applyCrop() {
     setBaseImageFile(target.side, file);
     writeImageFrame(target.side, preservedFrame);
     applyImageFrameToThumb(target.side);
+  } else if (target.type === "pictureQuiz") {
+    setPictureQuizImageFile(target.index, file, preservedFrame);
   } else {
     const comparison = comparisonById(target.comparisonId);
     if (comparison) {
@@ -2124,7 +2216,7 @@ async function fetchUrlAsFile(url, name = "image.png") {
   return new File([blob], safeName, { type });
 }
 
-async function resolveSlotImageFile({ type, side, comparisonId }) {
+async function resolveSlotImageFile({ type, side, comparisonId, index }) {
   if (type === "base") {
     const pending = state.pendingUploads[`${side}Image`];
     if (pending) return pending;
@@ -2132,6 +2224,14 @@ async function resolveSlotImageFile({ type, side, comparisonId }) {
       throw new Error(tr("Ô ảnh đang trống.", "This image slot is empty."));
     }
     return fetchUrlAsFile(assetUrl(state.topic[`${side}Image`]), `${side}-image.png`);
+  }
+  if (type === "pictureQuiz") {
+    const pending = state.pendingUploads[`pictureQuizImage:${index}`];
+    if (pending) return pending;
+    const item = pictureQuizItem(index);
+    const image = String(item?.image || "").trim();
+    if (!image) throw new Error(tr("Ô ảnh đang trống.", "This image slot is empty."));
+    return fetchUrlAsFile(assetUrl(image), `picture-quiz-${Number(index) + 1}.png`);
   }
   const comparison = comparisonById(comparisonId);
   if (!comparison) throw new Error(tr("Không tìm thấy so sánh.", "Comparison not found."));
@@ -2183,6 +2283,7 @@ async function removeBackgroundForSlot(target, button) {
     });
     const next = dataUrlToFile(result.data, result.name || `${fileStem(file.name)}-nobg.png`);
     if (target.type === "base") setBaseImageFile(target.side, next);
+    else if (target.type === "pictureQuiz") setPictureQuizImageFile(target.index, next, pictureQuizFrame(target.index));
     else {
       const comparison = comparisonById(target.comparisonId);
       if (!comparison) throw new Error(tr("Không tìm thấy so sánh.", "Comparison not found."));
@@ -2663,26 +2764,89 @@ elements.pictureQuizImageList?.addEventListener("change", (event) => {
   const index = Number(input.dataset.pictureQuizImageFile);
   const file = input.files?.[0];
   if (!Number.isInteger(index) || !file || !state.topic) return;
-  state.topic.quizItems = quizItemsFromScript(scriptLines()) || state.topic.quizItems || [];
-  state.pendingUploads[`pictureQuizImage:${index}`] = file;
   input.value = "";
-  renderPictureQuizImagePanel();
-  markDirty();
-  sendDraftToPreview();
-  scheduleAutoSave(80);
+  setPictureQuizImageFile(index, file);
 });
 elements.pictureQuizImageList?.addEventListener("click", (event) => {
-  const button = event.target.closest('[data-action="clear-picture-quiz-image"]');
+  const button = event.target.closest("[data-action]");
   if (!button || !state.topic) return;
   const index = Number(button.dataset.pictureQuizIndex);
-  if (!Number.isInteger(index) || !Array.isArray(state.topic.quizItems) || !state.topic.quizItems[index]) return;
-  delete state.pendingUploads[`pictureQuizImage:${index}`];
-  delete state.topic.quizItems[index].image;
-  renderPictureQuizImagePanel();
+  if (!Number.isInteger(index)) return;
+  if (button.dataset.action === "clear-picture-quiz-image") {
+    clearPictureQuizImage(index);
+  } else if (button.dataset.action === "crop-picture-quiz-image") {
+    const thumb = button.closest("[data-picture-quiz-index]")?.querySelector("[data-picture-quiz-thumb]");
+    openCropDialog({ type: "pictureQuiz", index, thumb });
+  } else if (button.dataset.action === "remove-bg-picture-quiz-image") {
+    removeBackgroundForSlot({ type: "pictureQuiz", index }, button).catch((error) => showToast(error.message, true));
+  }
+});
+elements.pictureQuizImageList?.addEventListener("input", (event) => {
+  const input = event.target.closest("[data-picture-quiz-zoom]");
+  if (!input || !state.topic) return;
+  const index = Number(input.dataset.pictureQuizZoom);
+  if (!Number.isInteger(index)) return;
+  const frame = pictureQuizFrame(index);
+  writePictureQuizFrame(index, { ...frame, zoom: Number(input.value) || 1 });
+  applyPictureQuizThumb(index);
   markDirty();
   sendDraftToPreview();
-  scheduleAutoSave(120);
+  scheduleAutoSave(200);
 });
+elements.pictureQuizImageList?.addEventListener("pointerdown", (event) => {
+  const viewport = event.target.closest("[data-picture-quiz-viewport]");
+  if (!viewport || !state.topic || event.button !== 0) return;
+  const card = viewport.closest("[data-picture-quiz-index]");
+  const index = Number(card?.dataset.pictureQuizIndex);
+  const thumb = card?.querySelector("[data-picture-quiz-thumb]");
+  if (!Number.isInteger(index) || !thumb) return;
+  event.preventDefault();
+  const frame = pictureQuizFrame(index);
+  const layout = imageFrameLayout(thumb.naturalWidth, thumb.naturalHeight, viewport.clientWidth, viewport.clientHeight, frame.zoom, frame.x, frame.y);
+  state.imageDrag = {
+    type: "pictureQuiz",
+    index,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originLeft: layout.left,
+    originTop: layout.top,
+    width: layout.width,
+    height: layout.height,
+    viewWidth: viewport.clientWidth || 1,
+    viewHeight: viewport.clientHeight || 1,
+    zoom: frame.zoom,
+  };
+  viewport.classList.add("dragging");
+  viewport.setPointerCapture(event.pointerId);
+});
+elements.pictureQuizImageList?.addEventListener("pointermove", (event) => {
+  const drag = state.imageDrag;
+  if (!drag || drag.type !== "pictureQuiz" || drag.pointerId !== event.pointerId) return;
+  const left = drag.originLeft + (event.clientX - drag.startX);
+  const top = drag.originTop + (event.clientY - drag.startY);
+  const maxOffsetX = Math.max(0, (drag.width - drag.viewWidth) / 2);
+  const maxOffsetY = Math.max(0, (drag.height - drag.viewHeight) / 2);
+  const centerLeft = (drag.viewWidth - drag.width) / 2;
+  const centerTop = (drag.viewHeight - drag.height) / 2;
+  writePictureQuizFrame(drag.index, {
+    zoom: drag.zoom,
+    x: maxOffsetX ? clamp((left - centerLeft) / maxOffsetX * 50, -50, 50) : 0,
+    y: maxOffsetY ? clamp((top - centerTop) / maxOffsetY * 50, -50, 50) : 0,
+  });
+  applyPictureQuizThumb(drag.index);
+  sendDraftToPreview();
+});
+const endPictureQuizDrag = (event) => {
+  const drag = state.imageDrag;
+  if (!drag || drag.type !== "pictureQuiz" || drag.pointerId !== event.pointerId) return;
+  state.imageDrag = null;
+  event.target.closest("[data-picture-quiz-viewport]")?.classList.remove("dragging");
+  markDirty();
+  scheduleAutoSave(200);
+};
+elements.pictureQuizImageList?.addEventListener("pointerup", endPictureQuizDrag);
+elements.pictureQuizImageList?.addEventListener("pointercancel", endPictureQuizDrag);
 elements.backgroundMusicFile?.addEventListener("change", () => {
   const file = elements.backgroundMusicFile.files[0];
   if (!file) return;
