@@ -685,11 +685,11 @@ body {
 }
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-underlay {
   position: absolute;
-  left: 23.2cqw;
-  top: 26.6cqw;
-  z-index: 0;
-  width: 53.6cqw;
-  height: 30.8cqw;
+  left: 24cqw;
+  top: 80cqw;
+  z-index: 2;
+  width: 52cqw;
+  height: 27cqw;
   max-width: none;
   max-height: none;
   object-fit: contain;
