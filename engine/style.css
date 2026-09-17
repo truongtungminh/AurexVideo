@@ -687,7 +687,7 @@ body {
   position: absolute;
   left: 24cqw;
   top: 80cqw;
-  z-index: 2;
+  z-index: 0;
   width: 52cqw;
   height: 27cqw;
   max-width: none;
