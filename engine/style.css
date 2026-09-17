@@ -685,14 +685,14 @@ body {
 }
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-underlay {
   position: absolute;
-  left: 24cqw;
-  top: 80cqw;
+  left: 23cqw;
+  top: 79cqw;
   z-index: 0;
-  width: 52cqw;
-  height: 27cqw;
+  width: 54cqw;
+  height: 29cqw;
   max-width: none;
   max-height: none;
-  object-fit: contain;
+  object-fit: cover;
   filter: none;
 }
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-options {
