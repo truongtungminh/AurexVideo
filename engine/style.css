@@ -702,13 +702,13 @@ body {
   width: 49cqw;
   height: auto;
   grid-template-rows: repeat(3, 9.4cqw);
-  gap: 1.35cqw;
+  gap: 2cqw;
   margin: 0;
   transform: translateX(-50%);
 }
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-option {
   gap: 1.8cqw;
-  min-height: 9.4cqw;
+  min-height: 10cqw;
   padding: 0 4.2cqw 0 1cqw;
   border-width: .42cqw;
   box-shadow: 0 .5cqw 0 #0a2560, inset 0 0 0 .18cqw rgba(255,255,255,.92);
@@ -808,7 +808,7 @@ body {
 .stage.quiz-template-picture .quiz-option.correct::after {
   content: "✓";
   position: absolute;
-  right: 2.6cqw;
+  right: 1cqw;
   top: 50%;
   width: 7.6cqw;
   height: 7.6cqw;
