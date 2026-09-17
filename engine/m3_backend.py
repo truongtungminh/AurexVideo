@@ -2731,7 +2731,10 @@ def parse_picture_quiz_script(value: object, language: object = "en", item_count
         correct_text = options[correct_index]
         display_lines[offset + 1:offset + 4] = options
         display_lines[offset + 4] = f"Correct answer: {correct_text}"
-        spoken_lines.extend([question, f"Correct answer: {correct_text}."])
+        spoken_answer = f"Correct answer: {correct_text}."
+        if re.match(r"^\s*the\s+correct\s+answer\s+is\b", answer_line, re.IGNORECASE):
+            spoken_answer = f"The correct answer is {correct_text}."
+        spoken_lines.extend([question, spoken_answer])
         raw_items.append({"question": question, "options": options, "correct_index": correct_index})
     trailing = " ".join(lines[narration_line_count:]).strip()
     if trailing:

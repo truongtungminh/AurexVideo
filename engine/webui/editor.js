@@ -1124,8 +1124,12 @@ function quizScriptLinesWithCta(lines = scriptLines()) {
   });
   if (isPictureQuizProject()) {
     const spokenLines = [];
-    items.forEach((item) => {
-      spokenLines.push(item.question, `Correct answer: ${item.options[Number(item.correct_index)]}.`);
+    items.forEach((item, index) => {
+      const sourceAnswer = String(lines[index * QUIZ_LINES_PER_ITEM + 4] || "");
+      const answerPrefix = /^\s*the\s+correct\s+answer\s+is\b/i.test(sourceAnswer)
+        ? "The correct answer is"
+        : "Correct answer:";
+      spokenLines.push(item.question, `${answerPrefix} ${item.options[Number(item.correct_index)]}.`);
     });
     const trailing = lines.slice(quizNarrationLineCount()).join(" ").trim();
     return trailing ? [...spokenLines, trailing] : spokenLines;
