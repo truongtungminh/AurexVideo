@@ -655,9 +655,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .quiz-setting-grid select, .quiz-setting-grid input[type="color"] { width: 100%; min-height: 34px; }
 .quiz-setting-grid input[type="range"] { width: 100%; }
 .quiz-setting-grid output { color: var(--ink); font-size: 12px; font-weight: 800; }
-.picture-quiz-image-panel { display: grid; gap: 12px; }
+.picture-quiz-image-panel {
+  display: grid;
+  gap: 12px;
+  align-self: start;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 8px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .picture-quiz-image-panel[hidden] { display: none !important; }
-.picture-quiz-image-list { display: grid; gap: 10px; }
+.picture-quiz-image-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
 .picture-quiz-image-card {
   display: grid;
   grid-template-columns: 78px minmax(0, 1fr);
