@@ -1100,8 +1100,36 @@ body {
   transform: translateX(-50%);
 }
 
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown {
+  left: 50%;
+  top: auto;
+  bottom: 50%;
+  width: .72cqw;
+  height: 5.2cqw;
+  color: transparent !important;
+  font-size: 0 !important;
+  background: #111 !important;
+  border-radius: 99px !important;
+  transform-origin: 50% 100%;
+  transform: translateX(-50%) rotate(var(--picture-clock-angle, 0deg));
+}
+
 .stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap:not([hidden]) {
   display: block !important;
+}
+
+/* The old Quizzy picture clock used cqw coordinates from its baked artwork;
+   reset those higher-specificity values for the standalone reference clock. */
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap {
+  top: 68%;
+  left: 50%;
+  right: auto;
+  width: 14cqw;
+  height: 14cqw;
+  margin: 0;
+  background: #fff !important;
+  animation: none;
+  transform: translateX(-50%);
 }
 
 .stage.brand-suvietky .quiz-v2 .quiz-option.is-correct::before,
@@ -2426,7 +2454,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 }
 
 .stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap::before {
-  content: "";
+  content: none;
   position: absolute;
   left: 50%;
   bottom: 50%;
@@ -2444,7 +2472,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   position: absolute;
   left: 50%;
   top: 50%;
-  z-index: 3;
+  z-index: 5;
   width: 1.7cqw;
   height: 1.7cqw;
   background: #111;
@@ -2479,18 +2507,21 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 .stage.quiz-template-picture .quiz-v2 .quiz-countdown {
   position: absolute;
   left: 50%;
-  top: 50%;
-  width: 1.7cqw;
-  height: 1.7cqw;
+  top: auto;
+  bottom: 50%;
+  z-index: 4;
+  width: .72cqw;
+  height: 5.2cqw;
   padding: 0;
   color: transparent !important;
   font-size: 0 !important;
   line-height: 1;
   background: #111 !important;
   border: 0 !important;
-  border-radius: 50% !important;
+  border-radius: 99px !important;
   box-shadow: none !important;
-  transform: translate(-50%, -50%);
+  transform-origin: 50% 100%;
+  transform: translateX(-50%) rotate(var(--picture-clock-angle, 0deg));
 }
 
 .stage.quiz-template-picture .quiz-v2-enter .quiz-picture-image {
