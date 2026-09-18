@@ -1958,7 +1958,7 @@ function renderQuizV2(scene) {
     ? configuredRevealAt
     : countdownStartAt + thinkingSeconds;
   const reveal = elapsed >= revealAt;
-  const countdownVisible = pictureQuiz ? (countdownActive || reveal) : true;
+  const countdownVisible = pictureQuiz ? countdownActive : true;
   const optionCount = Array.isArray(item.options) ? item.options.length : 0;
   const correctIndex = Math.max(0, Math.min(optionCount - 1, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);

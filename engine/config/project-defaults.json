@@ -1,14 +1,14 @@
 {
-  "characterId": "default-human",
+  "characterId": "human-presenter",
   "karaokeColor": "#271f11",
   "karaokeActiveColor": "#de370d",
   "karaokeSize": 1.2,
-  "backgroundType": "default",
+  "backgroundType": "image",
   "backgroundColor": "#f5eee3",
   "backgroundImageZoom": 1.0,
   "backgroundImageX": 0.0,
   "backgroundImageY": 0.0,
-  "backgroundImage": "",
+  "backgroundImage": "backgrounds/background.png",
   "backgroundMusic": "",
   "backgroundMusicEnabled": false,
   "backgroundMusicVolume": 0.18,
@@ -50,6 +50,13 @@
       "question": "",
       "smile-left": "",
       "smile-right": ""
+    },
+    "human-presenter": {
+      "neutral-left": "",
+      "neutral-right": "",
+      "question": "",
+      "smile-left": "",
+      "smile-right": ""
     }
   },
   "customSfx": {},
@@ -62,13 +69,15 @@
     "engzy": "\"Be Vietnam Pro\", \"Inter\", sans-serif",
     "factverse": "\"Manrope\", \"Inter\", sans-serif",
     "bietchichomet": "\"Be Vietnam Pro\", \"Inter\", sans-serif",
-    "default-human": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
+    "default-human": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+    "human-presenter": "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
   },
   "labelColorByCharacter": {
     "engzy": "#00f900",
     "factverse": "#090909",
     "bietchichomet": "#090909",
-    "default-human": "#090909"
+    "default-human": "#090909",
+    "human-presenter": "#090909"
   },
   "customEditorDefaults": {
     "intro": {

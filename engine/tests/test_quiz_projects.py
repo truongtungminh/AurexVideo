@@ -29,19 +29,10 @@ C. Sao Thủy.
 
 PICTURE_QUIZ_SCRIPT = """What is this?
 Parrot
-Owl
-Penguin
-Correct answer: Parrot
 What is this?
-Chair
 Lamp
-Table
-Correct answer: Lamp
 What is this?
-Hat
-Shoe
-Bag
-Correct answer: Hat"""
+Hat"""
 
 PICTURE_QUIZ_SCRIPT_WITH_CTA = f"""{PICTURE_QUIZ_SCRIPT}
 How many did you get right? Comment your score and follow Quizzy for more!"""
@@ -341,19 +332,26 @@ class NewProjectPageRegressionTests(unittest.TestCase):
 
             self.assertEqual(topic["quizTemplate"], "picture")
             self.assertEqual(len(topic["quizItems"]), 3)
-            self.assertEqual(len(topic["quizScriptLines"]), 15)
+            self.assertEqual(len(topic["quizScriptLines"]), 6)
             self.assertEqual([segment["text"] for segment in topic["segments"]], [
                 "What is this?",
-                "Correct answer: Parrot.",
+                "Parrot.",
                 "What is this?",
-                "Correct answer: Lamp.",
+                "Lamp.",
                 "What is this?",
-                "Correct answer: Hat.",
+                "Hat.",
             ])
-            self.assertIn("Penguin", script)
+            self.assertEqual(script.splitlines(), [
+                "What is this?",
+                "Parrot.",
+                "What is this?",
+                "Lamp.",
+                "What is this?",
+                "Hat.",
+            ])
             self.assertNotIn("A. Parrot", script)
 
-    def test_create_picture_quiz_preserves_trailing_cta(self) -> None:
+    def test_create_picture_quiz_drops_trailing_cta(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-picture-quiz-cta-") as tmp:
             root = Path(tmp)
             projects_root = root / "projects"
@@ -380,11 +378,11 @@ class NewProjectPageRegressionTests(unittest.TestCase):
 
             cta = "How many did you get right? Comment your score and follow Quizzy for more!"
             self.assertEqual(topic["brand"], "quizzy")
-            self.assertEqual(len(topic["quizScriptLines"]), 15)
-            self.assertEqual(topic["quizCtaText"], cta)
-            self.assertEqual(script_lines[-1], cta)
-            self.assertEqual(len(script_lines), 16)
-            self.assertEqual(topic["segments"][-1]["text"], cta)
+            self.assertEqual(len(topic["quizScriptLines"]), 6)
+            self.assertNotIn("quizCtaText", topic)
+            self.assertNotIn(cta, script_lines)
+            self.assertEqual(len(script_lines), 6)
+            self.assertNotEqual(topic["segments"][-1]["text"], cta)
 
     def test_quizz_default_pose_sequence_and_no_sound_contract(self) -> None:
         self.assertEqual(
@@ -498,6 +496,8 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         self.assertEqual(timeline[2]["start"], 6.0)
         self.assertEqual(timeline[5]["start"], 16.0)
         self.assertEqual(duration, 17.0)
+        app = (ENGINE_ROOT / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const countdownVisible = pictureQuiz ? countdownActive : true;", app)
 
     def test_quiz_v2_visual_countdown_waits_for_option_c_narration(self) -> None:
         app = (ENGINE_ROOT / "app.js").read_text(encoding="utf-8")
