@@ -2554,7 +2554,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   height: 18cqw;
   margin: 0;
   overflow: visible;
-  background: url("assets/quiz-clock.png") center / contain no-repeat !important;
+  background: url("assets/clock.png") center / contain no-repeat !important;
   border: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
@@ -2620,11 +2620,11 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-underlay {
   position: absolute;
   left: 14.4%;
-  top: 42.5%;
+  top: 40%;
   z-index: 0;
   display: block !important;
-  width: 71.2%;
-  height: 24.2%;
+  width: 71%;
+  height: 30%;
   max-width: none;
   max-height: none;
   object-fit: cover;
