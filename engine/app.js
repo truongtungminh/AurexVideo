@@ -1611,7 +1611,7 @@ function quizHookQuestionDelay(nextTopic = topic) {
 
 function quizItems() {
   const brand = String(topic?.brand || "").toLowerCase();
-  const expectedCount = isPictureQuiz() ? 3 : ["suvietky", "thegioidoday"].includes(brand) ? 5 : 3;
+  const expectedCount = isPictureQuiz() ? 5 : ["suvietky", "thegioidoday"].includes(brand) ? 5 : 3;
   const pictureQuiz = isPictureQuiz();
   const expectedOptions = brand === "thegioidoday" ? 4 : 3;
   if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== expectedCount) return [];
