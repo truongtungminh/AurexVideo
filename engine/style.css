@@ -2627,7 +2627,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   height: 24.2%;
   max-width: none;
   max-height: none;
-  object-fit: contain;
+  object-fit: cover;
   filter: none;
   transform: none;
 }
