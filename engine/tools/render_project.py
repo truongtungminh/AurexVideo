@@ -891,9 +891,32 @@ def build_quiz_segment_audio(
     if not timeline or not sequence:
         raise ValueError("Quiz chưa có segment audio hợp lệ.")
     graph.append("".join(sequence) + f"concat=n={len(sequence)}:v=0:a=1[quizvoice]")
+    countdown = str(topic.get("quizCountdownSound") or "").strip()
+    countdown_labels = []
+    if countdown:
+        try:
+            countdown_path = resolve_project_asset(project, countdown)
+        except (FileNotFoundError, ValueError):
+            countdown_path = None
+        if countdown_path is not None:
+            pause_index = 0
+            for index in range(len(segment_audio)):
+                quiz_index = index - hook_count
+                if not (quiz_v2 and 0 <= quiz_index < quiz_narration_count and quiz_index % quiz_lines_per_item == quiz_lines_per_item - 2):
+                    continue
+                pause_start = sum(float(item.get("end") or 0) - float(item.get("start") or 0) for item in timeline[:index + 1])
+                label = f"quizcountdown{pause_index}"
+                command.extend(["-i", str(countdown_path)])
+                graph.append(f"[{input_index}:a]atrim=duration={answer_delay:.3f},asetpts=PTS-STARTPTS,adelay={round(pause_start * 1000)}:all=1[{label}]")
+                countdown_labels.append(f"[{label}]")
+                input_index += 1
+                pause_index += 1
+            if countdown_labels:
+                graph.append("[quizvoice]" + "".join(countdown_labels) + f"amix=inputs={len(countdown_labels) + 1}:duration=first:dropout_transition=0:normalize=0[quizmix]")
+    final_label = "quizmix" if countdown_labels else "quizvoice"
     command.extend([
         "-filter_complex", ";".join(graph),
-        "-map", "[quizvoice]", "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
+        "-map", f"[{final_label}]", "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
         str(output),
     ])
     run(command)
