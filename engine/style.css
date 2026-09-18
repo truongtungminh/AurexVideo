@@ -2645,9 +2645,18 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-answer {
   bottom: 20%;
   z-index: 10;
-  color: #f7242f;
+  color: #FFD21F;
+  font-weight: 900;
   font-size: 6.6cqw;
-  -webkit-text-stroke: .16cqw #ffffff;
+  -webkit-text-stroke: 2.5px #071B4A;
+
+  text-shadow:
+
+    0 3px 0 #071B4A,
+
+    0 0 8px rgba(255, 255, 255, 0.9),
+
+    0 0 14px rgba(255, 210, 31, 0.8);
   paint-order: stroke fill;
   text-shadow: 0 .24cqw 0 rgba(92, 0, 0, .24);
 }
