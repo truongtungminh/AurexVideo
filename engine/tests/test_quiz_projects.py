@@ -485,6 +485,20 @@ class NewProjectPageRegressionTests(unittest.TestCase):
         }
         self.assertEqual(quiz_countdown_starts(topic), [1.0, 7.0, 13.0])
 
+    def test_picture_quiz_keeps_a_fixed_three_second_countdown(self) -> None:
+        topic = {
+            "projectType": "quiz",
+            "quizTemplate": "picture",
+            "quizAnswerDelay": 5,
+            "quizItems": [{}, {}, {}],
+            "segments": [{"text": str(index)} for index in range(6)],
+        }
+        timeline, duration = quiz_segment_timeline(topic, [1.0] * 6)
+        self.assertEqual(timeline[1]["start"], 4.0)
+        self.assertEqual(timeline[2]["start"], 6.0)
+        self.assertEqual(timeline[5]["start"], 16.0)
+        self.assertEqual(duration, 17.0)
+
     def test_quiz_v2_visual_countdown_waits_for_option_c_narration(self) -> None:
         app = (ENGINE_ROOT / "app.js").read_text(encoding="utf-8")
         index = (ENGINE_ROOT / "index.html").read_text(encoding="utf-8")

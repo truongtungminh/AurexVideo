@@ -1590,10 +1590,12 @@ function isQuizzyPictureQuiz(nextTopic = topic) {
 const QUIZ_ANSWER_HOLD_SECONDS = 1;
 const QUIZ_HOOK_QUESTION_DELAY_SECONDS = 1;
 const QUIZ_V2_DEFAULT_THINKING_SECONDS = 3;
+const QUIZ_PICTURE_THINKING_SECONDS = 3;
 const QUIZ_V2_REVEAL_HOLD_SECONDS = 1.4;
 const QUIZ_V2_TRANSITION_SECONDS = 1.0;
 
 function quizThinkingSeconds(nextTopic = topic) {
+  if (isPictureQuiz(nextTopic)) return QUIZ_PICTURE_THINKING_SECONDS;
   const configured = Number(nextTopic?.quizAnswerDelay);
   if (Number.isFinite(configured) && configured >= 0) return configured;
   return QUIZ_V2_DEFAULT_THINKING_SECONDS;
@@ -1954,9 +1956,9 @@ function renderQuizV2(scene) {
     ? configuredRevealAt
     : countdownStartAt + thinkingSeconds;
   const reveal = elapsed >= revealAt;
-  // Picture Quiz shows only the analog thinking clock. Other Quiz variants
-  // retain the existing always-visible numeric countdown.
-  const countdownVisible = pictureQuiz ? countdownActive : true;
+  // Keep the existing Quiz clock visible throughout the item. Picture Quiz
+  // uses its original three-second numeric countdown before the reveal.
+  const countdownVisible = true;
   const optionCount = Array.isArray(item.options) ? item.options.length : 0;
   const correctIndex = Math.max(0, Math.min(optionCount - 1, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);
@@ -2017,22 +2019,15 @@ function renderQuizV2(scene) {
     elements.quizPictureAnswer.textContent = reveal ? pictureAnswer : "";
     elements.quizPictureAnswer.hidden = !pictureQuiz || !reveal || !pictureAnswer;
   }
-  const defaultCountdownText = quizzyPictureQuiz ? String(Math.max(1, Math.ceil(thinkingSeconds))) : "3";
-  elements.quizCountdown.textContent = pictureQuiz
-    ? ""
-    : countdownActive
-      ? String(Math.max(1, Math.ceil(thinkingSeconds - countdownElapsed)))
-      : reveal ? "0" : defaultCountdownText;
+  const defaultCountdownText = pictureQuiz
+    ? "3"
+    : quizzyPictureQuiz ? String(Math.max(1, Math.ceil(thinkingSeconds))) : "3";
+  elements.quizCountdown.textContent = countdownActive
+    ? String(Math.max(1, Math.ceil(thinkingSeconds - countdownElapsed)))
+    : reveal ? "0" : defaultCountdownText;
   if (elements.quizCountdownWrap) {
     elements.quizCountdownWrap.hidden = !countdownVisible;
-    if (pictureQuiz) {
-      const clockProgress = thinkingSeconds > 0
-        ? Math.min(1, Math.max(0, countdownElapsed / thinkingSeconds))
-        : 1;
-      elements.quizCountdownWrap.style.setProperty("--picture-clock-angle", `${clockProgress * 360}deg`);
-    } else {
-      elements.quizCountdownWrap.style.removeProperty("--picture-clock-angle");
-    }
+    elements.quizCountdownWrap.style.removeProperty("--picture-clock-angle");
   }
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (index !== lastQuizItemIndex) {

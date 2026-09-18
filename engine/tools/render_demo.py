@@ -39,6 +39,7 @@ except ModuleNotFoundError:  # Imported as ``tools.render_demo`` by tests/tools.
 ROOT = RESOURCE_ROOT
 PROJECT_MOUNT_PREFIX = "/__aurexvideo_project__/"
 QUIZ_V2_THINKING_SECONDS = 3.0
+QUIZ_PICTURE_THINKING_SECONDS = 3.0
 QUIZ_V2_REVEAL_HOLD_SECONDS = 1.4
 QUIZ_V2_TRANSITION_SECONDS = 1.0
 
@@ -53,10 +54,13 @@ def quiz_countdown_starts(topic: dict) -> list[float]:
     """
     if str(topic.get("projectType") or "").strip().lower() != "quiz":
         return []
-    try:
-        delay = max(0.0, float(topic.get("quizAnswerDelay", QUIZ_V2_THINKING_SECONDS)))
-    except (TypeError, ValueError):
-        delay = QUIZ_V2_THINKING_SECONDS
+    if str(topic.get("quizTemplate") or "").strip().lower() == "picture":
+        delay = QUIZ_PICTURE_THINKING_SECONDS
+    else:
+        try:
+            delay = max(0.0, float(topic.get("quizAnswerDelay", QUIZ_V2_THINKING_SECONDS)))
+        except (TypeError, ValueError):
+            delay = QUIZ_V2_THINKING_SECONDS
     segments = topic.get("segments") if isinstance(topic.get("segments"), list) else []
     items = topic.get("quizItems") if isinstance(topic.get("quizItems"), list) else []
     quiz_lines_per_item = (
@@ -283,7 +287,11 @@ def build_mixed_audio(topic_path: Path, topic: dict, output: Path, data_root: Pa
         countdown_path = resolve_project_path(topic_path, countdown_value, data_root)
         if countdown_path.is_file():
             try:
-                countdown_duration = max(0.0, float(topic.get("quizAnswerDelay", QUIZ_V2_THINKING_SECONDS)))
+                countdown_duration = (
+                    QUIZ_PICTURE_THINKING_SECONDS
+                    if str(topic.get("quizTemplate") or "").strip().lower() == "picture"
+                    else max(0.0, float(topic.get("quizAnswerDelay", QUIZ_V2_THINKING_SECONDS)))
+                )
             except (TypeError, ValueError):
                 countdown_duration = QUIZ_V2_THINKING_SECONDS
             for start in quiz_countdown_starts(topic):

@@ -2541,3 +2541,61 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   from { opacity: 0; transform: translateX(-50%) translateY(.8cqw); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* Picture Quiz keeps the original alarm-clock artwork and numeric 3-second
+   countdown. The newer white layout changes only where this clock sits. */
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap,
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap {
+  position: absolute;
+  top: 68%;
+  left: 50%;
+  right: auto;
+  width: 18cqw;
+  height: 18cqw;
+  margin: 0;
+  overflow: visible;
+  background: url("assets/quiz-clock.png") center / contain no-repeat !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  animation: none;
+  transform: translateX(-50%);
+}
+
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap:not([hidden]) {
+  display: block !important;
+}
+
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap::before,
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap::after {
+  content: none !important;
+}
+
+.stage.quiz-template-picture .quiz-v2 .quiz-clock-bell {
+  display: none !important;
+}
+
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown,
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown {
+  position: absolute;
+  left: 50%;
+  top: 53%;
+  bottom: auto;
+  z-index: 2;
+  width: auto;
+  height: auto;
+  padding: 0;
+  color: #ff2943 !important;
+  font-family: "Arial Black", "Arial Rounded MT Bold", Arial, sans-serif;
+  font-size: 7.2cqw !important;
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: -.055em;
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 .18cqw 0 rgba(160, 0, 24, .14);
+  transform: translate(-50%, -50%);
+}

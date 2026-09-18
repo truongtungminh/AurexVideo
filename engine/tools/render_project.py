@@ -57,10 +57,14 @@ QUIZ_HOOK_QUESTION_DELAY_SECONDS = 1.0
 
 
 def quiz_default_answer_delay(topic: dict) -> float:
+    if str(topic.get("quizTemplate") or "").strip().lower() == "picture":
+        return 3.0
     return 3.0 if str(topic.get("brand") or "").strip().lower() == "suvietky" else 5.0
 
 
 def quiz_answer_delay(topic: dict) -> float:
+    if str(topic.get("quizTemplate") or "").strip().lower() == "picture":
+        return 3.0
     default = quiz_default_answer_delay(topic)
     try:
         return max(0.0, float(topic.get("quizAnswerDelay", default)))
