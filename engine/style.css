@@ -2643,7 +2643,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 }
 
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-answer {
-  bottom: 16%;
+  bottom: 13%;
   z-index: 10;
   position: absolute;
   isolation: isolate;
@@ -2651,7 +2651,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   background: none;
   -webkit-text-fill-color: #FFC515;
   font-weight: 900;
-  font-size: 12cqw;
+  font-size: 11cqw;
   line-height: 1.02;
   letter-spacing: -0.045em;
   -webkit-text-stroke: 0 transparent;
