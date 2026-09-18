@@ -685,10 +685,7 @@ def quiz_audio_insertions(
         rate = max(0.01, float(speed))
     except (TypeError, ValueError):
         rate = 1.0
-    try:
-        delay = max(0.0, float(topic.get("quizAnswerDelay", 5.0)))
-    except (TypeError, ValueError):
-        delay = 5.0
+    delay = quiz_answer_delay(topic)
     segments = topic.get("segments")
     if not isinstance(segments, list):
         return []

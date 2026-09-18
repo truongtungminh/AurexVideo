@@ -2324,7 +2324,7 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 }
 
 /* Picture Quiz reference layout: one clean white card, one centered image,
-   an analog thinking stopwatch, then the answer text. This is intentionally
+   the original alarm-clock countdown, then the answer text. This is intentionally
    scoped to quizTemplate=picture; comparison/custom scenes keep their layout. */
 .stage.quiz-template-picture .quiz-text.quiz-v2 {
   top: 0;
