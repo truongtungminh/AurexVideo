@@ -2619,12 +2619,12 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-underlay {
   position: absolute;
-  left: 14.4%;
-  top: 40%;
+  left: 18%;
+  top: 43%;
   z-index: 0;
   display: block !important;
-  width: 71%;
-  height: 30%;
+  width: 64%;
+  height: 34%;
   max-width: none;
   max-height: none;
   object-fit: cover;
