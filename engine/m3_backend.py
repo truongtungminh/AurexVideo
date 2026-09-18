@@ -2088,7 +2088,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
             legacy_three_item_payload = isinstance(raw_quiz_items, list) and len(raw_quiz_items) == QUIZ_ITEM_COUNT
             is_picture_quiz = topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE
             item_count = PICTURE_QUIZ_ITEM_COUNT if is_picture_quiz else QUIZ_ITEM_COUNT if legacy_three_item_payload else SUVietKY_ITEM_COUNT if brand_id in {"suvietky", "thegioidoday"} else QUIZ_ITEM_COUNT
-            options_count = 3 if is_picture_quiz else THEGIOIDODAY_OPTIONS_COUNT if brand_id == "thegioidoday" else 3
+            options_count = 1 if is_picture_quiz else THEGIOIDODAY_OPTIONS_COUNT if brand_id == "thegioidoday" else 3
             topic["quizItems"] = normalize_quiz_items(
                 raw_quiz_items, item_count, options_count
             )
@@ -2096,7 +2096,7 @@ def normalize_topic(slug: str, payload: dict) -> dict:
             raw_script_lines = payload.get("quizScriptLines", current.get("quizScriptLines", []))
             script_lines = _quiz_script_lines(raw_script_lines)
             if script_lines:
-                topic["quizScriptLines"] = script_lines[:PICTURE_QUIZ_ITEM_COUNT * QUIZ_LINES_PER_ITEM]
+                topic["quizScriptLines"] = script_lines[:PICTURE_QUIZ_ITEM_COUNT * 2]
             elif isinstance(topic.get("quizItems"), list):
                 reconstructed: list[str] = []
                 for item in topic["quizItems"]:
@@ -2105,19 +2105,10 @@ def normalize_topic(slug: str, payload: dict) -> dict:
                     correct_text = options[correct_index] if isinstance(options, list) and 0 <= correct_index < len(options) else ""
                     reconstructed.extend([
                         str(item.get("question") or "").strip(),
-                        *[str(option or "").strip() for option in (options or [])[:3]],
-                        f"Correct answer: {correct_text}",
+                        str(correct_text or "").strip(),
                     ])
                 topic["quizScriptLines"] = reconstructed
-            cta_text = normalize_display_text(
-                payload.get("quizCtaText", current.get("quizCtaText", "")),
-                "",
-                500,
-            )
-            if cta_text:
-                topic["quizCtaText"] = cta_text
-            else:
-                topic.pop("quizCtaText", None)
+            topic.pop("quizCtaText", None)
         else:
             topic.pop("quizScriptLines", None)
             topic.pop("quizCtaText", None)
@@ -2524,7 +2515,7 @@ def save_topic(slug: str, payload: dict) -> dict:
     directory = project_dir(slug)
     atomic_write_json(directory / "topic.json", topic)
     script_source = topic.get("quizScriptLines") if topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE else None
-    if script_source and topic.get("quizCtaText"):
+    if script_source and topic.get("quizCtaText") and topic.get("quizTemplate") != PICTURE_QUIZ_TEMPLATE:
         script_source = [*script_source, topic["quizCtaText"]]
     script = "\n".join(script_source or [segment["text"] for segment in topic["segments"]]) + "\n"
     (directory / "script.txt").write_text(script, encoding="utf-8")
@@ -2700,28 +2691,44 @@ def _clean_picture_option(line: str, index: int) -> str:
 
 
 def parse_picture_quiz_script(value: object, language: object = "en", item_count: int = PICTURE_QUIZ_ITEM_COUNT) -> tuple[list[str], list[dict[str, object]], list[str]]:
-    """Parse image vocabulary quiz: question + 3 display options + spoken answer."""
+    """Parse image vocabulary quiz as question/answer pairs.
+
+    Older five-line Picture Quiz scripts are still accepted, then collapsed to
+    the spoken two-line contract used by the current template.
+    """
     lines = _quiz_script_lines(value)
-    narration_line_count = item_count * QUIZ_LINES_PER_ITEM
-    if len(lines) < narration_line_count:
-        raise ValueError(f"Picture Quiz cần đủ {item_count} câu × 5 dòng.")
-    display_lines = lines[:narration_line_count]
+    pair_line_count = item_count * 2
+    old_line_count = item_count * QUIZ_LINES_PER_ITEM
+    if len(lines) >= old_line_count:
+        display_lines = lines[:old_line_count]
+        use_old_format = True
+    elif len(lines) >= pair_line_count:
+        display_lines = lines[:pair_line_count]
+        use_old_format = False
+    else:
+        raise ValueError(f"Picture Quiz cần đủ {item_count} cặp câu hỏi và đáp án.")
     spoken_lines: list[str] = []
     raw_items: list[dict[str, object]] = []
     for item_index in range(item_count):
-        offset = item_index * QUIZ_LINES_PER_ITEM
+        offset = item_index * (QUIZ_LINES_PER_ITEM if use_old_format else 2)
         question = display_lines[offset]
-        options = [_clean_picture_option(display_lines[offset + 1 + option_index], option_index) for option_index in range(3)]
-        answer_line = display_lines[offset + 4]
-        answer_match = PICTURE_QUIZ_ANSWER_RE.search(answer_line)
-        if not question or any(not option for option in options) or not answer_match:
+        if use_old_format:
+            options = [_clean_picture_option(display_lines[offset + 1 + option_index], option_index) for option_index in range(3)]
+            answer_line = display_lines[offset + 4]
+            answer_match = PICTURE_QUIZ_ANSWER_RE.search(answer_line)
+            answer_text = answer_match.group(2).strip().rstrip(".") if answer_match else ""
+        else:
+            answer_line = display_lines[offset + 1]
+            answer_match = PICTURE_QUIZ_ANSWER_RE.search(answer_line)
+            answer_text = (answer_match.group(2) if answer_match else answer_line).strip().rstrip(".")
+            options = [answer_text]
+        if not question or any(not option for option in options) or not answer_text:
             raise ValueError(f"Câu Picture Quiz {item_index + 1}: kịch bản không hợp lệ.")
-        answer_letter = (answer_match.group(1) or "").upper()
-        answer_text = answer_match.group(2).strip().rstrip(".")
+        answer_letter = ((answer_match.group(1) if answer_match else "") or "").upper()
         if answer_letter:
             correct_index = ord(answer_letter) - ord("A")
-            if correct_index not in {0, 1, 2}:
-                raise ValueError(f"Câu Picture Quiz {item_index + 1}: đáp án phải là A, B hoặc C.")
+            if correct_index < 0 or correct_index >= len(options):
+                raise ValueError(f"Câu Picture Quiz {item_index + 1}: đáp án phải khớp lựa chọn.")
         else:
             normalized_answer = answer_text.casefold()
             matches = [index for index, option in enumerate(options) if option.casefold().rstrip(".") == normalized_answer]
@@ -2729,17 +2736,12 @@ def parse_picture_quiz_script(value: object, language: object = "en", item_count
                 raise ValueError(f"Câu Picture Quiz {item_index + 1}: đáp án đúng phải khớp một lựa chọn.")
             correct_index = matches[0]
         correct_text = options[correct_index]
-        display_lines[offset + 1:offset + 4] = options
-        display_lines[offset + 4] = f"Correct answer: {correct_text}"
-        spoken_answer = f"Correct answer: {correct_text}."
+        spoken_answer = f"{correct_text}."
         if re.match(r"^\s*the\s+correct\s+answer\s+is\b", answer_line, re.IGNORECASE):
             spoken_answer = f"The correct answer is {correct_text}."
         spoken_lines.extend([question, spoken_answer])
         raw_items.append({"question": question, "options": options, "correct_index": correct_index})
-    trailing = " ".join(lines[narration_line_count:]).strip()
-    if trailing:
-        spoken_lines.append(trailing)
-    return spoken_lines, normalize_quiz_items(raw_items, item_count=item_count, options_count=3), display_lines
+    return spoken_lines, normalize_quiz_items(raw_items, item_count=item_count, options_count=1), spoken_lines
 
 
 def quiz_preview_segments(lines: list[str], lines_per_item: int = QUIZ_LINES_PER_ITEM) -> tuple[list[dict[str, object]], float]:
@@ -2784,7 +2786,8 @@ def normalize_quiz_items(value: object, item_count: int = QUIZ_ITEM_COUNT, optio
             raise ValueError(f"Câu Quiz {index} không hợp lệ.")
         question = normalize_display_text(raw.get("question"), "", 90)
         options = raw.get("options")
-        if not question or not isinstance(options, list) or len(options) != options_count:
+        flexible_picture_options = options_count == 1
+        if not question or not isinstance(options, list) or (len(options) < 1 if flexible_picture_options else len(options) != options_count):
             raise ValueError(f"Câu Quiz {index} phải có câu hỏi và đúng {options_count} lựa chọn.")
         cleaned_options = [normalize_display_text(option, "", 35) for option in options]
         if any(not option for option in cleaned_options):
@@ -2793,8 +2796,8 @@ def normalize_quiz_items(value: object, item_count: int = QUIZ_ITEM_COUNT, optio
             correct_index = int(raw.get("correct_index", raw.get("correctIndex")))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"correct_index của câu Quiz {index} phải là 0, 1 hoặc 2.") from exc
-        if correct_index not in set(range(options_count)):
-            raise ValueError(f"correct_index của câu Quiz {index} phải nằm trong 0..{options_count - 1}.")
+        if correct_index not in set(range(len(cleaned_options))):
+            raise ValueError(f"correct_index của câu Quiz {index} phải nằm trong 0..{len(cleaned_options) - 1}.")
         item = {"question": question, "options": cleaned_options, "correct_index": correct_index}
         image = str(raw.get("image") or raw.get("art") or "").strip()
         if image:
@@ -2839,8 +2842,6 @@ def create_project(payload: dict) -> dict:
         # never leave a half-created project behind.
         if quiz_template == PICTURE_QUIZ_TEMPLATE:
             quiz_lines, quiz_items, quiz_script_lines = parse_picture_quiz_script(quiz_script, language, quiz_item_count)
-            raw_picture_lines = _quiz_script_lines(quiz_script)
-            quiz_cta_text = " ".join(raw_picture_lines[quiz_item_count * QUIZ_LINES_PER_ITEM:]).strip()
         else:
             quiz_lines, quiz_items = parse_quiz_script(quiz_script, language, quiz_item_count, quiz_options_count)
         quiz_segments, quiz_duration = quiz_preview_segments(quiz_lines, 2 if quiz_template == PICTURE_QUIZ_TEMPLATE else QUIZ_LINES_PER_ITEM)
@@ -3151,7 +3152,7 @@ def create_project(payload: dict) -> dict:
         topic["quizTemplate"] = quiz_template
     if quiz_script_lines is not None:
         topic["quizScriptLines"] = quiz_script_lines
-    if quiz_cta_text:
+    if quiz_cta_text and quiz_template != PICTURE_QUIZ_TEMPLATE:
         topic["quizCtaText"] = quiz_cta_text
     if quiz_items is not None:
         topic["quizItems"] = quiz_items
@@ -3165,9 +3166,6 @@ def create_project(payload: dict) -> dict:
             topic["comparisons"][0]["leftImage"] = topic["leftImage"]
         atomic_write_json(destination / "topic.json", topic)
         script_lines = [str(line or "").strip() for line in topic.get("quizScriptLines") or [segment["text"] for segment in topic["segments"]]]
-        cta_text = str(topic.get("quizCtaText") or "").strip()
-        if cta_text and topic.get("quizTemplate") == PICTURE_QUIZ_TEMPLATE:
-            script_lines.append(cta_text)
         (destination / "script.txt").write_text(
             "\n".join(line for line in script_lines if line) + "\n",
             encoding="utf-8",

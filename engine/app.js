@@ -1612,13 +1612,15 @@ function quizHookQuestionDelay(nextTopic = topic) {
 function quizItems() {
   const brand = String(topic?.brand || "").toLowerCase();
   const expectedCount = isPictureQuiz() ? 3 : ["suvietky", "thegioidoday"].includes(brand) ? 5 : 3;
+  const pictureQuiz = isPictureQuiz();
   const expectedOptions = brand === "thegioidoday" ? 4 : 3;
   if (!Array.isArray(topic?.quizItems) || topic.quizItems.length !== expectedCount) return [];
   const valid = topic.quizItems.every((item) => item && String(item.question || '').trim()
-    && Array.isArray(item.options) && item.options.length === expectedOptions
+    && Array.isArray(item.options)
+    && (pictureQuiz ? item.options.length >= 1 : item.options.length === expectedOptions)
     && Number.isInteger(Number(item.correct_index ?? item.correctIndex))
     && Number(item.correct_index ?? item.correctIndex) >= 0
-    && Number(item.correct_index ?? item.correctIndex) < expectedOptions);
+    && Number(item.correct_index ?? item.correctIndex) < item.options.length);
   return valid ? topic.quizItems : [];
 }
 
@@ -1956,9 +1958,7 @@ function renderQuizV2(scene) {
     ? configuredRevealAt
     : countdownStartAt + thinkingSeconds;
   const reveal = elapsed >= revealAt;
-  // Keep the existing Quiz clock visible throughout the item. Picture Quiz
-  // uses its original three-second numeric countdown before the reveal.
-  const countdownVisible = true;
+  const countdownVisible = pictureQuiz ? (countdownActive || reveal) : true;
   const optionCount = Array.isArray(item.options) ? item.options.length : 0;
   const correctIndex = Math.max(0, Math.min(optionCount - 1, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);
@@ -1981,8 +1981,8 @@ function renderQuizV2(scene) {
       const src = resolveTopicAsset(imagePath);
       if (elements.quizPictureImage && elements.quizPictureImage.getAttribute("src") !== src) elements.quizPictureImage.src = src;
       if (elements.quizPictureUnderlay && elements.quizPictureUnderlay.getAttribute("src") !== src) elements.quizPictureUnderlay.src = src;
-      if (elements.quizPictureImage) elements.quizPictureImage.hidden = false;
-      if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = true;
+      if (elements.quizPictureImage) elements.quizPictureImage.hidden = true;
+      if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = false;
     } else {
       if (elements.quizPictureImage) {
         elements.quizPictureImage.hidden = true;

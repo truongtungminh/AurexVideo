@@ -1132,12 +1132,16 @@ function scriptLines() {
 }
 
 const QUIZ_LINES_PER_ITEM = 5;
+const PICTURE_QUIZ_LINES_PER_ITEM = 2;
 function quizItemCount() {
   if (isPictureQuizProject()) return 3;
   return String(state.topic?.brand || "").toLowerCase() === "suvietky" ? 5 : 3;
 }
+function quizLinesPerItem() {
+  return isPictureQuizProject() ? PICTURE_QUIZ_LINES_PER_ITEM : QUIZ_LINES_PER_ITEM;
+}
 function quizNarrationLineCount() {
-  return quizItemCount() * QUIZ_LINES_PER_ITEM;
+  return quizItemCount() * quizLinesPerItem();
 }
 
 function quizDefaultCtaText() {
@@ -1152,18 +1156,26 @@ function quizItemsFromScript(lines = scriptLines()) {
   if (!isQuizProject() || lines.length < narrationLineCount) return null;
   const quizLines = lines.slice(0, narrationLineCount);
   const items = [];
-  for (let offset = 0; offset < narrationLineCount; offset += QUIZ_LINES_PER_ITEM) {
+  for (let offset = 0; offset < narrationLineCount; offset += quizLinesPerItem()) {
     const question = quizLines[offset];
+    if (isPictureQuizProject()) {
+      const answer = String(quizLines[offset + 1] || "").trim().replace(/^(?:the\s+correct\s+answer\s+is|correct answer)\s*[:：]?\s*/iu, "").replace(/[.!?。！？]+$/u, "").trim();
+      if (!question || !answer) return null;
+      items.push({
+        question,
+        options: [answer],
+        correct_index: 0,
+      });
+      continue;
+    }
     const options = quizLines.slice(offset + 1, offset + 4).map((line, index) => {
       const expected = String.fromCharCode(65 + index);
       const match = line.match(new RegExp(`^${expected}\\s*[.)]\\s*(.+)$`, "i"));
       const value = match?.[1]?.trim() || line.trim();
-      return isPictureQuizProject() ? value.replace(/[.!?。！？]+$/u, "").trim() : value;
+      return value;
     });
     const answerLine = quizLines[offset + 4];
-    const answerMatch = isPictureQuizProject()
-      ? answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is|correct answer)\s*[:：]?\s*(?:([ABC])\s*[.)]\s*)?(.+)$/iu)
-      : answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$/iu);
+    const answerMatch = answerLine.match(/(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$/iu);
     if (!question || options.some((option) => !option) || !answerMatch) return null;
     const answerLetter = String(answerMatch[1] || "").toUpperCase();
     const answerText = String(answerMatch[2] || "").trim().replace(/\.$/, "");
@@ -1201,10 +1213,7 @@ function quizScriptLinesWithCta(lines = scriptLines()) {
     const correctIndex = Number(item.correct_index);
     const letter = String.fromCharCode(65 + correctIndex);
     if (isPictureQuizProject()) {
-      quizLines[index * QUIZ_LINES_PER_ITEM + 1] = item.options[0];
-      quizLines[index * QUIZ_LINES_PER_ITEM + 2] = item.options[1];
-      quizLines[index * QUIZ_LINES_PER_ITEM + 3] = item.options[2];
-      quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `Correct answer: ${item.options[correctIndex]}`;
+      quizLines[index * PICTURE_QUIZ_LINES_PER_ITEM + 1] = item.options[correctIndex];
     } else {
       const prefix = tr("Đáp án chính xác là", "Correct answer is");
       quizLines[index * QUIZ_LINES_PER_ITEM + 4] = `${prefix} ${letter}. ${item.options[correctIndex]}`;
@@ -1213,14 +1222,9 @@ function quizScriptLinesWithCta(lines = scriptLines()) {
   if (isPictureQuizProject()) {
     const spokenLines = [];
     items.forEach((item, index) => {
-      const sourceAnswer = String(lines[index * QUIZ_LINES_PER_ITEM + 4] || "");
-      const answerPrefix = /^\s*the\s+correct\s+answer\s+is\b/i.test(sourceAnswer)
-        ? "The correct answer is"
-        : "Correct answer:";
-      spokenLines.push(item.question, `${answerPrefix} ${item.options[Number(item.correct_index)]}.`);
+      spokenLines.push(item.question, item.options[Number(item.correct_index)]);
     });
-    const trailing = lines.slice(quizNarrationLineCount()).join(" ").trim();
-    return trailing ? [...spokenLines, trailing] : spokenLines;
+    return spokenLines;
   }
   const trailingCta = lines.slice(quizNarrationLineCount()).join(" ").trim();
   return [
@@ -1627,7 +1631,7 @@ function draftTopic(forceRetime = false) {
     comparisons,
     quizAnswer: isQuizProject() ? quizAnswer : "",
     quizItems: isQuizProject() ? (parsedQuizItems || state.topic.quizItems) : undefined,
-    quizAnswerDelay: isQuizProject() ? Number(state.topic.quizAnswerDelay || 5) : undefined,
+    quizAnswerDelay: isQuizProject() ? (isPictureQuizProject() ? 3 : Number(state.topic.quizAnswerDelay || 5)) : undefined,
     duration,
     leftImageZoom: left.zoom,
     leftImageX: left.x,
@@ -1656,9 +1660,7 @@ function draftTopic(forceRetime = false) {
     },
     segments,
     poseTimeline: timelineFromPoses(segments),
-    quizCtaText: isPictureQuizProject()
-      ? effectiveLines.slice(quizItemCount() * 2).join(" ").trim()
-      : undefined,
+    quizCtaText: undefined,
   };
 }
 
@@ -2492,10 +2494,7 @@ async function loadProject() {
     }
     configurePoseOptions(state.topic);
     const initialLines = isPictureQuizProject() && Array.isArray(state.topic.quizScriptLines)
-      ? [
-        ...state.topic.quizScriptLines.map((line) => String(line || "").trim()).filter(Boolean),
-        ...(String(state.topic.quizCtaText || "").trim() ? [String(state.topic.quizCtaText).trim()] : []),
-      ]
+      ? state.topic.quizScriptLines.map((line) => String(line || "").trim()).filter(Boolean)
       : state.topic.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean);
     const suggestedPreviewDuration = previewDurationFor(initialLines);
     if (hasPlaceholderVoiceover() && Number(state.topic.duration) + 0.01 < suggestedPreviewDuration) {
@@ -2552,10 +2551,7 @@ async function loadProject() {
     syncBackgroundControls();
     syncBackgroundMusicControls();
     elements.scriptInput.value = isPictureQuizProject() && Array.isArray(state.topic.quizScriptLines)
-      ? [
-        ...state.topic.quizScriptLines,
-        ...(String(state.topic.quizCtaText || "").trim() ? [String(state.topic.quizCtaText).trim()] : []),
-      ].join("\n")
+      ? state.topic.quizScriptLines.join("\n")
       : state.topic.segments.map((segment) => segment.text).join("\n");
     renderCharacterPicker();
     renderComparisonList();

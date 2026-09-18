@@ -2599,3 +2599,54 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   text-shadow: 0 .18cqw 0 rgba(160, 0, 24, .14);
   transform: translate(-50%, -50%);
 }
+
+/* Quizzy picture template: the project background is a transparent PNG frame.
+   Keep the answer image underneath that frame and render only the clock/answer
+   above it. */
+.stage.brand-quizzy.quiz-template-picture .quiz-text.quiz-v2 {
+  background: transparent;
+}
+
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-question-card,
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-question,
+.stage.brand-quizzy.quiz-template-picture .quiz-picture-image {
+  display: none !important;
+}
+
+.stage.brand-quizzy.quiz-template-picture .stage-background #stageBackgroundImage {
+  z-index: 1;
+}
+
+.stage.brand-quizzy.quiz-template-picture .quiz-picture-underlay {
+  position: absolute;
+  left: 14.4%;
+  top: 42.5%;
+  z-index: 0;
+  display: block !important;
+  width: 71.2%;
+  height: 24.2%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  filter: none;
+  transform: none;
+}
+
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap,
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap:not([hidden]) {
+  top: 50.5%;
+  left: 50%;
+  z-index: 9;
+  width: 18cqw;
+  height: 18cqw;
+}
+
+.stage.brand-quizzy.quiz-template-picture .quiz-picture-answer {
+  bottom: 30.2%;
+  z-index: 10;
+  color: #f7242f;
+  font-size: 6.6cqw;
+  -webkit-text-stroke: .16cqw #ffffff;
+  paint-order: stroke fill;
+  text-shadow: 0 .24cqw 0 rgba(92, 0, 0, .24);
+}
