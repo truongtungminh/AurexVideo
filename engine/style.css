@@ -2643,25 +2643,23 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 }
 
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-answer {
-  bottom: 20%;
+  bottom: 16%;
   z-index: 10;
   position: absolute;
   isolation: isolate;
   color: #FFC515;
-  background: linear-gradient(180deg, #fff766 0%, #ffc515 48%, #ff9b00 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  background: none;
+  -webkit-text-fill-color: #FFC515;
   font-weight: 900;
   font-size: 12cqw;
   line-height: 1.02;
   letter-spacing: -0.045em;
-  -webkit-text-stroke: .42cqw #071B4A;
-  paint-order: stroke fill;
+  -webkit-text-stroke: 0 transparent;
   text-shadow:
-    0 .28cqw 0 #071B4A,
-    0 .42cqw .16cqw rgba(7, 27, 74, .35);
-  filter: drop-shadow(0 0 .45cqw rgba(255, 193, 7, .8));
+    0 .22cqw 0 #ff9700,
+    0 .34cqw 0 #071B4A,
+    0 .46cqw .18cqw rgba(7, 27, 74, .35);
+  filter: drop-shadow(0 0 .65cqw rgba(255, 193, 7, .88));
 }
 
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-answer::before {
@@ -2672,7 +2670,20 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   background: none;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: .72cqw #FFFFFF;
+  -webkit-text-stroke: 1.02cqw #071B4A;
+  paint-order: stroke;
+  text-shadow: 0 .22cqw 0 #071B4A;
+}
+
+.stage.brand-quizzy.quiz-template-picture .quiz-picture-answer::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: none;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1.34cqw #FFFFFF;
   paint-order: stroke;
   text-shadow:
     0 0 .18cqw rgba(255, 255, 255, .95),
