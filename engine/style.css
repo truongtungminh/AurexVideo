@@ -2621,13 +2621,14 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   position: absolute;
   left: 14.4%;
   top: 42.5%;
-  z-index: 0;
+  z-index: 2;
   display: block !important;
   width: 71.2%;
   height: 24.2%;
   max-width: none;
   max-height: none;
   object-fit: cover;
+  border-radius: 2.2cqw;
   filter: none;
   transform: none;
 }
