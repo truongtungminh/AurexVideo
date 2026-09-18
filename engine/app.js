@@ -25,6 +25,7 @@ const elements = {
   quizQuestion: document.querySelector("#quizQuestion"),
   quizPictureImage: document.querySelector("#quizPictureImage"),
   quizPictureUnderlay: document.querySelector("#quizPictureUnderlay"),
+  quizPictureAnswer: document.querySelector("#quizPictureAnswer"),
   quizOptions: document.querySelector("#quizOptions"),
   quizCountdownWrap: document.querySelector("#quizCountdownWrap"),
   quizCountdown: document.querySelector("#quizCountdown"),
@@ -1864,6 +1865,10 @@ function renderQuizText(time) {
   elements.quizText.classList.toggle("quiz-v2", false);
   if (elements.quizProgress) elements.quizProgress.hidden = true;
   if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = true;
+  if (elements.quizPictureAnswer) {
+    elements.quizPictureAnswer.hidden = true;
+    elements.quizPictureAnswer.textContent = "";
+  }
   const pairs = quizPairs();
   const delay = quizAnswerStartTime();
   let pair = pairs[0];
@@ -1930,6 +1935,10 @@ function renderQuizCta() {
   if (elements.quizCtaArt) elements.quizCtaArt.hidden = false;
   if (elements.quizPictureImage) elements.quizPictureImage.hidden = true;
   if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = true;
+  if (elements.quizPictureAnswer) {
+    elements.quizPictureAnswer.hidden = true;
+    elements.quizPictureAnswer.textContent = "";
+  }
 }
 
 function renderQuizV2(scene) {
@@ -1945,8 +1954,9 @@ function renderQuizV2(scene) {
     ? configuredRevealAt
     : countdownStartAt + thinkingSeconds;
   const reveal = elapsed >= revealAt;
-  // Clock stays visible: default 3, counts 3→2→1→0, holds 0 on answer reveal.
-  const countdownVisible = true;
+  // Picture Quiz shows only the analog thinking clock. Other Quiz variants
+  // retain the existing always-visible numeric countdown.
+  const countdownVisible = pictureQuiz ? countdownActive : true;
   const optionCount = Array.isArray(item.options) ? item.options.length : 0;
   const correctIndex = Math.max(0, Math.min(optionCount - 1, Number(item.correct_index ?? item.correctIndex) || 0));
   const style = (key, fallback) => String(topic?.[key] || fallback);
@@ -1954,7 +1964,7 @@ function renderQuizV2(scene) {
   elements.quizText.hidden = false;
   elements.quizText.classList.toggle("quiz-v2", true);
   elements.quizText.classList.toggle("quiz-picture", pictureQuiz);
-  if (elements.quizProgress) elements.quizProgress.hidden = quizzyPictureQuiz;
+  if (elements.quizProgress) elements.quizProgress.hidden = pictureQuiz || quizzyPictureQuiz;
   if (elements.quizProgressValue) elements.quizProgressValue.textContent = `${index + 1}/${quizItems().length || 3}`;
   elements.quizText.style.setProperty("--quiz-question-font", style("quizQuestionFontFamily", '"Arial Black", Arial, sans-serif'));
   elements.quizText.style.setProperty("--quiz-question-color", style("quizQuestionColor", "#ffd21c"));
@@ -1969,8 +1979,8 @@ function renderQuizV2(scene) {
       const src = resolveTopicAsset(imagePath);
       if (elements.quizPictureImage && elements.quizPictureImage.getAttribute("src") !== src) elements.quizPictureImage.src = src;
       if (elements.quizPictureUnderlay && elements.quizPictureUnderlay.getAttribute("src") !== src) elements.quizPictureUnderlay.src = src;
-      if (elements.quizPictureImage) elements.quizPictureImage.hidden = quizzyPictureQuiz;
-      if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = !quizzyPictureQuiz;
+      if (elements.quizPictureImage) elements.quizPictureImage.hidden = false;
+      if (elements.quizPictureUnderlay) elements.quizPictureUnderlay.hidden = true;
     } else {
       if (elements.quizPictureImage) {
         elements.quizPictureImage.hidden = true;
@@ -1983,26 +1993,47 @@ function renderQuizV2(scene) {
     }
   }
   if (elements.quizOptions) {
-    elements.quizOptions.hidden = false;
-    Array.from(elements.quizOptions.querySelectorAll(".quiz-option")).forEach((option, optionIndex) => {
-      const hasOption = optionIndex < optionCount;
-      option.hidden = false;
-      option.classList.toggle("is-empty", !hasOption);
-      const isCorrect = hasOption && reveal && optionIndex === correctIndex;
-      option.classList.toggle("is-correct", isCorrect);
-      option.classList.toggle("correct", isCorrect);
-      option.classList.toggle("is-wrong", hasOption && reveal && optionIndex !== correctIndex);
-      const rawOptionText = hasOption ? String(item.options[optionIndex] || "").trim() : "";
-      option.querySelector(".quiz-option-text").textContent = rawOptionText;
-    });
-    fitSuvietkyOptions();
-    document.fonts?.ready.then(fitSuvietkyOptions);
+    elements.quizOptions.hidden = pictureQuiz;
+    if (!pictureQuiz) {
+      Array.from(elements.quizOptions.querySelectorAll(".quiz-option")).forEach((option, optionIndex) => {
+        const hasOption = optionIndex < optionCount;
+        option.hidden = false;
+        option.classList.toggle("is-empty", !hasOption);
+        const isCorrect = hasOption && reveal && optionIndex === correctIndex;
+        option.classList.toggle("is-correct", isCorrect);
+        option.classList.toggle("correct", isCorrect);
+        option.classList.toggle("is-wrong", hasOption && reveal && optionIndex !== correctIndex);
+        const rawOptionText = hasOption ? String(item.options[optionIndex] || "").trim() : "";
+        option.querySelector(".quiz-option-text").textContent = rawOptionText;
+      });
+      fitSuvietkyOptions();
+      document.fonts?.ready.then(fitSuvietkyOptions);
+    }
+  }
+  const pictureAnswer = pictureQuiz
+    ? String(Array.isArray(item.options) ? item.options[correctIndex] || "" : "").trim().replace(/[.!?。！？]+$/u, "")
+    : "";
+  if (elements.quizPictureAnswer) {
+    elements.quizPictureAnswer.textContent = reveal ? pictureAnswer : "";
+    elements.quizPictureAnswer.hidden = !pictureQuiz || !reveal || !pictureAnswer;
   }
   const defaultCountdownText = quizzyPictureQuiz ? String(Math.max(1, Math.ceil(thinkingSeconds))) : "3";
-  elements.quizCountdown.textContent = countdownActive
-    ? String(Math.max(1, Math.ceil(thinkingSeconds - countdownElapsed)))
-    : reveal ? "0" : defaultCountdownText;
-  if (elements.quizCountdownWrap) elements.quizCountdownWrap.hidden = !countdownVisible;
+  elements.quizCountdown.textContent = pictureQuiz
+    ? ""
+    : countdownActive
+      ? String(Math.max(1, Math.ceil(thinkingSeconds - countdownElapsed)))
+      : reveal ? "0" : defaultCountdownText;
+  if (elements.quizCountdownWrap) {
+    elements.quizCountdownWrap.hidden = !countdownVisible;
+    if (pictureQuiz) {
+      const clockProgress = thinkingSeconds > 0
+        ? Math.min(1, Math.max(0, countdownElapsed / thinkingSeconds))
+        : 1;
+      elements.quizCountdownWrap.style.setProperty("--picture-clock-angle", `${clockProgress * 360}deg`);
+    } else {
+      elements.quizCountdownWrap.style.removeProperty("--picture-clock-angle");
+    }
+  }
   if (elements.quizLegacyAnswerCard) elements.quizLegacyAnswerCard.hidden = true;
   if (index !== lastQuizItemIndex) {
     elements.quizText.classList.remove("quiz-v2-enter");

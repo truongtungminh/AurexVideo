@@ -59,7 +59,11 @@ def quiz_countdown_starts(topic: dict) -> list[float]:
         delay = QUIZ_V2_THINKING_SECONDS
     segments = topic.get("segments") if isinstance(topic.get("segments"), list) else []
     items = topic.get("quizItems") if isinstance(topic.get("quizItems"), list) else []
-    quiz_lines_per_item = 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    quiz_lines_per_item = (
+        2
+        if str(topic.get("quizTemplate") or "").strip().lower() == "picture"
+        else 6 if str(topic.get("brand") or "").strip().lower() == "thegioidoday" else 5
+    )
     quiz_narration_count = len(items) * quiz_lines_per_item
     try:
         hook_count = max(0, int(topic.get("quizHookSegmentCount") or 0))
