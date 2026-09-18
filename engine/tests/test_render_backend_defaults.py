@@ -41,6 +41,27 @@ class RenderBackendDefaultTests(unittest.TestCase):
         self.assertIn("'upload'", client_source)
         self.assertIn("renderBackend: normalizeRenderBackend($('#renderBackend')?.value)", client_source)
 
+    def test_vieneu_device_defaults_follow_current_vieneu_ui(self) -> None:
+        server_source = (ENGINE_ROOT / "web_server.py").read_text(encoding="utf-8")
+        client_source = (ENGINE_ROOT / "web" / "render_page.js").read_text(encoding="utf-8")
+
+        self.assertIn('<option value="auto" selected>Auto</option>', server_source)
+        self.assertIn('<option value="cpu">CPU</option>', server_source)
+        self.assertIn('<option value="mps">MPS</option>', server_source)
+        self.assertIn('<option value="cuda">CUDA</option>', server_source)
+        self.assertIn("$('#vieneuDevice')?.value || 'auto'", client_source)
+
+        with tempfile.TemporaryDirectory(prefix="aurex-vieneu-device-test-") as temp:
+            config_path = Path(temp) / "tts.json"
+            with patch.object(m3_backend, "TTS_CONFIG_PATH", config_path):
+                self.assertEqual(m3_backend.vieneu_public_config()["device"], "auto")
+                config_path.parent.mkdir(parents=True, exist_ok=True)
+                updated = m3_backend.update_vieneu_config({
+                    "voice": "chautinhtri",
+                    "mode": "v3turbo",
+                })
+            self.assertEqual(updated["device"], "auto")
+
     def test_upload_engine_reuses_project_audio_upload_pipeline(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aurex-upload-render-test-") as temp:
             root = Path(temp)

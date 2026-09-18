@@ -1100,6 +1100,10 @@ body {
   transform: translateX(-50%);
 }
 
+.stage.quiz-template-picture .quiz-v2 .quiz-countdown-wrap:not([hidden]) {
+  display: block !important;
+}
+
 .stage.brand-suvietky .quiz-v2 .quiz-option.is-correct::before,
 .stage.brand-suvietky .quiz-v2 .quiz-option.is-wrong::before {
   content: "";
@@ -2295,10 +2299,10 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
    an analog thinking stopwatch, then the answer text. This is intentionally
    scoped to quizTemplate=picture; comparison/custom scenes keep their layout. */
 .stage.quiz-template-picture .quiz-text.quiz-v2 {
-  top: 4.5%;
+  top: 0;
   left: 0;
   width: 100%;
-  height: 91%;
+  height: 100%;
   transform: none;
   display: block;
   overflow: hidden;
@@ -2311,9 +2315,19 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   display: none !important;
 }
 
+/* Quizzy's legacy picture artwork hid the question card entirely. The
+   reference layout owns that card now, so explicitly reopen it. */
+.stage.quiz-template-picture .quiz-v2 .quiz-question-card,
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-question-card,
+.stage.quiz-template-picture .quiz-v2 .quiz-question,
+.stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-question {
+  display: block !important;
+}
+
 .stage.quiz-template-picture .quiz-v2 .quiz-question-card {
-  position: static;
+  position: relative;
   width: 100%;
+  height: 100%;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -2331,11 +2345,12 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 
 .stage.quiz-template-picture .quiz-v2 .quiz-question {
   position: absolute;
-  top: 0;
+  top: 4%;
   left: 50%;
   z-index: 4;
   width: 90%;
   margin: 0;
+  padding: 0;
   color: #20bd3c !important;
   font-family: "Arial Rounded MT Bold", "Arial Black", Arial, sans-serif !important;
   font-size: 7cqw !important;
@@ -2344,6 +2359,10 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
   letter-spacing: -.045em;
   text-align: center;
   text-wrap: balance;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   -webkit-text-stroke: .36cqw #0b0b0b;
   paint-order: stroke fill;
   text-shadow: .14cqw .2cqw 0 #0b0b0b;

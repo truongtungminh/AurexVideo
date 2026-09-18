@@ -959,7 +959,7 @@ def create_quiz_segment_voiceover(
         segment_args.tts_config_json = json.dumps(
             {
                 "mode": vieneu_config.get("mode") or "v3turbo",
-                "device": vieneu_config.get("device") or "cpu",
+                "device": vieneu_config.get("device") or "auto",
                 "refAudio": vieneu_config.get("ref_audio") or vieneu_config.get("refAudio") or "",
             },
             ensure_ascii=False,

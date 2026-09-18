@@ -88,7 +88,7 @@ def generate_vieneu(
     mode = str(tts_config.get("mode") or vieneu_cfg.get("mode") or "v3turbo").strip()
     if mode not in _VIENEU_MODES:
         mode = "v3turbo"
-    device = str(tts_config.get("device") or vieneu_cfg.get("device") or "cpu").strip()
+    device = str(tts_config.get("device") or vieneu_cfg.get("device") or "auto").strip()
     ref_audio = str(
         tts_config.get("refAudio")
         or tts_config.get("ref_audio")

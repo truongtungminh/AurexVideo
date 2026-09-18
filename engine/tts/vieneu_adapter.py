@@ -450,7 +450,7 @@ def generate_vieneu_voiceover(
     voice_id: str = "chautinhtri",
     mode: str = "v3turbo",
     ref_audio: Optional[str] = None,
-    device: str = "cpu",
+    device: str = "auto",
     normalize: bool = True,
 ) -> None:
     """Generate an AurexVideo-compatible MP3 using local VieNeu-TTS."""

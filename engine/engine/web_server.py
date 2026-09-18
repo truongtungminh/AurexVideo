@@ -1719,7 +1719,7 @@ def build_render_command(payload: dict, authoritative_entitlement: dict | None =
         config = m3.vieneu_public_config()
         voice = str(payload.get("voice") or config.get("voice") or "chautinhtri").strip()
         mode = str(payload.get("mode") or config.get("mode") or "v3turbo").strip()
-        device = str(payload.get("device") or config.get("device") or "cpu").strip()
+        device = str(payload.get("device") or config.get("device") or "auto").strip()
         ref_audio = str(payload.get("refAudio") or payload.get("ref_audio") or config.get("refAudio") or "").strip()
         cmd.extend(["--engine", "vieneu", "--voice", voice])
         cmd.extend([
@@ -3426,9 +3426,10 @@ def render_home_html(selected_project: str | None = None, preview_update: bool =
                 <span>Device</span>
               </span>
               <select id="vieneuDevice">
-                <option value="cpu" selected>CPU (Ổn định)</option>
-                <option value="mps">Apple Silicon GPU (MPS)</option>
-                <option value="cuda">NVIDIA GPU (CUDA)</option>
+                <option value="auto" selected>Auto</option>
+                <option value="cpu">CPU</option>
+                <option value="mps">MPS</option>
+                <option value="cuda">CUDA</option>
               </select>
             </label>
             <div class="advanced-check-grid">

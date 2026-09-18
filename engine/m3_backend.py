@@ -221,7 +221,7 @@ def vieneu_public_config() -> dict:
     return {
         "voice": str(config.get("voice") or "chautinhtri"),
         "mode": str(config.get("mode") or "v3turbo"),
-        "device": str(config.get("device") or "cpu"),
+        "device": str(config.get("device") or "auto"),
         "refAudio": str(config.get("ref_audio") or ""),
     }
 
@@ -233,7 +233,7 @@ def update_vieneu_config(payload: dict) -> dict:
         current = {}
     voice = str(payload.get("voice") or current.get("voice") or "chautinhtri").strip()
     mode = str(payload.get("mode") or current.get("mode") or "v3turbo").strip()
-    device = str(payload.get("device") or current.get("device") or "cpu").strip()
+    device = str(payload.get("device") or current.get("device") or "auto").strip()
     ref_audio = str(payload.get("refAudio") or payload.get("ref_audio") or current.get("ref_audio") or "").strip()
     current.update(
         voice=voice,

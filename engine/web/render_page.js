@@ -4206,7 +4206,7 @@
       } else if (state.engine === 'vieneu' || state.engine === 'aurextts') {
         payload.voice = currentVieneuVoice();
         payload.mode = $('#vieneuMode')?.value || 'v3turbo';
-        payload.device = $('#vieneuDevice')?.value || 'cpu';
+        payload.device = $('#vieneuDevice')?.value || 'auto';
         payload.force = $('#vieneuForce')?.checked || $('#aurexttsForce')?.checked;
         payload.rebuildAudioCache = payload.force;
         setRenderState(
