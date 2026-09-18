@@ -9353,6 +9353,7 @@ def render_monitor_html() -> bytes:
         <p>Kiểm tra tiến trình publish trên Worker VPS cho YouTube, Facebook, Instagram, Threads và TikTok. Mỗi project được gom một dòng để dễ theo dõi.</p>
       </div>
       <div class="monitor-filters" aria-label="Bộ lọc Monitor">
+        <label><span>Brand</span><select id="workerBrandFilter"><option value="">Tất cả</option></select></label>
         <label><span>Nền tảng</span><select id="workerPlatformFilter"><option value="">Tất cả</option><option value="instagram">Instagram</option><option value="threads">Threads</option><option value="facebook">Facebook</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option></select></label>
         <label><span>Trạng thái</span><select id="workerStatusFilter"><option value="">Tất cả</option><option value="queued">Đã lên lịch</option><option value="running">Đang đăng</option><option value="retry_wait">Chờ thử lại</option><option value="failed">Lỗi</option><option value="succeeded">Đã đăng</option><option value="published">Đã đăng</option><option value="monitoring">Đang theo dõi</option><option value="cancelled">Đã hủy</option></select></label>
       </div>
@@ -9543,6 +9544,15 @@ def render_monitor_html() -> bytes:
       border-color: rgba(255, 82, 82, 0.38);
       background: rgba(255, 82, 82, 0.08);
     }
+    .worker-project-row.succeeded {
+      border-color: rgba(34, 197, 94, 0.38);
+      background: rgba(34, 197, 94, 0.08);
+    }
+    .worker-project-row.queued,
+    .worker-project-row.running {
+      border-color: rgba(255, 171, 64, 0.38);
+      background: rgba(255, 171, 64, 0.10);
+    }
     .worker-project-head {
       display: flex;
       justify-content: space-between;
@@ -9596,8 +9606,17 @@ def render_monitor_html() -> bytes:
       border-color: rgba(255, 82, 82, 0.38);
       background: rgba(255, 82, 82, 0.08);
     }
+    .worker-social-chip.succeeded {
+      border-color: rgba(34, 197, 94, 0.38);
+      background: rgba(34, 197, 94, 0.08);
+    }
+    .worker-social-chip.queued {
+      border-color: rgba(255, 171, 64, 0.34);
+      background: rgba(255, 171, 64, 0.08);
+    }
     .worker-social-chip.running {
       border-color: rgba(255, 171, 64, 0.34);
+      background: rgba(255, 171, 64, 0.08);
     }
     .worker-social-top {
       display: flex;
@@ -9750,6 +9769,7 @@ def render_monitor_html() -> bytes:
         extra_script="""
   <script>
     const $ = (selector) => document.querySelector(selector);
+    const brandFilter = $('#workerBrandFilter');
     const platformFilter = $('#workerPlatformFilter');
     const statusFilter = $('#workerStatusFilter');
     const list = $('#workerJobList');
@@ -9763,6 +9783,7 @@ def render_monitor_html() -> bytes:
     const scheduleClose = $('#workerScheduleClose');
     const scheduleCancel = $('#workerScheduleCancel');
     let editingWorkerId = '';
+    let loadedJobs = [];
 
     function formatTime(value) {
       const raw = String(value || '').trim();
@@ -9788,7 +9809,16 @@ def render_monitor_html() -> bytes:
       if (value === 'succeeded' || value === 'published') return 'succeeded';
       if (value === 'failed' || value === 'cancelled') return 'failed';
       if (value === 'running' || value === 'retry_wait' || value === 'monitoring') return 'running';
+      if (value === 'queued' || value === 'pending' || value === 'scheduled') return 'queued';
       return '';
+    }
+
+    function groupStatusClass(jobs) {
+      const statuses = jobs.map((job) => String(job.status || '').toLowerCase());
+      if (statuses.some((status) => ['failed', 'error', 'cancelled', 'canceled'].includes(status))) return 'failed';
+      if (statuses.length && statuses.every((status) => ['succeeded', 'published', 'done'].includes(status))) return 'succeeded';
+      if (statuses.some((status) => ['running', 'retry_wait', 'monitoring'].includes(status))) return 'running';
+      return 'queued';
     }
 
     function statusLabel(status) {
@@ -9836,6 +9866,30 @@ def render_monitor_html() -> bytes:
     function setText(id, value) {
       const node = $(id);
       if (node) node.textContent = String(value);
+    }
+
+    function updateBrandOptions(jobs) {
+      if (!brandFilter) return;
+      const selected = brandFilter.value;
+      const brands = Array.from(new Set(jobs.map((job) => String(job.brand || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+      brandFilter.textContent = '';
+      const all = document.createElement('option');
+      all.value = '';
+      all.textContent = 'Tất cả';
+      brandFilter.appendChild(all);
+      brands.forEach((brand) => {
+        const option = document.createElement('option');
+        option.value = brand;
+        option.textContent = brand;
+        brandFilter.appendChild(option);
+      });
+      brandFilter.value = brands.includes(selected) ? selected : '';
+    }
+
+    function filteredJobs(jobs) {
+      const brand = String(brandFilter?.value || '').trim();
+      if (!brand) return jobs;
+      return jobs.filter((job) => String(job.brand || '').trim() === brand);
     }
 
     function updateSummary(jobs) {
@@ -9886,8 +9940,7 @@ def render_monitor_html() -> bytes:
       }
       groupedJobs(jobs).forEach((group) => {
         const row = document.createElement('article');
-        const hasFailed = group.jobs.some((job) => ['failed', 'cancelled'].includes(String(job.status || '').toLowerCase()));
-        row.className = `worker-project-row ${hasFailed ? 'failed' : ''}`;
+        row.className = `worker-project-row ${groupStatusClass(group.jobs)}`;
 
         const head = document.createElement('div');
         head.className = 'worker-project-head';
@@ -10008,14 +10061,16 @@ def render_monitor_html() -> bytes:
         loading.textContent = 'Đang tải lịch VPS...';
         list.appendChild(loading);
       }
-      const params = new URLSearchParams({ limit: '100' });
+      const params = new URLSearchParams({ limit: '300' });
       if (platformFilter?.value) params.set('platform', platformFilter.value);
       if (statusFilter?.value) params.set('status', statusFilter.value);
       try {
         const response = await fetch(`/api/social/worker/jobs?${params.toString()}`, { cache: 'no-store' });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        renderJobs(Array.isArray(data.jobs) ? data.jobs : []);
+        loadedJobs = Array.isArray(data.jobs) ? data.jobs : [];
+        updateBrandOptions(loadedJobs);
+        renderJobs(filteredJobs(loadedJobs));
         if (lastRefresh) lastRefresh.textContent = `Cập nhật ${formatTime(new Date().toISOString())}`;
       } catch (error) {
         if (!quiet) {
@@ -10112,6 +10167,7 @@ def render_monitor_html() -> bytes:
     });
     platformFilter?.addEventListener('change', () => loadJobs());
     statusFilter?.addEventListener('change', () => loadJobs());
+    brandFilter?.addEventListener('change', () => renderJobs(filteredJobs(loadedJobs)));
     scheduleClose?.addEventListener('click', closeScheduleModal);
     scheduleCancel?.addEventListener('click', closeScheduleModal);
     scheduleModal?.addEventListener('click', (event) => {
