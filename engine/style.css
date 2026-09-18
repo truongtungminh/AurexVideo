@@ -2645,18 +2645,33 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-answer {
   bottom: 20%;
   z-index: 10;
-  color: #FFD21F;
+  position: absolute;
+
+  color: #FFC515;
   font-weight: 900;
-  font-size: 6.6cqw;
-  -webkit-text-stroke: 2.5px #071B4A;
+  font-size: 12cqw;
+  letter-spacing: -0.045em;
 
-  text-shadow:
-
-    0 3px 0 #071B4A,
-
-    0 0 8px rgba(255, 255, 255, 0.9),
-
-    0 0 14px rgba(255, 210, 31, 0.8);
+  /* NAVY viền sát chữ */
+  -webkit-text-stroke: .42cqw #071B4A;
   paint-order: stroke fill;
-  text-shadow: 0 .24cqw 0 rgba(92, 0, 0, .24);
+
+  /* chiều sâu */
+  text-shadow:
+    0 .28cqw 0 #071B4A,
+    0 .42cqw .16cqw rgba(7, 27, 74, .35);
+
+  filter: drop-shadow(0 0 .45cqw rgba(255, 193, 7, .8));
+}
+
+/* WHITE outline nằm NGOÀI navy */
+.stage.brand-quizzy.quiz-template-picture .quiz-picture-answer::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+
+  color: transparent;
+  -webkit-text-stroke: .72cqw #FFFFFF;
+  paint-order: stroke;
 }
