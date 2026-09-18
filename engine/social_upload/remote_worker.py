@@ -224,6 +224,15 @@ def _normalize_worker_job(job: object) -> dict:
     return normalized
 
 
+def _is_orphan_worker_job(job: dict) -> bool:
+    return (
+        not str(job.get("project") or "").strip()
+        and not str(job.get("brand") or "").strip()
+        and not str(job.get("videoUrl") or job.get("video_url") or "").strip()
+        and not str(job.get("r2Key") or job.get("r2_key") or "").strip()
+    )
+
+
 def worker_jobs(limit: int = 100, status: str = "", platform: str = "") -> dict:
     query = []
     if limit:
@@ -239,7 +248,12 @@ def worker_jobs(limit: int = 100, status: str = "", platform: str = "") -> dict:
         suffix = "?" + urlencode(query)
     body = _worker_request("/jobs" + suffix)
     if isinstance(body.get("jobs"), list):
-        body["jobs"] = [_normalize_worker_job(job) for job in body["jobs"]]
+        body["jobs"] = [
+            normalized
+            for job in body["jobs"]
+            for normalized in [_normalize_worker_job(job)]
+            if not _is_orphan_worker_job(normalized)
+        ]
     return body
 
 
