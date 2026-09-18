@@ -188,7 +188,40 @@ def worker_job_status(worker_id: str) -> dict:
     worker_id = str(worker_id or "").strip()
     if not worker_id:
         raise ValueError("VPS worker job id is required.")
-    return _worker_request(f"/jobs/{worker_id}")
+    return _normalize_worker_job(_worker_request(f"/jobs/{worker_id}"))
+
+
+def _first_value(job: dict, *keys: str) -> object:
+    for key in keys:
+        value = job.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def _normalize_worker_job(job: object) -> dict:
+    if not isinstance(job, dict):
+        return {}
+    normalized = dict(job)
+    aliases = {
+        "accountId": ("accountId", "account_id"),
+        "videoUrl": ("videoUrl", "video_url"),
+        "scheduledPublishAt": ("scheduledPublishAt", "scheduled_at"),
+        "nextAttemptAt": ("nextAttemptAt", "next_attempt_at"),
+        "providerPostId": ("providerPostId", "provider_post_id"),
+        "providerStatus": ("providerStatus", "provider_status"),
+        "deliveryStatus": ("deliveryStatus", "delivery_status"),
+        "idempotencyKey": ("idempotencyKey", "idempotency_key"),
+        "r2Key": ("r2Key", "r2_key"),
+        "r2DeletedAt": ("r2DeletedAt", "r2_deleted_at"),
+        "r2CleanupError": ("r2CleanupError", "r2_cleanup_error"),
+        "createdAt": ("createdAt", "created_at"),
+        "updatedAt": ("updatedAt", "updated_at"),
+    }
+    for target, keys in aliases.items():
+        if not normalized.get(target):
+            normalized[target] = _first_value(normalized, *keys)
+    return normalized
 
 
 def worker_jobs(limit: int = 100, status: str = "", platform: str = "") -> dict:
@@ -204,7 +237,10 @@ def worker_jobs(limit: int = 100, status: str = "", platform: str = "") -> dict:
         from urllib.parse import urlencode
 
         suffix = "?" + urlencode(query)
-    return _worker_request("/jobs" + suffix)
+    body = _worker_request("/jobs" + suffix)
+    if isinstance(body.get("jobs"), list):
+        body["jobs"] = [_normalize_worker_job(job) for job in body["jobs"]]
+    return body
 
 
 def cancel_worker_job(worker_id: str) -> dict:
