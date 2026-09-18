@@ -1134,7 +1134,7 @@ function scriptLines() {
 const QUIZ_LINES_PER_ITEM = 5;
 const PICTURE_QUIZ_LINES_PER_ITEM = 2;
 function quizItemCount() {
-  if (isPictureQuizProject()) return 3;
+  if (isPictureQuizProject()) return 5;
   return String(state.topic?.brand || "").toLowerCase() === "suvietky" ? 5 : 3;
 }
 function quizLinesPerItem() {
