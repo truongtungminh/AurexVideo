@@ -1872,6 +1872,7 @@ function renderQuizText(time) {
   if (elements.quizPictureAnswer) {
     elements.quizPictureAnswer.hidden = true;
     elements.quizPictureAnswer.textContent = "";
+    elements.quizPictureAnswer.removeAttribute("data-text");
   }
   const pairs = quizPairs();
   const delay = quizAnswerStartTime();
@@ -1942,6 +1943,7 @@ function renderQuizCta() {
   if (elements.quizPictureAnswer) {
     elements.quizPictureAnswer.hidden = true;
     elements.quizPictureAnswer.textContent = "";
+    elements.quizPictureAnswer.removeAttribute("data-text");
   }
 }
 
@@ -2016,7 +2018,13 @@ function renderQuizV2(scene) {
     ? String(Array.isArray(item.options) ? item.options[correctIndex] || "" : "").trim().replace(/[.!?。！？]+$/u, "")
     : "";
   if (elements.quizPictureAnswer) {
-    elements.quizPictureAnswer.textContent = reveal ? pictureAnswer : "";
+    const visiblePictureAnswer = reveal ? pictureAnswer : "";
+    elements.quizPictureAnswer.textContent = visiblePictureAnswer;
+    if (visiblePictureAnswer) {
+      elements.quizPictureAnswer.setAttribute("data-text", visiblePictureAnswer);
+    } else {
+      elements.quizPictureAnswer.removeAttribute("data-text");
+    }
     elements.quizPictureAnswer.hidden = !pictureQuiz || !reveal || !pictureAnswer;
   }
   const defaultCountdownText = pictureQuiz
