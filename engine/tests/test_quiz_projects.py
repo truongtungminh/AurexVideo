@@ -32,7 +32,11 @@ Parrot
 What is this?
 Lamp
 What is this?
-Hat"""
+Hat
+What is this?
+Rocket
+What is this?
+Apple"""
 
 PICTURE_QUIZ_SCRIPT_WITH_CTA = f"""{PICTURE_QUIZ_SCRIPT}
 How many did you get right? Comment your score and follow Quizzy for more!"""
@@ -331,8 +335,8 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 script = (projects_root / "picture-quiz-demo" / "script.txt").read_text(encoding="utf-8")
 
             self.assertEqual(topic["quizTemplate"], "picture")
-            self.assertEqual(len(topic["quizItems"]), 3)
-            self.assertEqual(len(topic["quizScriptLines"]), 6)
+            self.assertEqual(len(topic["quizItems"]), 5)
+            self.assertEqual(len(topic["quizScriptLines"]), 10)
             self.assertEqual([segment["text"] for segment in topic["segments"]], [
                 "What is this?",
                 "Parrot.",
@@ -340,6 +344,10 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 "Lamp.",
                 "What is this?",
                 "Hat.",
+                "What is this?",
+                "Rocket.",
+                "What is this?",
+                "Apple.",
             ])
             self.assertEqual(script.splitlines(), [
                 "What is this?",
@@ -348,6 +356,10 @@ class NewProjectPageRegressionTests(unittest.TestCase):
                 "Lamp.",
                 "What is this?",
                 "Hat.",
+                "What is this?",
+                "Rocket.",
+                "What is this?",
+                "Apple.",
             ])
             self.assertNotIn("A. Parrot", script)
 
@@ -378,10 +390,10 @@ class NewProjectPageRegressionTests(unittest.TestCase):
 
             cta = "How many did you get right? Comment your score and follow Quizzy for more!"
             self.assertEqual(topic["brand"], "quizzy")
-            self.assertEqual(len(topic["quizScriptLines"]), 6)
+            self.assertEqual(len(topic["quizScriptLines"]), 10)
             self.assertNotIn("quizCtaText", topic)
             self.assertNotIn(cta, script_lines)
-            self.assertEqual(len(script_lines), 6)
+            self.assertEqual(len(script_lines), 10)
             self.assertNotEqual(topic["segments"][-1]["text"], cta)
 
     def test_quizz_default_pose_sequence_and_no_sound_contract(self) -> None:

@@ -2617,7 +2617,7 @@ THEGIOIDODAY_ANSWER_RE = re.compile(r"đáp án(?: chính xác)? là\s*([ABCD])\
 QUIZ_DEFAULT_CTA_VI = "Bạn trả lời đúng được mấy câu? Comment kết quả bên dưới và Follow mình để thử thách tiếp nhé!"
 QUIZ_DEFAULT_CTA_EN = "How many questions did you get right? Comment your score below and follow for the next challenge!"
 PICTURE_QUIZ_TEMPLATE = "picture"
-PICTURE_QUIZ_ITEM_COUNT = 3
+PICTURE_QUIZ_ITEM_COUNT = 5
 QUIZ_ANSWER_LINE_RE = re.compile(
     r"(?:đáp án chính xác là|đáp án đúng là|correct answer is)\s*([ABC])\s*[.)]?\s*(.*)$",
     re.IGNORECASE,
