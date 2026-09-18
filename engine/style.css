@@ -2578,8 +2578,8 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 .stage.quiz-template-picture .quiz-v2 .quiz-countdown,
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown {
   position: absolute;
-  left: 50%;
-  top: 53%;
+  left: 49%;
+  top: 57%;
   bottom: auto;
   z-index: 2;
   width: auto;
@@ -2635,11 +2635,11 @@ body.render-mode.preview-frame .stage.character-anhtinhbiettuot {
 
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap,
 .stage.brand-quizzy.quiz-template-picture .quiz-v2 .quiz-countdown-wrap:not([hidden]) {
-  top: 50.5%;
+  top: 73%;
   left: 50%;
   z-index: 9;
-  width: 18cqw;
-  height: 18cqw;
+  width: 25cqw;
+  height: 25cqw;
 }
 
 .stage.brand-quizzy.quiz-template-picture .quiz-picture-answer {
