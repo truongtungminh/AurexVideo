@@ -2319,6 +2319,44 @@ def _schedule_request_matches(
     )
 
 
+def _find_reusable_scheduled_video_asset(
+    conn: sqlite3.Connection,
+    *,
+    scheduled_at: str,
+    project: str,
+    brand: str,
+    expected_media_sha256: str,
+) -> Dict[str, str]:
+    if not scheduled_at or not project:
+        return {}
+    params: list[Any] = [scheduled_at, project]
+    digest_filter = ""
+    if expected_media_sha256:
+        digest_filter = "AND expected_media_sha256 = ?"
+        params.append(expected_media_sha256)
+    params.append(brand)
+    row = conn.execute(
+        f"""SELECT video_url, r2_key, expected_media_sha256
+              FROM jobs
+             WHERE scheduled_at = ?
+               AND project = ?
+               AND COALESCE(video_url, '') <> ''
+               AND status <> 'cancelled'
+               {digest_filter}
+             ORDER BY CASE WHEN COALESCE(brand, '') = ? THEN 0 ELSE 1 END,
+                      created_at DESC
+             LIMIT 1""",
+        tuple(params),
+    ).fetchone()
+    if not row:
+        return {}
+    return {
+        "video_url": str(row["video_url"] or "").strip(),
+        "r2_key": str(row["r2_key"] or "").strip(),
+        "expected_media_sha256": str(row["expected_media_sha256"] or "").strip().lower(),
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_: Any) -> None:
         return
@@ -2421,20 +2459,35 @@ class Handler(BaseHTTPRequestHandler):
             r2_key = _r2_object_key(value.get("r2Key") or value.get("r2_key") or "")
             if platform not in {"instagram", "threads", "facebook", "youtube", "tiktok"} or not caption:
                 raise ValueError("platform and caption are required")
-            if not video_url:
-                raise ValueError("Scheduled social jobs must provide videoUrl from R2.")
-            video_url = _validated_public_video_url(video_url)
+            normalized_scheduled = iso_at(parse_time(scheduled))
             if parse_time(scheduled) <= utc_now():
                 raise ValueError("scheduledPublishAt must be in the future")
             project = str(value.get("project") or "").strip()
             brand = str(value.get("brand") or "").strip()
             account_id = str(value.get("accountId") or value.get("account_id") or "").strip()
-            _validate_social_account(platform, account_id, brand)
             expected_media_sha256 = str(
                 value.get("expectedMediaSha256") or value.get("expected_media_sha256") or ""
             ).strip().lower()
             if expected_media_sha256 and not re.fullmatch(r"[0-9a-f]{64}", expected_media_sha256):
                 raise ValueError("expectedMediaSha256 must be a SHA-256 hex digest.")
+            if not video_url:
+                with db() as conn:
+                    reusable = _find_reusable_scheduled_video_asset(
+                        conn,
+                        scheduled_at=normalized_scheduled,
+                        project=project,
+                        brand=brand,
+                        expected_media_sha256=expected_media_sha256,
+                    )
+                video_url = reusable.get("video_url", "")
+                if not r2_key:
+                    r2_key = _r2_object_key(reusable.get("r2_key") or _r2_key_from_public_url(video_url))
+                if not expected_media_sha256:
+                    expected_media_sha256 = reusable.get("expected_media_sha256", "")
+            if not video_url:
+                raise ValueError("Scheduled social jobs must provide videoUrl from R2.")
+            video_url = _validated_public_video_url(video_url)
+            _validate_social_account(platform, account_id, brand)
             idempotency_key = str(
                 value.get("idempotencyKey") or value.get("idempotency_key") or ""
             ).strip().lower()
@@ -2444,7 +2497,6 @@ class Handler(BaseHTTPRequestHandler):
             if tiktok_settings is not None and not isinstance(tiktok_settings, dict):
                 raise ValueError("tiktokSettings must be an object")
             job_id = "vps_" + uuid.uuid4().hex[:16]
-            normalized_scheduled = iso_at(parse_time(scheduled))
             with db() as conn:
                 existing = conn.execute(
                     "SELECT * FROM jobs WHERE idempotency_key=?",
