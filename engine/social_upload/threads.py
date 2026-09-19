@@ -21,6 +21,7 @@ from .http import http_form_request, http_get_request
 from .metadata import (
     build_upload_metadata,
     final_video_path_for_project,
+    read_project_upload_metadata,
     record_scheduled_social_upload,
     record_social_upload,
     require_project,
@@ -277,6 +278,48 @@ def _scheduled_r2_asset_from_payload(payload: dict, video_path: Path) -> dict | 
     }
 
 
+def _scheduled_iso(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _scheduled_r2_asset_from_metadata(project_dir: Path, scheduled, brand: str, video_path: Path) -> dict | None:
+    metadata = read_project_upload_metadata(project_dir)
+    social = metadata.get("social") if isinstance(metadata, dict) else {}
+    if not isinstance(social, dict):
+        return None
+    scheduled_at = _scheduled_iso(scheduled)
+    best: tuple[int, dict] | None = None
+    digest = ""
+    for details in social.values():
+        if not isinstance(details, dict):
+            continue
+        public_url = str(details.get("r2Url") or details.get("r2_url") or details.get("videoUrl") or "").strip()
+        if not public_url:
+            continue
+        score = 0
+        entry_brand = canonical_brand(details.get("brand") or details.get("brandId"))
+        if brand and entry_brand == brand:
+            score += 4
+        if str(details.get("scheduledAt") or details.get("scheduled_at") or "").strip() == scheduled_at:
+            score += 8
+        media_sha256 = str(details.get("mediaSha256") or details.get("media_sha256") or "").strip().lower()
+        if media_sha256:
+            digest = digest or _media_sha256(video_path)
+            if media_sha256 != digest:
+                continue
+            score += 2
+        asset = {
+            "r2_url": public_url,
+            "r2_key": str(details.get("r2Key") or details.get("r2_key") or "").strip(),
+            "media_sha256": media_sha256 or digest or _media_sha256(video_path),
+        }
+        if best is None or score > best[0]:
+            best = (score, asset)
+    return best[1] if best else None
+
+
 def _validated_public_url(value: object) -> str:
     public_url = str(value or "").strip()
     if not public_url:
@@ -414,7 +457,11 @@ def threads_upload_video(payload: dict) -> dict:
         r2 = r2_config(config)
         if not r2_is_configured(r2):
             raise ValueError(r2_config_hint())
-        r2_asset = _scheduled_r2_asset_from_payload(payload, video_path) or upload_scheduled_video_asset(video_path, platform="threads", brand=brand, project=project, r2=r2)
+        r2_asset = (
+            _scheduled_r2_asset_from_payload(payload, video_path)
+            or _scheduled_r2_asset_from_metadata(project_dir, scheduled, brand, video_path)
+            or upload_scheduled_video_asset(video_path, platform="threads", brand=brand, project=project, r2=r2)
+        )
         media_sha256 = r2_asset["media_sha256"]
         object_key = r2_asset["r2_key"]
         public_url = r2_asset["r2_url"]
