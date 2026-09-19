@@ -1751,7 +1751,10 @@ def main() -> None:
     elif quiz_segment_result is not None:
         aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     elif str(original.get("projectType") or "").strip().lower() == "quiz":
-        aligned_topic.unlink(missing_ok=True)
+        # Keep Quiz V2 metadata in rendered read-back. Preview uses topic.json;
+        # watch/acceptance uses topic.rendered.json. Removing this file leaves
+        # stale legacy metadata and makes renderer fall back to pair-based Quiz.
+        aligned_topic.write_text(json.dumps(prepared, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = (int(value) for value in args.size.split("x"))
     needs_finalization = bool(
