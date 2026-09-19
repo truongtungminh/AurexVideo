@@ -2327,33 +2327,46 @@ def _find_reusable_scheduled_video_asset(
     brand: str,
     expected_media_sha256: str,
 ) -> Dict[str, str]:
-    if not scheduled_at or not project:
+    if not scheduled_at:
         return {}
-    params: list[Any] = [scheduled_at, project]
-    digest_filter = ""
+    filters = ["scheduled_at = ?", "COALESCE(video_url, '') <> ''", "status <> 'cancelled'"]
+    params: list[Any] = [scheduled_at]
+    if project:
+        filters.append("project = ?")
+        params.append(project)
+    if brand:
+        filters.append("brand = ?")
+        params.append(brand)
     if expected_media_sha256:
-        digest_filter = "AND expected_media_sha256 = ?"
+        filters.append("expected_media_sha256 = ?")
         params.append(expected_media_sha256)
-    params.append(brand)
-    row = conn.execute(
+    if len(filters) == 3:
+        return {}
+    rows = conn.execute(
         f"""SELECT video_url, r2_key, expected_media_sha256
               FROM jobs
-             WHERE scheduled_at = ?
-               AND project = ?
-               AND COALESCE(video_url, '') <> ''
-               AND status <> 'cancelled'
-               {digest_filter}
-             ORDER BY CASE WHEN COALESCE(brand, '') = ? THEN 0 ELSE 1 END,
-                      created_at DESC
-             LIMIT 1""",
+             WHERE {" AND ".join(filters)}
+             ORDER BY created_at DESC
+             LIMIT 25""",
         tuple(params),
-    ).fetchone()
-    if not row:
+    ).fetchall()
+    if not rows:
         return {}
+    assets = {
+        (
+            str(row["video_url"] or "").strip(),
+            str(row["r2_key"] or "").strip(),
+            str(row["expected_media_sha256"] or "").strip().lower(),
+        )
+        for row in rows
+    }
+    if len(assets) != 1:
+        return {}
+    video_url, r2_key, media_sha256 = next(iter(assets))
     return {
-        "video_url": str(row["video_url"] or "").strip(),
-        "r2_key": str(row["r2_key"] or "").strip(),
-        "expected_media_sha256": str(row["expected_media_sha256"] or "").strip().lower(),
+        "video_url": video_url,
+        "r2_key": r2_key,
+        "expected_media_sha256": media_sha256,
     }
 
 

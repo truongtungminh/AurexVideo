@@ -269,6 +269,89 @@ class SocialWorkerTests(unittest.TestCase):
         self.assertEqual(response["r2Key"], shared_key)
         self.assertEqual(row, ("instagram", shared_url, shared_key, digest))
 
+    def test_schedule_reuses_unique_brand_r2_url_when_payload_omits_project_and_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scheduled_at = "2030-01-01T00:10:00Z"
+            digest = "b" * 64
+            shared_url = "https://media.example.com/instagram/suvietky/videos/demo/shared.mp4"
+            shared_key = "instagram/suvietky/videos/demo/shared.mp4"
+            with patch.object(worker, "ROOT", root), \
+                patch.object(worker, "DB", root / "jobs.sqlite3"), \
+                patch.object(worker, "MEDIA", root / "media"), \
+                patch.object(worker, "API_KEY", "test-key"), \
+                patch.object(worker, "utc_now", return_value=self.NOW), \
+                patch.object(worker, "_validate_social_account"):
+                worker.init_db()
+                with sqlite3.connect(root / "jobs.sqlite3") as conn:
+                    for platform, suffix in (("facebook", "1"), ("youtube", "2")):
+                        conn.execute(
+                            """INSERT INTO jobs
+                               (id, platform, scheduled_at, caption, video_path, video_url, status,
+                                result, error, created_at, updated_at, project, brand,
+                                account_id, expected_media_sha256, idempotency_key, r2_key)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (
+                                f"vps-existing-{suffix}",
+                                platform,
+                                scheduled_at,
+                                "Caption",
+                                "",
+                                shared_url,
+                                "queued",
+                                None,
+                                None,
+                                "2030-01-01T00:00:00Z",
+                                "2030-01-01T00:00:00Z",
+                                "suvietky-v2-016-20260919",
+                                "suvietky",
+                                f"connection-{suffix}",
+                                digest,
+                                suffix * 64,
+                                shared_key,
+                            ),
+                        )
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), worker.Handler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    payload = {
+                        "platform": "instagram",
+                        "caption": "Caption",
+                        "scheduledPublishAt": scheduled_at,
+                        "brand": "suvietky",
+                        "accountId": "connection-1",
+                        "idempotencyKey": "d" * 64,
+                    }
+                    request = Request(
+                        f"http://127.0.0.1:{server.server_port}/schedule",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={
+                            "Authorization": "Bearer test-key",
+                            "Content-Type": "application/json",
+                        },
+                        method="POST",
+                    )
+                    response = json.loads(urlopen(request, timeout=5).read().decode("utf-8"))
+                except HTTPError as exc:
+                    self.fail(exc.read().decode("utf-8"))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=5)
+
+                with sqlite3.connect(root / "jobs.sqlite3") as conn:
+                    row = conn.execute(
+                        "SELECT platform, project, video_url, r2_key, expected_media_sha256 FROM jobs WHERE id=?",
+                        (response["worker_id"],),
+                    ).fetchone()
+
+        self.assertEqual(response["status"], "queued")
+        self.assertEqual(response["videoUrl"], shared_url)
+        self.assertEqual(response["r2Key"], shared_key)
+        self.assertEqual(row, ("instagram", "", shared_url, shared_key, digest))
+
     def test_idempotency_index_rejects_duplicate_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
